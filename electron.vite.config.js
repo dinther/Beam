@@ -35,8 +35,11 @@ async function prepareVersioningEnv() {
 const filename = fileURLToPath(import.meta.url);
 const pathSegments = path.dirname(filename);
 
-export default defineConfig(async () => {
-  process.env.VITE_STATIC_URL = 'static:/';
+export default defineConfig(async ({ command } = {}) => {
+  // Assets are served over the custom `static://` protocol only in packaged
+  // builds. In dev the renderer is served by the Vite dev server, so static
+  // assets are fetched over http from `public/` (VITE_STATIC_URL stays empty).
+  process.env.VITE_STATIC_URL = command === 'build' ? 'static:/' : '';
   await prepareVersioningEnv();
   return {
     root: './',

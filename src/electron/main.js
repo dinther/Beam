@@ -70,10 +70,13 @@ function createWindow() {
     },
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL('http://localhost:5173');
+  // electron-vite sets ELECTRON_RENDERER_URL while `dev` is running. In dev we
+  // load the live Vite dev server (http origin, assets over http); when packaged
+  // we load the built index and serve assets over the `static://` protocol.
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile('./out/renderer/index.html');
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
   mainWindow.on('ready-to-show', () => {
@@ -136,11 +139,18 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  /** Forward static files through custom protocol */
-  protocol.handle('static', (request) => {
+  /** Forward static files through custom protocol (with CORS for the file:// renderer) */
+  protocol.handle('static', async (request) => {
     const url = request.url.substring(7);
     const staticRoot = path.join(__dirname, '../renderer/');
-    return net.fetch(`file://${staticRoot}/${url}`);
+    const response = await net.fetch(`file://${staticRoot}/${url}`);
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   });
 });
 
