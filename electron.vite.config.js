@@ -75,19 +75,6 @@ export default defineConfig(async () => {
             'utf-8-validate',
           ],
         },
-        extraResources: [
-          {
-            from: 'src/electron/server-runner.js',
-            to: 'out/server-runner.js',
-          },
-          {
-            from: 'src/electron/bin',
-            to: 'out/bin',
-            filter: [
-              '**/*',
-            ],
-          },
-        ],
       },
     },
     preload: {

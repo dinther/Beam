@@ -60,10 +60,6 @@ class Universe {
     this._addressMap = new Array(DMX_UNIVERSE_LENGTH).fill(undefined);
     this._dmxBuffer = new Uint8Array(DMX_UNIVERSE_CHANNELS_LENGTH);
     this.fixturePool = new FixturePool();
-    /**
-     * @type {WscConnectionStream|null}
-     */
-    this.stream = null;
   }
 
   /**
@@ -275,26 +271,6 @@ class Universe {
       }
     }
     return -1;
-  }
-
-  /**
-   * Setup universe connection
-   *
-   * @param {WscConnection} connection
-   * @param {Number} protocol
-   * @param {Object} address
-   */
-  setupConnection(connection, protocol, address) {
-    if (this.stream) {
-      this.stream.stop();
-    }
-
-    this.stream = connection.setupStream(
-      this.id,
-      protocol,
-      address,
-      () => this.DMX512Data,
-    );
   }
 
   /**

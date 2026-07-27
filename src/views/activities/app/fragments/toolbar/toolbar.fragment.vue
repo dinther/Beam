@@ -9,49 +9,12 @@
     <p>{{ saveState ? "" : "*" }} {{ project }}</p>
     <uk-spacer />
 
-    <uk-flex
-      center-both
-      class="bpm_container"
-      @click="()=>{}"
-    >
-      <h3>BPM: </h3>
-      <uk-num-input
-        v-model="$show.bpm"
-        style="margin-left:8px;width:60px;"
-        @input="bpm=$show.bpm"
-      />
-      <div
-        class="colored_dot"
-        :style="{
-          animationDuration: 60000 / bpm + 'ms',
-          animationPlayState: state === 1 ? 'running' : 'paused'
-        }"
-      />
-    </uk-flex>
-    <uk-flex
-      center-both
-      class="state_container"
-      @click="playPauseShow()"
-    >
-      <div
-        class="play_state_icon"
-        :class="liveState.text"
-      />
-      <h3>{{ liveState.text }}</h3>
-    </uk-flex>
-    <uk-flex
-      center-both
-      class="tap_container"
-      @click="bpm = $show.tapTempo()"
-    >
-      <h3>TAP TEMPO</h3>
-    </uk-flex>
     <visualizer-popup v-model="visualizerPopupState" />
     <license-popup v-model="licensePopupState" />
     <credits-popup v-model="creditsPopupState" />
     <newshow-popup v-model="newProjectPopupState" />
     <saveas-popup v-model="saveasPopupState" />
-    <connections-popup v-model="connectionsPopupState" />
+    <artnet-popup v-model="artnetPopupState" />
   </uk-flex>
 </template>
 
@@ -62,7 +25,7 @@ import LicensePopup from './_popups/popup.license.vue';
 import CreditsPopup from './_popups/popup.credits.vue';
 import NewshowPopup from './_popups/popup.newshow.vue';
 import SaveasPopup from './_popups/popup.saveas.vue';
-import ConnectionsPopup from './_popups/popup.connections.vue';
+import ArtnetPopup from './_popups/popup.artnet.vue';
 
 export default {
   name: 'ToolbarFragment',
@@ -76,7 +39,7 @@ export default {
     CreditsPopup,
     NewshowPopup,
     SaveasPopup,
-    ConnectionsPopup,
+    ArtnetPopup,
   },
   data() {
     return {
@@ -90,17 +53,9 @@ export default {
        */
       saveState: true,
       /**
-       * CUrrent show bpm value
+       * Art-Net settings popup state
        */
-      bpm: this.$show.bpm,
-      /**
-       * Current show state
-       */
-      state: this.$show.state,
-      /**
-       * Connection popup state
-       */
-      connectionsPopupState: false,
+      artnetPopupState: false,
       /**
        * New project popup state
        */
@@ -202,11 +157,11 @@ export default {
               },
             },
             {
-              name: 'Outputs',
-              shortcut: 'Ctrl+Shift+o',
+              name: 'Art-Net',
+              shortcut: 'Ctrl+Shift+A',
               icon: 'zoom',
               callback: () => {
-                this.connectionsPopupState = true;
+                this.artnetPopupState = true;
               },
             },
           ],
@@ -248,61 +203,15 @@ export default {
       ],
     };
   },
-  computed: {
-    liveState() {
-      switch (this.state) {
-        case 0:
-          return {
-            text: 'stopped',
-            color: 'red',
-            icon: 'stop',
-          };
-        case 1:
-          return {
-            text: 'playing',
-            color: 'green',
-            icon: 'play',
-          };
-        case 2:
-          return {
-            text: 'paused',
-            color: 'yellow',
-            icon: 'pause',
-          };
-        default: break;
-      }
-      return {};
-    },
-  },
   mounted() {
     this.$show.on('saveState', (state) => {
       this.saveState = state;
     });
     EventBus.on('app_ready', () => {
       this.project = this.$show.name;
-      window.removeEventListener('keydown', this.handleKeydownEvent);
-      window.addEventListener('keydown', this.handleKeydownEvent);
     });
   },
   methods: {
-    /**
-     * Toggle between show's play & pause states
-     */
-    playPauseShow() {
-      if (this.$show.state !== 1) {
-        this.$show.state = 1;
-      } else {
-        this.$show.state = 2;
-      }
-      this.state = this.$show.state;
-    },
-    /**
-     * Set show in stop state
-     */
-    stopShow() {
-      this.$show.state = 0;
-      this.state = this.$show.state;
-    },
     /**
      * Load showfile from native file loader
      *
@@ -312,7 +221,7 @@ export default {
     async loadFile() {
       const el = document.createElement('input');
       el.type = 'file';
-      el.accept = '.qxw,.asls,.json,';
+      el.accept = '.asls,.json,';
       el.style.display = 'none';
       el.addEventListener('change', async () => {
         if (el.files) {
@@ -337,20 +246,6 @@ export default {
      */
     saveLocal() {
       this.$show.persistLocally();
-    },
-    /**
-     * Keydown event handler
-     *
-     * @public
-     * @param {Object} e keydown event
-     */
-    handleKeydownEvent(e) {
-      switch (e.code) {
-        case 'Space':
-          this.playPauseShow();
-          break;
-        default: break;
-      }
     },
     /**
      * Display visualizer popup
@@ -383,14 +278,6 @@ export default {
      */
     displayCreditsPopup() {
       this.creditsPopupState = true;
-    },
-    /**
-     * Display BPM popup
-     *
-     * @public
-     */
-    displayBPMPopup() {
-      this.bpmPopupState = true;
     },
   },
 };

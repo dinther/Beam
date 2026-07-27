@@ -3,25 +3,18 @@ import {
   EventEmitter,
 } from 'events';
 import {
-  parseStringPromise as XMLParse,
-} from 'xml2js';
-import {
   ProxifySingleton,
 } from '../utils/proxify.utils';
 
-import Master from './master.model';
-import GroupPool from './group.pool.model';
 import UniversePool from './universe.pool.model';
 import FixturePool from './fixture.pool.model';
 import Live from './live.model';
-import OutputPool from './output.pool.model';
 
 const LOCALSTORAGE_SHOWFILE_KEY = 'ASLS_STUDIO_SHOWFILE';
 const DEFAULT_PROJECT_NAME = 'new_project.asls';
 const DEFAULT_BPM_VALUE = 120;
 
 const SHOWFILE_EXTENSIONS = {
-  QLC: 'qxw',
   ASLS: 'json',
 };
 
@@ -46,12 +39,8 @@ class Show extends EventEmitter {
     this.rawOFLFixtures = [];
     this.fixturePool = new FixturePool();
     this.universePool = new UniversePool();
-    this.groupPool = new GroupPool();
-    this.master = new Master(this.groupPool);
-    this.outputPool = new OutputPool();
     this.running = false;
     this.slave = false;
-    this.selectedOutputs = [];
     this.loading = {
       state: true,
       message: 'Preparing Environment',
@@ -95,9 +84,7 @@ class Show extends EventEmitter {
       bpm: this.bpm,
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
       universes: this.universePool.universes.map((u) => u.showData),
-      groups: this.groupPool.groups.map((g) => g.showData),
-      visualizer: this.visualizerHandle.showData,
-      outputs: this.outputPool.showData,
+      visualizer: this.visualizerHandle ? this.visualizerHandle.showData : {},
     };
   }
 
@@ -146,19 +133,6 @@ class Show extends EventEmitter {
   // eslint-disable-next-line class-methods-use-this
   get bpm() {
     return Live.bpm;
-  }
-
-  /**
-   * Show's output DMX streaming interfaces
-   *
-   * @type {Array<Object>}
-   */
-  set selectedOutputs(data = []) {
-    this._selectedOutputs = data;
-  }
-
-  get selectedOutputs() {
-    return this._selectedOutputs;
   }
 
   /**
@@ -213,45 +187,6 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Prepares fixture groups from show data.
-   *
-   * @param {Object} showData hande toa show configuration object
-   */
-  prepareGroups(showData) {
-    if (showData.groups) {
-      showData.groups.forEach((g) => {
-        const group = this.groupPool.addRaw(g);
-        g.fixtures.forEach((f) => {
-          const fixture = this.fixturePool.getFromId(f.id);
-          group.addFixture(fixture);
-        });
-        g.cues.forEach((c) => {
-          group.addCue(c);
-        });
-        g.chases.forEach((c) => {
-          group.addChase(c);
-        });
-      });
-    }
-  }
-
-  /**
-   * Prepares show outputs from show data.
-   *
-   * @param {Object} showData hande toa show configuration object
-   */
-  prepareOutputs(showData) {
-    if (showData.outputs) {
-      showData.outputs.forEach((o) => {
-        this.outputPool.addRaw({
-          ...o,
-          universe: this.universePool.getFromId(o.universe),
-        });
-      });
-    }
-  }
-
-  /**
    * Deletes a fixture from the show.
    *
    * @param {Object} fixture a fixture configuration object
@@ -259,11 +194,6 @@ class Show extends EventEmitter {
   deleteFixture(fixture) {
     const fixtureHandle = this.fixturePool.getFromId(fixture.id);
     if (fixtureHandle) {
-      this.groupPool.groups.forEach((g) => {
-        if (g.fixturePool.checkIfExists(fixtureHandle.id)) {
-          g.deleteFixture(fixtureHandle);
-        }
-      });
       const universe = this.universePool.getFromId(fixtureHandle.universe);
       universe.unpatchFixture(fixtureHandle);
       this.fixturePool.delete(fixtureHandle, true);
@@ -276,10 +206,8 @@ class Show extends EventEmitter {
    * @public
    */
   clearShowData() {
-    this.groupPool.clearAll();
     this.universePool.clearAll();
     this.fixturePool.clearAll(true);
-    this.outputPool.clearAll();
     this.name = '';
     this.isSaved = true;
     this.bpm = DEFAULT_BPM_VALUE;
@@ -385,14 +313,6 @@ class Show extends EventEmitter {
     this.bpm = showData.bpm;
     await this.prepareUniverses(showData);
 
-    this.loading.message = 'Loading groups data';
-    this.loading.percentage = 90;
-    this.prepareGroups(showData);
-
-    this.loading.message = 'Loading outputs';
-    this.loading.percentage = 90;
-    this.prepareOutputs(showData);
-
     this.loading.message = 'Finalizing';
     this.loading.percentage = 95;
     this.name = showData.name;
@@ -455,61 +375,17 @@ class Show extends EventEmitter {
   /**
    * Parses show data
    *
-   * @todo Implement QLC and other showfile formats better
-   *
    * @param {File} showFile handle to raw showfile instance
    * @param {String} extension extendion of the provided showfile
    * @static
    */
   static _parseShowData(showFile, extension) {
     switch (extension) {
-      case SHOWFILE_EXTENSIONS.QLC:
-        return Show._parseQLCShowFile(showFile);
       case SHOWFILE_EXTENSIONS.ASLS:
         return JSON.parse(showFile);
       default:
         throw new Error('Could not load provided file');
     }
-  }
-
-  /**
-   * Parses QLC showfile
-   *
-   * @todo Implement QLC parsing better
-   *
-   * @param {File} showFile handle to QLC showfile
-   * @static
-   * @async
-   */
-  static async _parseQLCShowFile(showFile) {
-    let parsed = await XMLParse(showFile);
-    // eslint-disable-next-line prefer-destructuring
-    parsed = parsed.Workspace.Engine[0];
-    const showData = {
-      universes: parsed.InputOutputMap[0].Universe.map((universe) => ({
-        id: universe.$.ID,
-        name: universe.$.Name,
-      })),
-      fixtures: parsed.Fixture.map((fixtureData) => ({
-        manufacturer: fixtureData.Manufacturer[0].replace(/\s/g, '-').toLowerCase(),
-        model: fixtureData.Model[0].replace(/\s/g, '-').toLowerCase(),
-        mode: fixtureData.Mode[0],
-        id: fixtureData.ID[0],
-        chStart: fixtureData.Address[0],
-        universe: fixtureData.Universe[0],
-      })),
-      functions: {
-        scenes: parsed.Function.filter((fun) => fun.$.Type === 'Scene').map((sceneData) => ({
-          name: sceneData.$.Name,
-          id: sceneData.$.ID,
-          fixtures: sceneData.FixtureVal.map((fixtureVal) => ({
-            id: fixtureVal.$.ID,
-            values: fixtureVal._ ? fixtureVal._.split(',') : [],
-          })),
-        })),
-      },
-    };
-    return showData;
   }
 
   /**

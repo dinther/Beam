@@ -3,19 +3,17 @@
 import {
   app,
   BrowserWindow,
-  dialog,
-  Menu,
   net,
   protocol,
+  ipcMain,
 } from 'electron';
 import {
   electronApp,
   optimizer,
 } from '@electron-toolkit/utils';
 import path from 'path';
-import { spawn } from 'child_process';
-import os from 'node:os';
 import icon from '../assets/images/studio_standalone_logo.svg';
+import artnet from './artnet';
 
 console.log('MAIN PROCESS STARTED');
 
@@ -50,25 +48,11 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-let wscServer = null;
-
-function showError(title, err) {
-  const message = err?.message || String(err);
-  const stack = err?.stack || 'No stack trace available';
-
-  dialog.showMessageBox({
-    type: 'error',
-    title,
-    message,
-    detail: stack,
-    buttons: ['OK'],
-    noLink: true,
-  });
-}
+let mainWindow = null;
 
 function createWindow() {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 1200,
@@ -81,7 +65,8 @@ function createWindow() {
     icon,
     webPreferences: {
       sandbox: false,
-      nodeIntegration: true,
+      contextIsolation: true,
+      preload: path.join(__dirname, '../preload/preload.js'),
     },
   });
 
@@ -97,62 +82,41 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
-    mainWindow.destroy();
+    if (mainWindow) mainWindow.destroy();
+    mainWindow = null;
   });
 }
 
-function getTargetName() {
-  const platform = os.platform();
-  const arch = os.arch();
+/**
+ * Wires the main-process Art-Net engine to the renderer over IPC and opens the
+ * receive socket. Inbound frames are forwarded to the focused window; the
+ * renderer decides (per universe) whether to act on them.
+ */
+function setupArtnet() {
+  const forward = (frame) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('artnet:frame', frame);
+    }
+  };
 
-  if (platform === 'darwin' && arch === 'arm64') return 'wsc-server-node18-macos-arm64';
-  if (platform === 'darwin' && arch === 'x64') return 'wsc-server-node18-macos-x64';
-
-  if (platform === 'linux' && arch === 'x64') return 'wsc-server-node18-linux-x64';
-  if (platform === 'linux' && arch === 'arm64') return 'wsc-server-node18-linux-arm64';
-
-  if (platform === 'win32' && arch === 'x64') return 'wsc-server-node18-win-x64.exe';
-  if (platform === 'win32' && arch === 'arm64') return 'wsc-server-node18-win-arm64.exe';
-
-  throw new Error(`Unsupported platform: ${platform}-${arch}`);
-}
-
-function spawnWscServer() {
-  const isDev = !app.isPackaged;
-  const targetName = getTargetName();
-  const binaryPath = isDev
-    ? path.join(__dirname, 'src/electron/bin', targetName) // dev path
-    : path.join(process.resourcesPath, 'bin', targetName); // packaged path
-
-  wscServer = spawn(binaryPath, [], {
-    stdio: 'pipe',
+  ipcMain.handle('artnet:start', (_event, config) => {
+    artnet.start(forward, config);
+    return artnet.listening;
   });
-
-  wscServer.stdout.on('data', (data) => {
-    console.log(`[wsc stdout]: ${data}`);
+  ipcMain.handle('artnet:stop', () => {
+    artnet.stop();
+    return artnet.listening;
   });
+  ipcMain.on('artnet:send', (_event, packet) => artnet.send(packet));
 
-  wscServer.stderr.on('data', (data) => {
-    console.error(`[wsc stderr]: ${data}`);
-  });
-
-  wscServer.on('close', (code) => {
-    console.log(`wsc exited with code ${code}`);
-  });
-
-  wscServer.on('error', (err) => {
-    console.error('Failed to start wsc:', err);
-    showError('Failed to start WSC Gateway', err);
-  });
+  // Start listening immediately — a visualizer's whole job is to receive.
+  artnet.start(forward);
 }
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // Start local WSC Gateway
-  spawnWscServer();
-
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron');
 
@@ -164,6 +128,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  setupArtnet();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the
@@ -190,8 +155,6 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (wscServer && !wscServer.killed) {
-    wscServer.kill('SIGTERM');
-  }
+  artnet.stop();
   app.quit();
 });

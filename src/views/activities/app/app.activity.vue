@@ -7,7 +7,6 @@
     <uk-flex class="top_fragments">
       <uk-flex class="top_fragment_left">
         <patch-bay />
-        <group-pool />
       </uk-flex>
       <visualizer />
     </uk-flex>
@@ -29,7 +28,6 @@ import EventBus from '@/plugins/eventbus';
 
 import Toolbar from './fragments/toolbar/toolbar.fragment.vue';
 import PatchBay from './fragments/patch-bay/patch-bay.fragment.vue';
-import GroupPool from './fragments/group-pool/group-pool.fragment.vue';
 import Visualizer from './fragments/visualizer/visualizer.fragment.vue';
 import Modifier from './fragments/modifiers/modifier.fragment.vue';
 
@@ -45,7 +43,6 @@ export default {
   components: {
     Toolbar,
     PatchBay,
-    GroupPool,
     Visualizer,
     Modifier,
     PopupSplash,

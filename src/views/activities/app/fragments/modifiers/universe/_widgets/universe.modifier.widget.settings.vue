@@ -29,25 +29,6 @@
           :options="colorOptions"
           @input="setUniverseColor"
         />
-        <uk-flex
-          gap="10"
-          center-both
-          style="width:100%;"
-        >
-          <uk-select-input
-            :model-value="universe?.stream?.client?.name"
-            label="Output"
-            placeholder="Universe output"
-            :options="outputOptions"
-            :disabled="!$show.outputPool.outputs.length"
-            @input="setOutput"
-          />
-          <uk-button
-            square
-            label="config"
-            style="height:25px; min-width: 75px; margin-top:22px"
-          />
-        </uk-flex>
       </uk-flex>
     </template>
     <h3
@@ -82,18 +63,7 @@ export default {
         icon: 'wrench',
       },
       universe: this.modelValue,
-      output: null,
     };
-  },
-  computed: {
-    /**
-     * Returns an array of HTML-formated strings s to be fed into uikit select inputs
-     *
-     * @returns {Array<String>} An array of HTML-formated strings
-     */
-    outputOptions() {
-      return this.$show.outputPool.outputs.map((o) => o.name);
-    },
   },
   watch: {
     modelValue(value) {
@@ -103,10 +73,6 @@ export default {
   methods: {
     setUniverseColor(colorIndex) {
       this.universe.color = this.getColorFromIndex(colorIndex);
-    },
-    setOutput(outputIndex) {
-      const output = this.$show.outputPool.outputs[outputIndex];
-      this.universe.setupConnection(output);
     },
   },
 };

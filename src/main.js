@@ -6,6 +6,7 @@ import EventBus from '@/plugins/eventbus';
 import '@/assets/styles/global.css';
 import '@/assets/styles/fonts.css';
 import ShowSingleton from '@/singletons/show.singleton';
+import artnetConnection from '@/plugins/artnet.connection';
 import router from './plugins/router';
 import App from './App.vue';
 
@@ -32,6 +33,11 @@ try {
   };
   app.use(router);
   app.mount('#app');
+
+  // Route inbound Art-Net into the DMX/visualizer layer (no-op in a plain browser).
+  if (artnetConnection.available) {
+    artnetConnection.enableInput();
+  }
 } catch (err) {
   console.log(err);
 }

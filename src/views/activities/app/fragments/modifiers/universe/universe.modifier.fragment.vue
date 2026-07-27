@@ -1,10 +1,6 @@
 <template>
   <uk-flex class="universe_modifier">
     <universe-settings-widget v-model="universe" />
-    <universe-connection-widget
-      v-show="universe.stream"
-      v-model="universe"
-    />
     <fixture-pool-widget
       :pool="universe.fixturePool"
       :action="{
@@ -64,7 +60,6 @@ import UniverseSettingsWidget from './_widgets/universe.modifier.widget.settings
 import FixtureSettingsWidget from './_widgets/universe.modifier.widget.fixture.settings.vue';
 import PositionToolWidget from './_widgets/universe.modifier.widget.fixture.position.tool.vue';
 import PatchPopup from './_popups/universe.modifier.popup.patch.vue';
-import UniverseConnectionWidget from './_widgets/universe.modifier.widget.connection.vue';
 
 export default {
   name: 'UniverseModifierFragment',
@@ -74,7 +69,6 @@ export default {
   },
   components: {
     UniverseSettingsWidget,
-    UniverseConnectionWidget,
     FixturePoolWidget,
     FixtureSettingsWidget,
     PositionToolWidget,
