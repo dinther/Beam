@@ -92,6 +92,11 @@ class ArtNet {
       data[i] = msg[MIN_PACKET + i];
     }
 
+    this.rxCount = (this.rxCount || 0) + 1;
+    if (this.rxCount === 1 || this.rxCount % 100 === 0) {
+      console.log(`[artnet] rx frame #${this.rxCount} universe ${universe} (${count} ch)`);
+    }
+
     if (this.onFrame) this.onFrame({ universe, data });
   }
 

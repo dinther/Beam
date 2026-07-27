@@ -202,7 +202,8 @@ class Fixture extends Proxify {
       icon: 'movinghead',
       id: this.id,
       universe: this.universe,
-      more: `U${this.universe}-CH${this.chStart}`,
+      // chStart is 0-based internally; DMX addresses are shown 1-based.
+      more: `U${this.universe}-CH${this.chStart + 1}`,
     };
   }
 

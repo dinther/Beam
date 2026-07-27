@@ -17,10 +17,12 @@
           label="Name"
         />
         <uk-num-input
-          v-model.lazy="fixture.chStart"
+          v-model.lazy="address"
           style="width: 70px"
           class="field"
           label="Address"
+          :min="1"
+          :max="512"
         />
       </uk-flex>
       <uk-txt-input
@@ -64,6 +66,21 @@ export default {
         icon: 'wrench',
       },
     };
+  },
+  computed: {
+    /**
+     * 1-based DMX address shown to the user, mapped to the 0-based internal chStart.
+     */
+    address: {
+      get() {
+        return this.fixture ? this.fixture.chStart + 1 : 1;
+      },
+      set(value) {
+        if (this.fixture) {
+          this.fixture.chStart = Math.max(0, Number(value) - 1);
+        }
+      },
+    },
   },
 };
 </script>

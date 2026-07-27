@@ -48,11 +48,11 @@
               :options="fixture.modeNames"
             />
             <uk-num-input
-              v-model="chStart"
+              v-model="address"
               :disabled="!fixture.loaded || loading"
               class="field"
               label="Address"
-              :min="0"
+              :min="1"
               :max="512"
               @input="checkPatch"
             />
@@ -278,6 +278,17 @@ export default {
         return this.fixture.modes[this.fixture.mode].length - 1;
       }
       return 0;
+    },
+    /**
+     * 1-based DMX address shown to the user, mapped to the 0-based internal chStart.
+     */
+    address: {
+      get() {
+        return this.chStart + 1;
+      },
+      set(value) {
+        this.chStart = Math.max(0, Number(value) - 1);
+      },
     },
   },
   watch: {
