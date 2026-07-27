@@ -54,11 +54,11 @@ export default {
      */
     modelValue: Boolean,
     /**
-     * The button's color. Defaults to #4786B4.
+     * The button's color. Defaults to the app's teal accent.
      */
     color: {
       type: String,
-      default: '#4786B4',
+      default: 'var(--accent-blue)',
     },
     /**
      * uikit-icon name to preceed the button's label.

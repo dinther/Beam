@@ -200,26 +200,24 @@ export default {
   display: initial !important;
 }
 .selected:not(.noSelect){
-  background: var(--secondary-dark) !important ;
+  background: rgba(28, 166, 189, 0.16) !important;
   opacity: 1;
 }
 .selected.highlighted:not(.noSelect) {
-  background: var(--secondary-dark) !important ;
+  background: rgba(28, 166, 189, 0.16) !important;
   opacity: 1;
 }
 .selected.focused:not(.noSelect) {
-  /* background: #2d6ba2 !important; */
-  background-color: var(--accent-blue)!important;
-  /* border-color: var(--secondary-darker); */
-  border-color: var(--accent-blue)!important;
+  background-color: var(--accent-teal)!important;
+  border-color: var(--accent-teal)!important;
   opacity: 1;
 }
 .highlighted:not(.noSelect){
   background: var(--secondary-darker) !important ;
 }
 .highlighted.focused:not(.noSelect)  {
-  border-color: var(--accent-blue)!important;
-  background: var(--accent-blue)!important;
+  border-color: var(--accent-teal)!important;
+  background: var(--accent-teal)!important;
 }
 .unfold:active {
   background: var(--secondary-dark) !important;

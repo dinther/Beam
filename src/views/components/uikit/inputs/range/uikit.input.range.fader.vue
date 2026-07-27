@@ -82,7 +82,7 @@ export default {
      */
     color: {
       type: String,
-      default: '#2D6BA2',
+      default: 'var(--accent-blue)',
     },
   },
   emits: ['update:modelValue', 'input'],

@@ -12,19 +12,20 @@
 }
 
 /** Global Color Variables **/
+/* MadMapper-flavored theme: neutral near-black chrome + a single teal accent. */
 :root{
-  --primary-dark: #0B0D0A;
-  --primary-dark-alt: #12140F;
-  --primary-light: #141A13;
-  --primary-light-alt: #181B16;
-  --primary-lighter: #2C2E2B;
-  --primary-lighter-alt: #1F221D;
-  
+  --primary-dark: #0d0e10;        /* darkest: borders, fader tracks, scrollbars */
+  --primary-dark-alt: #141517;
+  --primary-light: #1c1d1f;       /* dominant panel background */
+  --primary-light-alt: #202123;
+  --primary-lighter: #2c2e31;     /* raised elements / hover */
+  --primary-lighter-alt: #242628;
+
   --test: #343434;
 
   --some: #0b0b0b52;
-  
-  --secondary-lighter: #FFFFFFB3;
+
+  --secondary-lighter: #FFFFFFC7;
   --secondary-lighter-alt: #FFFFFFA3;
   --secondary-light-alt: #FFFFFF63;
   --secondary-light: #FFFFFF33;
@@ -36,9 +37,10 @@
   --accent-violet: #A45BC9;
   --accent-purple: #8F5BC9;
   --accent-dark-purple: #7760B6;
-  --accent-blue: #5A71D3;
-  --accent-light-blue: #5A8CD3;
-  --accent-teal: #2EA1A3;
+  /* Teal is the app's single dominant accent (faders, primary buttons). */
+  --accent-blue: #2f8794;         /* muted teal — fader fills, primary buttons */
+  --accent-light-blue: #35a0b0;
+  --accent-teal: #1ca6bd;         /* bright teal — selection / active states */
   --accent-sea-green: #4DBE7A;
   --accent-green: #38B553;
   --accent-light-green: #94BF52;
