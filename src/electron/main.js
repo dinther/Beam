@@ -44,6 +44,10 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
+      // The packaged renderer runs on a file:// origin, so every static://
+      // request is cross-origin. Without this the fetch is blocked outright
+      // and the handler's Access-Control-Allow-Origin header never applies.
+      corsEnabled: true,
     },
   },
 ]);
