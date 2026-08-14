@@ -138,6 +138,66 @@ let instanceCount = 0;
  *
  * @class MovingHead
  */
+/**
+ * Colour each additive emitter contributes at full, as linear RGB.
+ *
+ * Matched on the whole OFL colour name rather than its first letter: 'Cold
+ * White' and 'Cyan' share one, as do 'UV' and nothing else useful. Approximate
+ * by intent -- this is a sandbox visualiser, not a spectrometer.
+ *
+ * White is absent because it takes the fixture's own white point, which moves
+ * with colour temperature control.
+ *
+ * @constant {Object}
+ */
+const EMITTER_TINTS = {
+  red: [1, 0, 0],
+  green: [0, 1, 0],
+  blue: [0, 0, 1],
+  amber: [1, 0.6, 0],
+  lime: [0.75, 1, 0],
+  uv: [0.35, 0, 0.85],
+  indigo: [0.3, 0, 0.9],
+};
+
+/**
+ * Subtractive emitters, and the additive component each one removes.
+ *
+ * @constant {Object}
+ */
+const SUBTRACTIVE_EMITTERS = {
+  cyan: 0,
+  magenta: 1,
+  yellow: 2,
+};
+
+/** Emitters that emit the fixture's white point rather than a fixed hue. */
+const WHITE_EMITTERS = ['white', 'warmwhite', 'coldwhite', 'coolwhite'];
+
+/**
+ * How fast a head slews, in degrees per second.
+ *
+ * A real head accelerates and decelerates, and how long a move takes depends on
+ * the fixture. None of that is simulated: this is a flat rate, chosen to look
+ * plausible rather than to match any particular mover. A fixture may override it
+ * through `fixture_overrides.json`.
+ *
+ * @constant {Number}
+ */
+const PAN_SPEED_DEG_PER_SEC = 270;
+const TILT_SPEED_DEG_PER_SEC = 210;
+
+/**
+ * Largest time step the slew will honour, in seconds.
+ *
+ * The update clock reports elapsed time, so a stalled frame -- an alt-tab, a
+ * blocked main thread -- would otherwise arrive as one enormous step and let the
+ * head teleport, which is the behaviour this exists to prevent.
+ *
+ * @constant {Number}
+ */
+const MAX_STEP_SECONDS = 0.1;
+
 class MovingHead {
   /**
    * Creates an instance of MovingHead.
@@ -182,6 +242,14 @@ class MovingHead {
     this._goboWheel = data.goboWheel;
     this._colorWheel = data.colorWheel;
     this._activeColorPreset = false;
+    /**
+     * Raw 0-1 intensity per emitter, keyed by normalised OFL colour name. The
+     * beam colour is derived from these rather than written channel by channel,
+     * so white and amber can add to red/green/blue instead of overwriting them.
+     */
+    this._emitters = {};
+    /** Whether any colour channel has ever been driven. */
+    this._hasColorMix = false;
     this._highlighted = false;
 
     this.prepareInstance();
@@ -194,8 +262,13 @@ class MovingHead {
     this.maxTilt = data.maxTilt;
     this.minPan = data.minPan;
     this.maxPan = data.maxPan;
+    this._panSpeed = data.panSpeed || PAN_SPEED_DEG_PER_SEC;
+    this._tiltSpeed = data.tiltSpeed || TILT_SPEED_DEG_PER_SEC;
     this.pan = data.pan;
     this.tilt = data.tilt;
+    // Built pointing where the desk already asks for, rather than slewing in
+    // from zero every time a show loads.
+    this.snapOrientation();
     this.strobeFrequency = 0.0;
 
     this._shutterStrobe = {
@@ -262,8 +335,6 @@ class MovingHead {
    */
   set pan(panAngle) {
     this._pan = panAngle;
-    this._yokeDummy.rotation.z = MovingHead.degToRad((this.pan + this.panFine) - this.maxPan / 2);
-    this._matrixNeedsUpdate = true;
   }
 
   get pan() {
@@ -277,8 +348,6 @@ class MovingHead {
    */
   set panFine(fineAngle) {
     this._panFine = fineAngle;
-    this._yokeDummy.rotation.z = MovingHead.degToRad((this.pan + this.panFine) - this.maxPan / 2);
-    this._matrixNeedsUpdate = true;
   }
 
   get panFine() {
@@ -292,10 +361,6 @@ class MovingHead {
    */
   set tilt(tiltAngle) {
     this._tilt = tiltAngle;
-    this._headDummy.rotation.x = MovingHead.degToRad(
-      (this.tilt + this.tiltFine) - this.maxTilt / 2,
-    );
-    this._matrixNeedsUpdate = true;
   }
 
   get tilt() {
@@ -309,10 +374,6 @@ class MovingHead {
    */
   set tiltFine(fineAngle) {
     this._tiltFine = fineAngle;
-    this._headDummy.rotation.x = MovingHead.degToRad(
-      (this.tilt + this.tiltFine) - this.maxTilt / 2,
-    );
-    this._matrixNeedsUpdate = true;
   }
 
   get tiltFine() {
@@ -483,6 +544,9 @@ class MovingHead {
       this.color = value;
     } else {
       this._activeColorPreset = false;
+      // Hand the beam back to the emitter mix. Without this the preset's colour
+      // lingers until some other channel happens to write.
+      this.recomputeBeamColor();
     }
   }
 
@@ -493,8 +557,107 @@ class MovingHead {
    * @type {Number}
    */
   set colorTemp(colorTemp = DEFAULT_COLOR_TEMP) {
-    const temp = colorTemp / 100;
-    let rgbData = [0, 0, 0];
+    this._colorTemp = colorTemp;
+    this.recomputeBeamColor();
+  }
+
+  get colorTemp() {
+    return this._colorTemp || DEFAULT_COLOR_TEMP;
+  }
+
+  /**
+   * Colour temperature control, in Kelvin, as driven by a CTC channel.
+   *
+   * Named for the capability alias so the channel dispatch reaches it. Setting
+   * it moves the white point; it does not overwrite the colour mix.
+   *
+   * @type {Number}
+   */
+  set colorTemperature(kelvin) {
+    if (!kelvin) return;
+    this.colorTemp = kelvin;
+  }
+
+  get colorTemperature() {
+    return this.colorTemp;
+  }
+
+  /**
+   * The fixture's white point as linear RGB, normalised so its largest
+   * component is 1 -- the hue of the white, with brightness left to the
+   * emitters and the dimmer.
+   *
+   * @readonly
+   * @type {Array}
+   */
+  get whitePoint() {
+    const rgb = MovingHead.kelvinToRgb(this.colorTemp);
+    const peak = Math.max(rgb[0], rgb[1], rgb[2]) || 1;
+    return [rgb[0] / peak, rgb[1] / peak, rgb[2] / peak];
+  }
+
+  /**
+   * Derives the beam colour from every emitter currently lit.
+   *
+   * Additive emitters sum, each carrying its own tint and white taking the
+   * fixture's white point; subtractive ones then remove from what is left. The
+   * result is normalised only when it clips, so a single emitter at half stays
+   * half-lit rather than being pushed to full.
+   *
+   * @public
+   */
+  recomputeBeamColor() {
+    if (this._activeColorPreset) return;
+
+    // Before any colour channel is touched -- and for fixtures that have none
+    // at all -- the beam is simply the fixture's own white.
+    if (!this._hasColorMix) {
+      const [r, g, b] = this.whitePoint;
+      this.color = new THREE.Color(r, g, b);
+      return;
+    }
+
+    const white = this.whitePoint;
+    const mix = [0, 0, 0];
+    Object.keys(this._emitters).forEach((name) => {
+      const level = this._emitters[name];
+      if (!level) return;
+      const tint = WHITE_EMITTERS.includes(name) ? white : EMITTER_TINTS[name];
+      if (!tint) return;
+      mix[0] += tint[0] * level;
+      mix[1] += tint[1] * level;
+      mix[2] += tint[2] * level;
+    });
+
+    Object.keys(SUBTRACTIVE_EMITTERS).forEach((name) => {
+      const level = this._emitters[name];
+      if (!level) return;
+      mix[SUBTRACTIVE_EMITTERS[name]] *= 1.0 - level;
+    });
+
+    const peak = Math.max(mix[0], mix[1], mix[2]);
+    const scale = peak > 1 ? 1 / peak : 1;
+    // Never fully black: a zero-length colour vector leaves the beam shader
+    // with nothing to work with, which is why the original clamped too.
+    this.color = new THREE.Color(
+      Math.max(mix[0] * scale, 0.00001),
+      Math.max(mix[1] * scale, 0.00001),
+      Math.max(mix[2] * scale, 0.00001),
+    );
+  }
+
+  /**
+   * Approximate RGB of a black-body temperature, 0-1 per component.
+   *
+   * props to: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
+   *
+   * @static
+   * @param {Number} kelvin colour temperature
+   * @return {Array} [r, g, b]
+   */
+  static kelvinToRgb(kelvin) {
+    const temp = Math.max(kelvin, 1000) / 100;
+    let rgbData;
     if (temp <= 66) {
       rgbData = [
         255,
@@ -508,12 +671,7 @@ class MovingHead {
         255,
       ];
     }
-    this._colorTemp = colorTemp;
-    this.color = `rgb(
-            ${Math.round(Math.min(Math.max(rgbData[0], 0), 255))},
-            ${Math.round(Math.min(Math.max(rgbData[1], 0), 255))},
-            ${Math.round(Math.min(Math.max(rgbData[2], 0), 255))}
-        )`;
+    return rgbData.map((value) => Math.min(Math.max(value, 0), 255) / 255);
   }
 
   /**
@@ -522,31 +680,15 @@ class MovingHead {
    * @type {Object}
    */
   set colorIntensity(channelData) {
-    if (!this._activeColorPreset) {
-      const color_tmp = this.color;
-      const channel = channelData.color.toLowerCase().charAt(0);
-      switch (channel) {
-        case 'r':
-        case 'g':
-        case 'b':
-          color_tmp[channel] = Math.max(channelData.colorBrightness, 0.00001);
-          this.color = color_tmp;
-          break;
-        case 'c':
-          color_tmp.r = Math.max(1.0 - channelData.colorBrightness, 0.00001);
-          this.color = color_tmp;
-          break;
-        case 'm':
-          color_tmp.g = Math.max(1.0 - channelData.colorBrightness, 0.00001);
-          this.color = color_tmp;
-          break;
-        case 'y':
-          color_tmp.b = Math.max(1.0 - channelData.colorBrightness, 0.00001);
-          this.color = color_tmp;
-          break;
-        default: break;
-      }
-    }
+    if (this._activeColorPreset || !channelData || !channelData.color) return;
+    // Whole name, not its initial: 'Cold White' and 'Cyan' both start with a c.
+    const name = channelData.color.toLowerCase().replace(/[^a-z]/g, '');
+    if (!EMITTER_TINTS[name]
+      && !WHITE_EMITTERS.includes(name)
+      && SUBTRACTIVE_EMITTERS[name] === undefined) return;
+    this._emitters[name] = channelData.colorBrightness;
+    this._hasColorMix = true;
+    this.recomputeBeamColor();
   }
 
   /**
@@ -677,7 +819,105 @@ class MovingHead {
     intensity_buffer_attribute.needsUpdate = true;
   }
 
+  /**
+   * Slew rate in degrees per second. Settable so a change in the model panel
+   * reaches a head that is already in the scene.
+   *
+   * @type {Number}
+   */
+  set panSpeed(value) {
+    this._panSpeed = Number(value) || PAN_SPEED_DEG_PER_SEC;
+  }
+
+  get panSpeed() {
+    return this._panSpeed;
+  }
+
+  set tiltSpeed(value) {
+    this._tiltSpeed = Number(value) || TILT_SPEED_DEG_PER_SEC;
+  }
+
+  get tiltSpeed() {
+    return this._tiltSpeed;
+  }
+
+  /**
+   * How far the body reaches below the fixture's origin. A head is positioned
+   * by its base, so nothing does.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get floorOffset() {
+    return 0;
+  }
+
+  /**
+   * Angle the desk is asking for, coarse and fine combined.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get targetPan() {
+    return this.pan + this.panFine;
+  }
+
+  get targetTilt() {
+    return this.tilt + this.tiltFine;
+  }
+
+  /**
+   * Writes the current angles onto the yoke and head.
+   *
+   * @public
+   */
+  applyOrientation() {
+    this._yokeDummy.rotation.z = MovingHead.degToRad(this._panCurrent - this.maxPan / 2);
+    this._headDummy.rotation.x = MovingHead.degToRad(this._tiltCurrent - this.maxTilt / 2);
+    this._matrixNeedsUpdate = true;
+  }
+
+  /**
+   * Jumps straight to the requested angles, skipping the slew. For construction
+   * and for anything that repositions a fixture rather than driving it.
+   *
+   * @public
+   */
+  snapOrientation() {
+    this._panCurrent = this.targetPan;
+    this._tiltCurrent = this.targetTilt;
+    this.applyOrientation();
+  }
+
+  /**
+   * Moves the head toward the requested angles at its slew rate.
+   *
+   * @public
+   * @param {Number} t seconds since the animation clock started
+   */
+  updateOrientation(t) {
+    const previous = this._lastUpdateTime;
+    this._lastUpdateTime = t;
+    if (previous === undefined) return;
+
+    const step = Math.min(t - previous, MAX_STEP_SECONDS);
+    if (step <= 0) return;
+
+    const panLimit = this._panSpeed * step;
+    const tiltLimit = this._tiltSpeed * step;
+    const panError = this.targetPan - this._panCurrent;
+    const tiltError = this.targetTilt - this._tiltCurrent;
+    if (panError === 0 && tiltError === 0) return;
+
+    // Clamped to the remaining error so the head settles exactly on target
+    // instead of oscillating around it.
+    this._panCurrent += Math.sign(panError) * Math.min(Math.abs(panError), panLimit);
+    this._tiltCurrent += Math.sign(tiltError) * Math.min(Math.abs(tiltError), tiltLimit);
+    this.applyOrientation();
+  }
+
   update(t) {
+    this.updateOrientation(t);
     this.updateStrobe(t);
     this.updateMatrix();
     this.updateDirectionVector();

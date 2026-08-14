@@ -1,5 +1,10 @@
 <template>
   <uk-flex class="fixture_modifier">
+    <model-widget
+      v-show="selectedFixture"
+      ref="model"
+      :fixture="selectedFixture"
+    />
     <fixture-settings-widget
       v-show="selectedFixture"
       ref="settings"
@@ -24,6 +29,7 @@ import EventBus from '@/plugins/eventbus';
 
 import FixtureSettingsWidget from './_widgets/fixture.modifier.widget.settings.vue';
 import PositionToolWidget from './_widgets/fixture.modifier.widget.position.tool.vue';
+import ModelWidget from './_widgets/fixture.modifier.widget.model.vue';
 
 export default {
   name: 'FixtureModifierFragment',
@@ -32,6 +38,7 @@ export default {
     MODE: 3,
   },
   components: {
+    ModelWidget,
     FixtureSettingsWidget,
     PositionToolWidget,
   },

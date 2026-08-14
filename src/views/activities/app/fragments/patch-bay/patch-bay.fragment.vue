@@ -67,9 +67,13 @@ export default {
      * @param {Object} fixtureData listable entry of the selected fixture
      */
     displayFixture(fixtureData) {
-      if (fixtureData) {
-        this.$router.push({ path: '/patch', query: { fixtureId: fixtureData.id } }).catch(() => {});
-      }
+      if (!fixtureData) return;
+      this.$router.push({ path: '/patch', query: { fixtureId: fixtureData.id } }).catch(() => {});
+      // The route drives the modifier widgets; the 3D view has to be told
+      // separately. uk-list emits 'highlight' only for multi-selection, so a
+      // plain click would otherwise select a fixture everywhere but the scene.
+      const fixture = this.pool.getFromId(fixtureData.id);
+      if (fixture) fixture.highlightSingle(true, true);
     },
     /**
      * Mirrors a list multi-selection into the 3D view.

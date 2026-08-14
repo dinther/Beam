@@ -21,19 +21,44 @@ import SIMPLEX_NOISE from './shaders/simplex3d.glsl?raw';
  * Addressing is a continuous pixel index across universes; see dmx_store.js.
  */
 
-/** Aluminium profile, in metres (1050 x 24 x 10 mm). */
-const PROFILE_LENGTH = 1.05;
+/**
+ * Default body cross-section, in metres (24 x 10 mm): an aluminium profile.
+ * Length is not a default -- it comes from the run's own endpoints.
+ */
 const PROFILE_WIDTH = 0.024;
 const PROFILE_HEIGHT = 0.010;
 
-/** Emitter die size, roughly a 5050 LED. */
+/** Default emitter die size, roughly a 5050 LED. */
 const LED_SIZE = 0.005;
+
+/**
+ * Component order of a plain RGB run, as offsets from the pixel's first
+ * channel: [red, green, blue, white], -1 for an emitter the fixture lacks.
+ *
+ * GRB by default because that is what the strips this was built against use.
+ * Nothing downstream assumes it -- order is data, per emitter.
+ *
+ * @constant {Array}
+ */
+const DEFAULT_COMPONENT_OFFSETS = [1, 0, 2, -1];
+
+/** Channels a plain RGB pixel occupies. */
+const DEFAULT_CHANNELS_PER_PIXEL = 3;
+
+/** Marks a component the emitter does not have. */
+const NO_TEXEL = -1;
 
 /** How much larger the drawn quad is than the die, to carry the halo. */
 const GLOW_SCALE = 7.0;
 
-/** How far the emitters sit proud of the profile, avoiding a z-fight. */
-const LED_STANDOFF = 0.0015;
+/**
+ * How far the emitters sit proud of the body, in metres.
+ *
+ * Depth precision, not clearance: the quads are depth-tested against the body,
+ * and at 1.5 mm the gap fell below what the depth buffer could resolve once the
+ * camera pulled back, so emitters sank into the bar.
+ */
+const LED_STANDOFF = 0.003;
 
 /** Base reach of the scattered glow at full haze, in metres. */
 const GLOW_BASE_SIZE = 1.0;
@@ -44,47 +69,54 @@ const GLOW_BASE_GAIN = 0.8;
 /** How much of the glow's reach survives at zero haze. */
 const GLOW_SIZE_AT_ZERO_HAZE = 0.35;
 
-/** Half-angle of the emission cone: a 5050 emits over roughly 120 degrees. */
-const DEFAULT_BEAM_HALF_ANGLE = (120 / 2) * (Math.PI / 180);
+/** Emission cone of a 5050, full angle in degrees. */
+const DEFAULT_BEAM_ANGLE = 120;
 
 const SHADER_DEFINES = /* glsl */`
   #define UNIVERSE_SIZE ${DMXStore.UNIVERSE_SIZE}.0
-  #define USABLE_CHANNELS ${DMXStore.USABLE_CHANNELS}.0
   #define UNIVERSE_COUNT ${DMXStore.UNIVERSE_COUNT}.0
 `;
 
 /**
  * Channel lookup, shared by both shaders.
  *
- * Pixels are packed 170 to a universe (510 channels), so the universe is the
- * texture row and the remainder is the column. Channels 511 and 512 are never
- * addressed, and no pixel straddles a universe boundary.
+ * Each emitter carries the absolute texel index of every component it has,
+ * worked out on the CPU when the fixture was patched. Nothing about DMX layout
+ * survives in here: no channels-per-pixel, no component order, no universe
+ * stride, no straddle rule. Any of those can change without touching GLSL.
  */
-const PIXEL_LOOKUP = /* glsl */`
+const TEXEL_LOOKUP = /* glsl */`
   uniform sampler2D dmxTexture;
 
-  float pixelChannel(float pixel, float offset) {
-    float channel = pixel * 3.0 + offset;
-    float universe = floor(channel / USABLE_CHANNELS);
-    float local = channel - universe * USABLE_CHANNELS;
+  attribute vec4 componentTexel;
+
+  /** One channel's value, by absolute index into the DMX texture. */
+  float channelAt(float index) {
+    if (index < 0.0) return 0.0;
+    float row = floor(index / UNIVERSE_SIZE);
+    float col = index - row * UNIVERSE_SIZE;
     return texture2D(
       dmxTexture,
-      vec2((local + 0.5) / UNIVERSE_SIZE, (universe + 0.5) / UNIVERSE_COUNT)
+      vec2((col + 0.5) / UNIVERSE_SIZE, (row + 0.5) / UNIVERSE_COUNT)
     ).r;
   }
 
-  /** Colour of a global pixel, resolving GRB order. */
-  vec3 pixelColor(float pixel) {
-    return vec3(
-      pixelChannel(pixel, 1.0),
-      pixelChannel(pixel, 0.0),
-      pixelChannel(pixel, 2.0)
+  /**
+   * Emitter colour. White lifts all three components, the way a white die in
+   * an RGBW package adds to the mix rather than replacing it.
+   */
+  vec3 emitterColor() {
+    vec3 rgb = vec3(
+      channelAt(componentTexel.x),
+      channelAt(componentTexel.y),
+      channelAt(componentTexel.z)
     );
+    return min(rgb + vec3(channelAt(componentTexel.w)), vec3(1.0));
   }
 `;
 
-const EMITTER_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
-  attribute float pixelIndex;
+const EMITTER_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
+  attribute float beamCutoff;
 
   uniform float gain;
   uniform float dimStartDistance;
@@ -95,9 +127,11 @@ const EMITTER_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
   varying vec3 vToCamera;
   varying vec2 vQuadUv;
   varying float vDistanceScale;
+  varying float vBeamCutoff;
 
   void main() {
     vQuadUv = uv;
+    vBeamCutoff = beamCutoff;
 
     vec4 worldPosition = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vToCamera = cameraPosition - worldPosition.xyz;
@@ -109,7 +143,7 @@ const EMITTER_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
     float distanceScale = clamp(length(vToCamera) / dimStartDistance, dimFloor, 1.0);
     vDistanceScale = distanceScale;
 
-    vColor = pixelColor(pixelIndex) * gain * distanceScale;
+    vColor = emitterColor() * gain * distanceScale;
 
     // The quad's orientation lives in the instance matrix, so the normal has
     // to be carried through it rather than through normalMatrix.
@@ -120,7 +154,6 @@ const EMITTER_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
 `;
 
 const EMITTER_FRAGMENT = /* glsl */`
-  uniform float beamCutoff;
   uniform float coreRadius;
   uniform float haloStrength;
   uniform float backScatter;
@@ -130,6 +163,7 @@ const EMITTER_FRAGMENT = /* glsl */`
   varying vec3 vToCamera;
   varying vec2 vQuadUv;
   varying float vDistanceScale;
+  varying float vBeamCutoff;
 
   void main() {
     vec3 normal = normalize(vNormalWorld);
@@ -137,7 +171,7 @@ const EMITTER_FRAGMENT = /* glsl */`
 
     // Full brightness across most of the cone, falling away only near its edge.
     float facing = dot(normal, toCamera);
-    float visibility = smoothstep(beamCutoff, mix(beamCutoff, 1.0, 0.15), facing);
+    float visibility = smoothstep(vBeamCutoff, mix(vBeamCutoff, 1.0, 0.15), facing);
 
     // Never quite zero: the die is hidden behind the extrusion when it faces
     // away, but light scattering off the profile still reaches the eye.
@@ -160,9 +194,7 @@ const EMITTER_FRAGMENT = /* glsl */`
   }
 `;
 
-const GLOW_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
-  attribute float pixelIndex;
-
+const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
   uniform float glowSize;
   uniform float glowGain;
   uniform float backScatter;
@@ -176,7 +208,7 @@ const GLOW_VERTEX = `${SHADER_DEFINES + PIXEL_LOOKUP /* glsl */}
   void main() {
     vGlowUv = uv;
 
-    vec3 color = pixelColor(pixelIndex);
+    vec3 color = emitterColor();
 
     vec4 worldCentre = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     vec3 emitDir = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * vec3(0.0, 0.0, 1.0));
@@ -259,7 +291,10 @@ const field = {
   ledCount: 0,
   maxBars: 0,
   maxLeds: 0,
-  pixelAttribute: null,
+  texelAttribute: null,
+  cutoffAttribute: null,
+  baseBars: 0,
+  baseLeds: 0,
 };
 
 const scratch = {
@@ -289,7 +324,8 @@ function update(elapsed) {
 }
 
 function buildProfiles(maxBars) {
-  const geometry = new THREE.BoxGeometry(PROFILE_LENGTH, PROFILE_WIDTH, PROFILE_HEIGHT);
+  // Unit box: every bar carries its own dimensions in the instance matrix.
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshStandardMaterial({
     color: 0x2a2d31,
     metalness: 0.9,
@@ -302,8 +338,10 @@ function buildProfiles(maxBars) {
 }
 
 function buildEmitters(maxLeds) {
-  const quadSize = LED_SIZE * GLOW_SCALE;
-  const geometry = new THREE.PlaneGeometry(quadSize, quadSize);
+  // Unit quad, scaled per instance: emitter size is a fixture property, and
+  // one shared geometry cannot carry more than one of them. coreRadius stays a
+  // uniform because it is a ratio of die to quad, which holds at any size.
+  const geometry = new THREE.PlaneGeometry(1, 1);
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -311,7 +349,6 @@ function buildEmitters(maxLeds) {
       gain: { value: 3.0 },
       dimStartDistance: { value: 2.5 },
       dimFloor: { value: 0.18 },
-      beamCutoff: { value: Math.cos(DEFAULT_BEAM_HALF_ANGLE) },
       coreRadius: { value: 1.0 / GLOW_SCALE },
       haloStrength: { value: 0.55 },
       backScatter: { value: 0.12 },
@@ -360,6 +397,30 @@ function buildGlow(maxLeds) {
 }
 
 /**
+ * Absolute texel indices for one pixel of a plainly packed run.
+ *
+ * The packing every controller defaults to: pixels laid end to end, skipping
+ * the last two channels of each universe so none is ever split. A patched
+ * fixture overrides this through `texelAt`, since it may well be addressed
+ * straight through instead.
+ *
+ * @param {Number} pixel global pixel index
+ * @param {Number} channelsPerPixel channels one pixel occupies
+ * @param {Array} offsets [r,g,b,w] offsets from the pixel's first channel
+ * @returns {Array} four texel indices, -1 where the component is absent
+ */
+function packedTexels(pixel, channelsPerPixel, offsets) {
+  const base = pixel * channelsPerPixel;
+  return offsets.map((offset) => {
+    if (offset < 0) return NO_TEXEL;
+    const channel = base + offset;
+    const universe = Math.floor(channel / DMXStore.USABLE_CHANNELS);
+    const local = channel - universe * DMXStore.USABLE_CHANNELS;
+    return universe * DMXStore.UNIVERSE_SIZE + local;
+  });
+}
+
+/**
  * Creates the shared meshes and adds them to the scene.
  *
  * @param {Object} options
@@ -372,16 +433,22 @@ function init({ scene, maxBars, maxLeds }) {
   field.maxLeds = maxLeds;
   field.barCount = 0;
   field.ledCount = 0;
+  field.baseBars = 0;
+  field.baseLeds = 0;
 
   field.profiles = buildProfiles(maxBars);
   field.emitters = buildEmitters(maxLeds);
   field.glow = buildGlow(maxLeds);
 
-  // One attribute serves both emitter and glow: the same LEDs, drawn twice.
-  const indices = new Float32Array(maxLeds);
-  field.pixelAttribute = new THREE.InstancedBufferAttribute(indices, 1);
-  field.emitters.geometry.setAttribute('pixelIndex', field.pixelAttribute);
-  field.glow.geometry.setAttribute('pixelIndex', field.pixelAttribute);
+  // Both attributes serve emitter and glow alike: the same LEDs, drawn twice.
+  const texels = new Float32Array(maxLeds * 4).fill(NO_TEXEL);
+  field.texelAttribute = new THREE.InstancedBufferAttribute(texels, 4);
+  field.emitters.geometry.setAttribute('componentTexel', field.texelAttribute);
+  field.glow.geometry.setAttribute('componentTexel', field.texelAttribute);
+
+  const cutoffs = new Float32Array(maxLeds);
+  field.cutoffAttribute = new THREE.InstancedBufferAttribute(cutoffs, 1);
+  field.emitters.geometry.setAttribute('beamCutoff', field.cutoffAttribute);
 
   scene.add(field.profiles, field.emitters, field.glow);
 
@@ -407,13 +474,36 @@ function init({ scene, maxBars, maxLeds }) {
  *   endpoint, so bars meeting at a corner do not interpenetrate
  * @param {Number} [options.ledInset] how far the first and last LED sit inside
  *   the endpoints
+ * @param {Number} [options.width] body width, across the emitter face
+ * @param {Number} [options.height] body height, the dimension the emitters
+ *   stand proud of
+ * @param {Number} [options.emitterSize] die size, in metres
+ * @param {Number} [options.beamAngle] full emission cone, in degrees
+ * @param {Number} [options.standoff] how far the emitters sit proud of the body
+ * @param {Boolean} [options.body] whether to draw a body at all; a strip is
+ *   emitters with nothing to mount them on
+ * @param {Number} [options.channelsPerPixel] channels one pixel occupies
+ * @param {Array} [options.componentOffsets] [r,g,b,w] offsets from the pixel's
+ *   first channel, -1 for a component the emitter lacks
+ * @param {Function} [options.texelAt] (pixel) => [r,g,b,w] absolute texel
+ *   indices, overriding the packing above. A patched fixture supplies this,
+ *   because it alone knows its address and whether it skips 511-512.
  * @returns {Number} LEDs added
  */
 function addBar({
   start, end, pixelCount, firstPixel,
   facing = null, reverse = false, endInset = 0.03, ledInset = 0.055,
+  width = PROFILE_WIDTH,
+  height = PROFILE_HEIGHT,
+  emitterSize = LED_SIZE,
+  beamAngle = DEFAULT_BEAM_ANGLE,
+  standoff = LED_STANDOFF,
+  body = true,
+  channelsPerPixel = DEFAULT_CHANNELS_PER_PIXEL,
+  componentOffsets = DEFAULT_COMPONENT_OFFSETS,
+  texelAt = null,
 }) {
-  if (field.barCount >= field.maxBars) return 0;
+  if (body && field.barCount >= field.maxBars) return 0;
   if (field.ledCount + pixelCount > field.maxLeds) return 0;
 
   const axis = new THREE.Vector3().subVectors(end, start);
@@ -437,20 +527,26 @@ function addBar({
   scratch.basis.makeBasis(axis, side, normal);
   scratch.quaternion.setFromRotationMatrix(scratch.basis);
 
-  // The extrusion, stopping short of each endpoint and scaled to fit.
-  const profileLength = Math.max(length - endInset * 2, 0.01);
-  scratch.offset.copy(start).addScaledVector(axis, length / 2);
-  scratch.scale.set(profileLength / PROFILE_LENGTH, 1, 1);
-  scratch.matrix.compose(scratch.offset, scratch.quaternion, scratch.scale);
-  field.profiles.setMatrixAt(field.barCount, scratch.matrix);
-  field.barCount += 1;
-  field.profiles.count = field.barCount;
+  // The body, stopping short of each endpoint and scaled to its real size.
+  if (body) {
+    const profileLength = Math.max(length - endInset * 2, 0.01);
+    scratch.offset.copy(start).addScaledVector(axis, length / 2);
+    scratch.scale.set(profileLength, width, height);
+    scratch.matrix.compose(scratch.offset, scratch.quaternion, scratch.scale);
+    field.profiles.setMatrixAt(field.barCount, scratch.matrix);
+    field.barCount += 1;
+    field.profiles.count = field.barCount;
+  }
 
   // Each LED occupies one pitch slot inside the inset run.
   const span = Math.max(length - ledInset * 2, 0.01);
   const pitch = span / pixelCount;
-  const surface = PROFILE_HEIGHT / 2 + LED_STANDOFF;
-  scratch.scale.set(1, 1, 1);
+  const surface = (body ? height / 2 : 0) + standoff;
+  const cutoff = Math.cos((beamAngle / 2) * (Math.PI / 180));
+  // The quad carries the halo, so it is drawn larger than the die by a fixed
+  // ratio; coreRadius is the reciprocal, which is why it stays a uniform.
+  const quadSize = emitterSize * GLOW_SCALE;
+  scratch.scale.set(quadSize, quadSize, quadSize);
 
   for (let i = 0; i < pixelCount; i += 1) {
     const instance = field.ledCount + i;
@@ -465,9 +561,15 @@ function addBar({
 
     // Position along the bar is unchanged; only which pixel of the chain lands
     // there flips, so a reversed run lights from the far end back.
-    field.pixelAttribute.array[instance] = reverse
+    const pixel = reverse
       ? firstPixel + (pixelCount - 1 - i)
       : firstPixel + i;
+
+    const texels = texelAt
+      ? texelAt(pixel)
+      : packedTexels(pixel, channelsPerPixel, componentOffsets);
+    field.texelAttribute.array.set(texels, instance * 4);
+    field.cutoffAttribute.array[instance] = cutoff;
   }
 
   field.ledCount += pixelCount;
@@ -477,9 +579,106 @@ function addBar({
   field.profiles.instanceMatrix.needsUpdate = true;
   field.emitters.instanceMatrix.needsUpdate = true;
   field.glow.instanceMatrix.needsUpdate = true;
-  field.pixelAttribute.needsUpdate = true;
+  field.texelAttribute.needsUpdate = true;
+  field.cutoffAttribute.needsUpdate = true;
 
   return pixelCount;
+}
+
+/**
+ * Empties the field without tearing down its meshes.
+ *
+ * Bars move, get repatched and get deleted, and the instanced meshes are packed
+ * with no free list -- so the field is rebuilt from its fixtures whenever any of
+ * them changes. At these counts that is cheaper than tracking slots.
+ *
+ * @public
+ */
+function reset() {
+  field.barCount = field.baseBars;
+  field.ledCount = field.baseLeds;
+  if (field.profiles) field.profiles.count = field.baseBars;
+  if (field.emitters) field.emitters.count = field.baseLeds;
+  if (field.glow) field.glow.count = field.baseLeds;
+}
+
+/**
+ * Freezes everything built so far.
+ *
+ * Scene furniture is added once at startup and never rebuilt; fixtures are
+ * rebuilt constantly. Marking after the former keeps a fixture rebuild from
+ * taking the scene with it.
+ *
+ * @public
+ */
+function mark() {
+  field.baseBars = field.barCount;
+  field.baseLeds = field.ledCount;
+}
+
+/**
+ * Adds one body: a box, drawn black, that emitters stand proud of.
+ *
+ * @public
+ * @param {Object} options
+ * @param {Object} options.position THREE.Vector3 centre, in world space
+ * @param {Object} options.quaternion THREE.Quaternion orientation
+ * @param {Number} options.length along local X
+ * @param {Number} options.width along local Y
+ * @param {Number} options.height along local Z, the emitters' normal
+ * @returns {Boolean} whether it fitted
+ */
+function addBody({
+  position, quaternion, length, width, height,
+}) {
+  if (field.barCount >= field.maxBars) return false;
+  scratch.scale.set(length, width, height);
+  scratch.matrix.compose(position, quaternion, scratch.scale);
+  field.profiles.setMatrixAt(field.barCount, scratch.matrix);
+  field.barCount += 1;
+  field.profiles.count = field.barCount;
+  field.profiles.instanceMatrix.needsUpdate = true;
+  return true;
+}
+
+/**
+ * Adds emitters at explicit positions.
+ *
+ * The general entry point: a bar computes a grid, a strip walks a polyline, and
+ * both arrive here as a list. Ordering is the caller's business -- each emitter
+ * already carries the texels it reads.
+ *
+ * @public
+ * @param {Array} emitters `{ position, quaternion, size, beamAngle, texels }`
+ * @returns {Number} how many were added
+ */
+function addEmitters(emitters) {
+  const room = field.maxLeds - field.ledCount;
+  const count = Math.min(emitters.length, Math.max(room, 0));
+
+  for (let i = 0; i < count; i += 1) {
+    const emitter = emitters[i];
+    const instance = field.ledCount + i;
+    const quadSize = emitter.size * GLOW_SCALE;
+    scratch.scale.set(quadSize, quadSize, quadSize);
+    scratch.matrix.compose(emitter.position, emitter.quaternion, scratch.scale);
+
+    field.emitters.setMatrixAt(instance, scratch.matrix);
+    field.glow.setMatrixAt(instance, scratch.matrix);
+    field.texelAttribute.array.set(emitter.texels, instance * 4);
+    field.cutoffAttribute.array[instance] = Math.cos(
+      (emitter.beamAngle / 2) * (Math.PI / 180),
+    );
+  }
+
+  field.ledCount += count;
+  field.emitters.count = field.ledCount;
+  field.glow.count = field.ledCount;
+  field.emitters.instanceMatrix.needsUpdate = true;
+  field.glow.instanceMatrix.needsUpdate = true;
+  field.texelAttribute.needsUpdate = true;
+  field.cutoffAttribute.needsUpdate = true;
+  return count;
 }
 
 /**
@@ -503,5 +702,15 @@ function stats() {
 }
 
 export default {
-  init, addBar, update, tunables, stats,
+  init,
+  addBar,
+  addBody,
+  addEmitters,
+  reset,
+  mark,
+  update,
+  tunables,
+  stats,
+  /** Default emitter standoff, so callers can sit emitters on a body face. */
+  STANDOFF: LED_STANDOFF,
 };

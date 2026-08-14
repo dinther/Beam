@@ -218,7 +218,7 @@ const CAPABILITY_TYPES = {
       max: 100,
     },
   },
-  ColorTeperature: {
+  ColorTemperature: {
     colorTemperature: {
       alias: 'colorTemperature',
       entity: EntityManager.entities.ColorTemperature,

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { merge } from 'lodash';
 import {
   EventEmitter,
 } from 'events';
@@ -10,6 +11,7 @@ import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
 import Live from './live.model';
+import { buildLedBarProfile } from './generic/led_bar';
 
 const DEFAULT_PROJECT_NAME = 'new_project.asls';
 
@@ -36,6 +38,14 @@ class Show extends EventEmitter {
     this.name = '';
     this.isSaved = true;
     this.rawOFLFixtures = [];
+    /** Local corrections to library profiles, keyed `manufacturer/model`. */
+    this.fixtureOverrides = {};
+    /**
+     * Profiles built here rather than fetched, keyed the same way. OFL cannot
+     * describe an emitter array, so these are generated from parameters the
+     * user chose, and saved beside the show.
+     */
+    this.generatedProfiles = {};
     this.fixturePool = new FixturePool();
     this.running = false;
     this.slave = false;
@@ -324,7 +334,9 @@ class Show extends EventEmitter {
 
     this.loading.message = 'Preloading fixture library';
     this.loading.percentage = 40;
+    await this.preloadGeneratedProfiles();
     await this.preloadFixtureList();
+    await this.preloadFixtureOverrides();
 
     this.loading.message = 'Setting up show fixtures';
     this.loading.percentage = 60;
@@ -362,14 +374,108 @@ class Show extends EventEmitter {
   async prepareFixtures(showData) {
     for (let i = 0; i < showData.fixtures.length; i++) {
       const fixtureData = showData.fixtures[i];
-      fixtureData.OFLData = JSON.parse(fixtureDataCache[`${fixtureData.manufacturer}/${fixtureData.model}`] || null);
+      const profileKey = `${fixtureData.manufacturer}/${fixtureData.model}`;
+      fixtureData.OFLData = this.generatedProfiles[profileKey]
+        ? JSON.parse(JSON.stringify(this.generatedProfiles[profileKey]))
+        : JSON.parse(fixtureDataCache[profileKey] || null);
       if (!fixtureData.OFLData) {
-        const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${fixtureData.manufacturer}/${fixtureData.model}.json`);
+        const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${profileKey}.json`);
         fixtureData.OFLData = res.data;
-        fixtureDataCache[`${fixtureData.manufacturer}/${fixtureData.model}`] = JSON.stringify(fixtureData.OFLData);
+        fixtureDataCache[profileKey] = JSON.stringify(fixtureData.OFLData);
+      }
+      // Applied after caching, so the cache keeps the library profile untouched
+      // and an edited overrides file takes effect on the next load.
+      if (this.fixtureOverrides[profileKey]) {
+        merge(fixtureData.OFLData, this.fixtureOverrides[profileKey]);
       }
       this.fixturePool.addRaw(fixtureData);
     }
+  }
+
+  /**
+   * Loads local corrections to library profiles, keyed `manufacturer/model`.
+   *
+   * The shipped library is Open Fixture Library data and stays untouched so it
+   * can be replaced wholesale; anything measured or guessed locally -- head slew
+   * rates, which OFL has no field for -- lives here instead. It sits beside the
+   * show rather than in the bundle because the app writes it.
+   *
+   * @public
+   * @async
+   */
+  async preloadFixtureOverrides() {
+    if (typeof window === 'undefined' || !window.jsonStore) {
+      this.fixtureOverrides = {};
+      return;
+    }
+    // Nothing overridden is a perfectly ordinary state; every fixture then
+    // falls back to its library profile and the renderer's own defaults.
+    this.fixtureOverrides = (await window.jsonStore.read('fixture_overrides')) || {};
+  }
+
+  /**
+   * Writes the overrides file.
+   *
+   * @public
+   */
+  persistFixtureOverrides() {
+    if (typeof window !== 'undefined' && window.jsonStore) {
+      window.jsonStore.write('fixture_overrides', JSON.stringify(this.fixtureOverrides, null, 2));
+    }
+  }
+
+  /**
+   * Sets one override for a model and applies it to everything already patched.
+   *
+   * @public
+   * @param {String} profileKey `manufacturer/model`
+   * @param {String} key property being overridden
+   * @param {Number|String} value value to store
+   */
+  setFixtureOverride(profileKey, key, value) {
+    const entry = this.fixtureOverrides[profileKey] || {};
+    entry[key] = value;
+    this.fixtureOverrides[profileKey] = entry;
+    this.persistFixtureOverrides();
+    this.applyFixtureOverride(profileKey, key, value);
+  }
+
+  /**
+   * Drops one override and restores the system default.
+   *
+   * The model's entry is removed once its last override goes, so the file never
+   * accumulates empty objects for models that are no longer customised.
+   *
+   * @public
+   * @param {String} profileKey `manufacturer/model`
+   * @param {String} key property being cleared
+   * @param {Number} fallback value to restore
+   */
+  clearFixtureOverride(profileKey, key, fallback) {
+    const entry = this.fixtureOverrides[profileKey];
+    if (entry) {
+      delete entry[key];
+      if (!Object.keys(entry).length) delete this.fixtureOverrides[profileKey];
+      this.persistFixtureOverrides();
+    }
+    this.applyFixtureOverride(profileKey, key, fallback);
+  }
+
+  /**
+   * Pushes an override onto every patched fixture of that model.
+   *
+   * @public
+   * @param {String} profileKey `manufacturer/model`
+   * @param {String} key property being set
+   * @param {Number|String} value value to apply
+   */
+  applyFixtureOverride(profileKey, key, value) {
+    this.fixturePool.fixtures.forEach((fixture) => {
+      if (fixture.profileKey !== profileKey) return;
+      // Kept on the raw profile too, so a fixture rebuilt from it agrees.
+      fixture.OFLData[key] = value;
+      fixture[key] = value;
+    });
   }
 
   /**
@@ -380,13 +486,97 @@ class Show extends EventEmitter {
    * @see ./fixtures/fixture_list.json
    * @see https://open-fixture-library.org/
    */
+  /**
+   * Loads the user's own generic fixtures.
+   *
+   * A show that uses one and cannot find it will not load its fixtures, so
+   * these are read before any show is.
+   *
+   * @public
+   * @async
+   */
+  async preloadGeneratedProfiles() {
+    if (typeof window === 'undefined' || !window.jsonStore) return;
+    const stored = await window.jsonStore.read('generated_profiles');
+    this.generatedProfiles = stored || {};
+  }
+
+  /**
+   * Builds a generic fixture profile and adds it to the library.
+   *
+   * @public
+   * @async
+   * @param {String} manufacturer name the user chose
+   * @param {String} model name the user chose
+   * @param {Object} params geometry and wiring
+   * @returns {String} the profile's key
+   */
+  async createGeneratedProfile(manufacturer, model, params) {
+    const key = `${manufacturer}/${model}`;
+    const profile = buildLedBarProfile(params);
+    profile.name = model;
+    this.generatedProfiles[key] = profile;
+    if (typeof window !== 'undefined' && window.jsonStore) {
+      await window.jsonStore.write(
+        'generated_profiles',
+        JSON.stringify(this.generatedProfiles, null, 2),
+      );
+    }
+    this.refreshFixtureList();
+    return key;
+  }
+
+  /**
+   * Re-lays the library index over the current generated profiles.
+   *
+   * @public
+   */
+  refreshFixtureList() {
+    const library = this.rawOFLFixtures.filter((entry) => !entry.generated);
+    this.rawOFLFixtures = [...this.generatedFixtureList(), ...library];
+  }
+
   async preloadFixtureList() {
     try {
       const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/fixture_list.json`);
       this.rawOFLFixtures = res.data;
     } catch (err) {
       console.log('could not fetch fixture list.');
+      this.rawOFLFixtures = [];
     }
+    this.refreshFixtureList();
+  }
+
+  /**
+   * Generated profiles, shaped like the library index so the patch popup can
+   * list them without knowing where they came from.
+   *
+   * Listed first: these are the fixtures this app is actually for, and hunting
+   * for them under A in a list of 47 manufacturers would be perverse.
+   *
+   * @public
+   * @returns {Array} manufacturer entries
+   */
+  generatedFixtureList() {
+    const byManufacturer = {};
+    Object.keys(this.generatedProfiles).forEach((key) => {
+      const [manufacturer, model] = key.split('/');
+      const profile = this.generatedProfiles[key];
+      byManufacturer[manufacturer] = byManufacturer[manufacturer] || [];
+      byManufacturer[manufacturer].push({
+        file: model,
+        name: profile.name,
+        category: profile.categories[0],
+        supported: true,
+        generated: true,
+      });
+    });
+    return Object.keys(byManufacturer).map((name) => ({
+      name,
+      // Flagged so a refresh can tell the user's entries from the library's.
+      generated: true,
+      fixtures: byManufacturer[name],
+    }));
   }
 
   /**

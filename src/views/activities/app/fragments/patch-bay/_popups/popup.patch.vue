@@ -7,12 +7,24 @@
     @input="update()"
   >
     <uk-flex class="patch_popup">
-      <uk-list
-        class="fixture_list"
-        :items="fixtures"
-        filterable
-        @select="loadFixture"
-      />
+      <uk-flex
+        col
+        class="fixture_list_column"
+      >
+        <uk-list
+          class="fixture_list"
+          :items="fixtures"
+          filterable
+          @select="loadFixture"
+        />
+        <uk-flex class="fixture_list_actions">
+          <uk-button
+            icon="new"
+            label="create generic"
+            @click="createPopupState = true"
+          />
+        </uk-flex>
+      </uk-flex>
       <uk-flex
         col
         class="patch_form"
@@ -233,6 +245,10 @@
         <uk-spacer />
       </uk-flex>
     </uk-flex>
+    <create-fixture-popup
+      v-model="createPopupState"
+      @created="handleProfileCreated"
+    />
   </uk-popup>
 </template>
 
@@ -255,8 +271,13 @@ const DEFAULT_FIXTURE_DATA = {
   loaded: false,
 };
 
+import CreateFixturePopup from './popup.create.fixture.vue';
+
 export default {
   name: 'UkPopupPatch',
+  components: {
+    CreateFixturePopup,
+  },
   mixins: [PopupMixin],
   compatConfig: {
     // or, for full vue 3 compat in this component:
@@ -274,6 +295,7 @@ export default {
   data() {
     return {
       headerData: { title: 'Patch fixture' },
+      createPopupState: false,
       fixtures: [],
       fixture: JSON.parse(JSON.stringify(DEFAULT_FIXTURE_DATA)),
       amount: DEFAULT_FIXTURE_AMOUNT,
@@ -415,18 +437,48 @@ export default {
      * @public
      * @async
      */
+    /**
+     * Icon for a list entry: generated fixtures read as a different kind of
+     * thing from library profiles, and unrendered ones from both.
+     *
+     * @public
+     * @param {Object} entry fixture list entry
+     * @returns {String} icon name
+     */
+    entryIcon(entry) {
+      if (entry.generated) return 'grid';
+      return entry.supported ? 'movinghead' : 'undef';
+    },
+    /**
+     * Shows the freshly created profile, selected and ready to patch, rather
+     * than leaving the user to find it in the list.
+     *
+     * @public
+     * @async
+     * @param {String} key `manufacturer/model` of the new profile
+     */
+    async handleProfileCreated(key) {
+      this.fixtures = this.prepareFixtures();
+      const [manufacturer, model] = key.split('/');
+      await this.loadFixture({ manufacturer: { name: manufacturer }, fixture: model });
+    },
     async loadFixture(item) {
       const { manufacturer } = item;
       const { fixture } = item;
-      const res = await this.$http.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${manufacturer.name}/${fixture}`);
+      // Generated profiles are built in the app, not served: there is no file
+      // to fetch, and asking for one would 404.
+      const generated = this.$show.generatedProfiles[`${manufacturer.name}/${fixture}`];
+      const data = generated
+        ? JSON.parse(JSON.stringify(generated))
+        : (await this.$http.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${manufacturer.name}/${fixture}`)).data;
       Object.assign(this.fixture, {
-        OFLData: res.data,
-        modes: res.data.modes,
-        modeNames: res.data.modes.map((mode) => mode.name),
-        name: res.data.name,
+        OFLData: data,
+        modes: data.modes,
+        modeNames: data.modes.map((mode) => mode.name),
+        name: data.name,
         model: fixture,
         manufacturer: manufacturer.name,
-        category: res.data.categories[0],
+        category: data.categories[0],
         loaded: true,
       });
       this.patchError = false;
@@ -489,7 +541,7 @@ export default {
           name: entry.name,
           // Fixtures the visualizer has no 3D model for still patch and hold
           // addresses, but draw nothing; the icon says which is which.
-          icon: entry.supported ? 'movinghead' : 'undef',
+          icon: this.entryIcon(entry),
           more: entry.supported ? entry.category : `${entry.category} (not rendered)`,
           manufacturer,
           fixture: entry.file,
@@ -501,6 +553,15 @@ export default {
 </script>
 
 <style scoped>
+.fixture_list_column {
+  /* The list keeps whatever width it had; the actions row sits under it. */
+  min-height: 0;
+}
+.fixture_list_actions {
+  padding: 8px;
+  border-top: 1px solid var(--primary-dark);
+  border-right: 1px solid var(--primary-dark);
+}
 .patch_popup {
   height: 100%;
 }

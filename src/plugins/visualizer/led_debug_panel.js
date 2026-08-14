@@ -49,7 +49,6 @@ export default function createLEDDebugPanel(visualizer) {
   const state = {
     // Emitter die
     gain: emitter.gain.value,
-    beamAngle: (Math.acos(emitter.beamCutoff.value) * 180) / Math.PI,
     haloStrength: emitter.haloStrength.value,
     backScatter: emitter.backScatter.value,
     coreRadius: emitter.coreRadius.value,
@@ -73,9 +72,6 @@ export default function createLEDDebugPanel(visualizer) {
   const die = gui.addFolder('Emitter die');
   die.add(state, 'gain', 0, 8, 0.05)
     .onChange((v) => setUniform('emitter', 'gain', v));
-  die.add(state, 'beamAngle', 10, 180, 1)
-    .name('beam angle (full)')
-    .onChange((v) => setUniform('emitter', 'beamCutoff', Math.cos((v / 2) * (Math.PI / 180))));
   die.add(state, 'haloStrength', 0, 2, 0.01)
     .onChange((v) => setUniform('emitter', 'haloStrength', v));
   die.add(state, 'coreRadius', 0.02, 0.6, 0.005)

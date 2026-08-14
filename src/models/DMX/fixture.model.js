@@ -4,6 +4,7 @@ import {
 import Channel from './channel.model';
 import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.model';
 import MovingHead from '../../plugins/visualizer/moving_head';
+import LedBar from '../../plugins/visualizer/led_bar';
 import Controls from '../../plugins/visualizer/controls';
 
 /**
@@ -85,6 +86,18 @@ const FIXTURE_TYPES = {
 
 /** Fallback bulb colour temperature, for profiles that omit one. */
 const DEFAULT_COLOR_TEMP = 8000;
+
+/**
+ * How fast a head slews when nothing overrides it, in degrees per second.
+ *
+ * OFL has no field for this -- it describes what a speed channel does, never how
+ * quickly the head actually travels -- so it cannot come from a profile. These
+ * are plausible figures, overridable per model.
+ *
+ * @constant {Number}
+ */
+export const DEFAULT_PAN_SPEED = 270;
+export const DEFAULT_TILT_SPEED = 210;
 
 /**
  * Stand-in for a fixture the renderer has no model for.
@@ -176,6 +189,9 @@ class Fixture extends Proxify {
     super();
     if (!data.isStub) {
       this.OFLData = data.OFLData;
+      // Resolved once here so the panel and the renderer read the same number.
+      this._panSpeed = Number(this.OFLData.panSpeed) || DEFAULT_PAN_SPEED;
+      this._tiltSpeed = Number(this.OFLData.tiltSpeed) || DEFAULT_TILT_SPEED;
       this.id = parseInt(data.id, 10);
       // Read before the address: patching lays the channels out according to
       // this, so it has to be known by the time the address is claimed.
@@ -657,6 +673,7 @@ class Fixture extends Proxify {
     // channels it used to occupy.
     if (!PatchSingleton.isPatched(this)) {
       this._address = next;
+      this.notifyRepatched();
       return;
     }
     const previous = this._address;
@@ -664,10 +681,12 @@ class Fixture extends Proxify {
     this._address = next;
     try {
       PatchSingleton.patchFixture(this);
+      this.notifyRepatched();
     } catch (err) {
       // Something already holds the requested range: stay put.
       this._address = previous;
       PatchSingleton.patchFixture(this);
+      this.notifyRepatched();
     }
   }
 
@@ -695,15 +714,52 @@ class Fixture extends Proxify {
     this._universeAligned = next;
     try {
       PatchSingleton.patchFixture(this);
+      this.notifyRepatched();
     } catch (err) {
       // The new layout collides with something: keep the old one.
       this._universeAligned = !next;
       PatchSingleton.patchFixture(this);
+      this.notifyRepatched();
     }
   }
 
   get universeAligned() {
     return !!this._universeAligned;
+  }
+
+  /**
+   * Key this fixture's profile is stored and overridden under.
+   *
+   * @readonly
+   * @type {String}
+   */
+  get profileKey() {
+    return `${this.manufacturer}/${this.model}`;
+  }
+
+  /**
+   * Head slew rate in degrees per second. A property of the model rather than
+   * of this instance; writing it pushes straight through to the renderer so an
+   * edit is visible without reloading the show.
+   *
+   * @type {Number}
+   */
+  set panSpeed(value) {
+    this._panSpeed = Number(value) || DEFAULT_PAN_SPEED;
+    if (this._3DModel) this._3DModel.panSpeed = this._panSpeed;
+  }
+
+  get panSpeed() {
+    return this._panSpeed || DEFAULT_PAN_SPEED;
+  }
+
+  set tiltSpeed(value) {
+    this._tiltSpeed = Number(value) || DEFAULT_TILT_SPEED;
+    if (this._3DModel) this._3DModel.tiltSpeed = this._tiltSpeed;
+  }
+
+  get tiltSpeed() {
+    return this._tiltSpeed || DEFAULT_TILT_SPEED;
   }
 
   /**
@@ -809,8 +865,13 @@ class Fixture extends Proxify {
     value = Math.ceil(Math.min(Math.max(value, 0), 255)); // Clamping value between 0 and 255
     const capability = channel.getCapability(value); // Fetching channel's capability from value
     this.channels[id].value = value; // Setting channel's value
-    if (id === 0) { // If channel is first
-      this._3DModel.colorPreset = null; // Defaulting color preset to null
+    // A preset is released by the channel that set it. This used to hang off
+    // channel 1, which is unrelated to colour and, with diff input on, is never
+    // written unless the shutter itself moves -- so a preset latched forever.
+    if (this._colorPresetChannelId === id
+      && (!capability || capability.type !== CAPABILITY_TYPES.ColorPreset)) {
+      this._3DModel.colorPreset = null;
+      this._colorPresetChannelId = null;
     }
     if (capability) { // Making sure channel's capability is defined
       const values = capability.getValue(value); // Fetching values from capability value
@@ -831,9 +892,16 @@ class Fixture extends Proxify {
           }
           break;
         }
-        case CAPABILITY_TYPES.ColorPreset:
-          this._3DModel.colorPreset = values.color ? values.color[0] : null;
+        case CAPABILITY_TYPES.ColorTemperature:
+          // Moves the white point rather than replacing the colour mix.
+          this._3DModel.colorTemperature = values.colorTemperature;
           break;
+        case CAPABILITY_TYPES.ColorPreset: {
+          const preset = values.color ? values.color[0] : null;
+          this._3DModel.colorPreset = preset;
+          this._colorPresetChannelId = preset ? id : null;
+          break;
+        }
         default:
           Object.keys(values).forEach((val) => {
             this._3DModel[val] = values[val];
@@ -865,12 +933,58 @@ class Fixture extends Proxify {
   }
 
   /**
+   * Tells the renderer its addressing moved. Only emitter arrays care: they
+   * read the DMX texture directly, so every emitter's texel index shifts with
+   * the fixture's address.
+   *
+   * @public
+   */
+  notifyRepatched() {
+    if (this._3DModel && this._3DModel.repatch) this._3DModel.repatch();
+  }
+
+  /**
+   * Absolute texel indices one pixel's components read from.
+   *
+   * An address in this show is already `universe * 512 + channel`, which is
+   * exactly how the DMX texture is laid out, so `addressOf` doubles as the
+   * texel index -- and it applies the skip-511-512 rule for free.
+   *
+   * @public
+   * @param {Number} pixel position in the chain, 0-based
+   * @returns {Array} [r, g, b, w], -1 for a component this fixture lacks
+   */
+  pixelTexels(pixel) {
+    const components = (this.OFLData.asls || {}).components || [];
+    const perPixel = components.length;
+    if (!perPixel) return [-1, -1, -1, -1];
+    return ['R', 'G', 'B', 'W'].map((letter) => {
+      const offset = components.indexOf(letter);
+      return offset < 0 ? -1 : this.addressOf(pixel * perPixel + offset);
+    });
+  }
+
+  /**
    * Handles instanciation of 3D model to be bound to fixture instance
    *
    * @pulic
    * @todo implement every fixture type
    */
   prepare3DModelInstance() {
+    // A generated profile carries the geometry OFL cannot express. Its presence
+    // is what identifies the fixture, rather than a category string, because
+    // 'Matrix' says nothing about where the emitters actually are.
+    if (this.OFLData.asls && this.OFLData.asls.bar) {
+      this._3DModel = new LedBar({
+        params: this.OFLData.asls.bar,
+        components: this.OFLData.asls.components,
+        texelAt: this.pixelTexels.bind(this),
+      });
+      this._3DModel.fixtureHandle = this;
+      this._3DModel.position = this._position;
+      this._3DModel.rotation = this._rotation;
+      return;
+    }
     // Matched against every category, not just the first: a number of movers
     // are listed as e.g. ["Color Changer", "Moving Head"], and testing only
     // categories[0] rejected them.
@@ -890,6 +1004,10 @@ class Fixture extends Proxify {
           // Not every profile carries a bulb block; a daylight-ish default is
           // better than refusing to build the fixture.
           colorTemp: (this.OFLData.physical.bulb || {}).colorTemperature || DEFAULT_COLOR_TEMP,
+          // Absent from OFL, which has no notion of how fast a head travels.
+          // Supplied per fixture by fixture_overrides.json when it matters.
+          panSpeed: this.panSpeed,
+          tiltSpeed: this.tiltSpeed,
           intensity: 0.0, // Setting moving head's default intensity
           pan: 128, // Setting moving head's default pan value
           tilt: 128, // Setting moving head's default tilt value
@@ -1026,12 +1144,11 @@ class Fixture extends Proxify {
    * @static
    */
   static deleteInstance(instance) {
-    switch (instance.category) {
-      case FIXTURE_TYPES.MOVING_HEAD:
-        MovingHead.deleteInstance(instance._3DModel);
-        break;
-      default:
-        break;
+    const model = instance._3DModel;
+    if (model instanceof LedBar) {
+      LedBar.deleteInstance(model);
+    } else if (instance.category === FIXTURE_TYPES.MOVING_HEAD) {
+      MovingHead.deleteInstance(model);
     }
     instance = null;
   }

@@ -5,6 +5,7 @@ import {
 import EventBus from '@/plugins/eventbus';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
+import LedBar from './led_bar';
 
 /**
  * Global position vector handle
@@ -72,6 +73,12 @@ const pickPosition = new THREE.Vector3();
  * @constant {Object} frustum
  */
 const frustum = new THREE.Frustum();
+
+/** Scratch world position, read out of an instance matrix before projecting. */
+const pickOrigin = new THREE.Vector3();
+
+/** Scratch world position, for the floor test during a drag. */
+const floorProbe = new THREE.Vector3();
 /**
  * @constant {Object} projScreenMatrix
  */
@@ -260,6 +267,12 @@ class Controls {
     this.handle.addEventListener('mouseDown', () => { // Listening for mousedown events on control helpers
       this.controlHandle.enabled = false; // Disabling camera controls to enable user interaction
     });
+    // Fired continuously while the gizmo is dragged. A typed coordinate may put
+    // a fixture anywhere -- understage and pit positions are real -- but a drag
+    // should not push one through the floor by accident.
+    this.handle.addEventListener('objectChange', () => {
+      this.clampToFloor();
+    });
     this.handle.addEventListener('mouseUp', () => { // Listening for mouseup events on control helpers
       this.controlHandle.enabled = true; // Enabling camera control
       this.showHelpers(); // Update modifications
@@ -288,6 +301,7 @@ class Controls {
       this.detachAll();
       this.setFocus(false);
       MovingHead.clearHiglighting();
+      LedBar.clearHighlighting();
     } else if (e.key.toLowerCase() === 't') {
       this.mode = CONTROL_MODES.NORMAL;
       this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
@@ -396,36 +410,55 @@ class Controls {
     const top = Math.min(down.y, e.clientY);
     const bottom = Math.max(down.y, e.clientY);
 
-    const mesh = MovingHead.instancedMesh;
     const picked = [];
-    for (let i = 0; i < mesh.count; i++) {
-      mesh.getMatrixAt(i, pickMatrix);
-      pickPosition.setFromMatrixPosition(pickMatrix);
-      // Behind the camera the projection flips, so drop those first.
-      pickPosition.applyMatrix4(this.cameraHandle.matrixWorldInverse);
-      if (pickPosition.z < 0) {
-        pickPosition.setFromMatrixPosition(pickMatrix);
-        pickPosition.project(this.cameraHandle);
-        const x = rect.left + (((pickPosition.x + 1) / 2) * rect.width);
-        const y = rect.top + (((1 - pickPosition.y) / 2) * rect.height);
-        if (x >= left && x <= right && y >= top && y <= bottom) {
+    // Whether a fixture's origin projects inside the rectangle. Behind the
+    // camera the projection flips, so those are dropped first.
+    const inBand = (worldPosition) => {
+      pickPosition.copy(worldPosition).applyMatrix4(this.cameraHandle.matrixWorldInverse);
+      if (pickPosition.z >= 0) return false;
+      pickPosition.copy(worldPosition).project(this.cameraHandle);
+      const x = rect.left + (((pickPosition.x + 1) / 2) * rect.width);
+      const y = rect.top + (((1 - pickPosition.y) / 2) * rect.height);
+      return x >= left && x <= right && y >= top && y <= bottom;
+    };
+
+    const mesh = MovingHead.instancedMesh;
+    if (mesh) {
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, pickMatrix);
+        pickOrigin.setFromMatrixPosition(pickMatrix);
+        if (inBand(pickOrigin)) {
           const instance = MovingHead.getInstance(i);
           if (instance && instance.fixtureHandle) picked.push(instance.fixtureHandle);
         }
       }
     }
 
+    LedBar.eachSelectable((fixture, position) => {
+      if (inBand(position)) picked.push(fixture);
+    });
+
     if (!picked.length) {
       if (!additive) this.deselectAll();
       return;
     }
-    if (!additive) {
-      this.detachAll();
-      MovingHead.clearHiglighting();
+    // A band is drawn over what the user can already see, so framing the
+    // result fights the gesture: the camera would chase the selection as it
+    // grows. Selection still rebuilds the gizmo and bounding box, it just
+    // does not move the view.
+    this._focusSuppressed = true;
+    try {
+      if (!additive) {
+        this.detachAll();
+        MovingHead.clearHiglighting();
+        LedBar.clearHighlighting();
+      }
+      picked.forEach((fixture) => {
+        if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
+      });
+    } finally {
+      this._focusSuppressed = false;
     }
-    picked.forEach((fixture) => {
-      if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
-    });
     // Only a single-fixture selection names a primary. Naming one of many
     // routes the pool list to it, and the list answers by calling
     // highlightSingle(), which starts with detachAll() - that would collapse
@@ -484,11 +517,18 @@ class Controls {
     pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
     raycaster.setFromCamera(pointer, this.cameraHandle);
 
-    // The proxy is an invisible per-instance box kept in sync with each head;
-    // invisible objects still raycast, which is what it exists for.
-    const hits = raycaster.intersectObject(MovingHead.instancedMesh, false);
-    const hit = hits.find((h) => h.instanceId !== undefined);
+    // Each renderer offers its own pick proxies: an instanced box per head, a
+    // box per bar. Both are invisible, and invisible objects still raycast,
+    // which is what they exist for. Tested together so the nearest wins
+    // regardless of which kind of fixture it belongs to.
+    const targets = [MovingHead.instancedMesh, ...LedBar.pickObjects()];
+    const hits = raycaster.intersectObjects(targets.filter(Boolean), false);
+    const hit = hits.find((h) => h.instanceId !== undefined
+      || (h.object && h.object.userData.ledBar));
     if (!hit) return null;
+    if (hit.object && hit.object.userData.ledBar) {
+      return hit.object.userData.ledBar.fixtureHandle || null;
+    }
     const instance = MovingHead.getInstance(hit.instanceId);
     return (instance && instance.fixtureHandle) || null;
   }
@@ -576,6 +616,7 @@ class Controls {
     this.detachAll();
     this.hideHelpers();
     MovingHead.clearHiglighting();
+    LedBar.clearHighlighting();
     EventBus.emit('fixture_picked', null);
   }
 
@@ -611,6 +652,7 @@ class Controls {
   }
 
   setFocus(state) {
+    if (state && this._focusSuppressed) return;
     if (!state || this.autoFocus) {
       // Selecting a fixture that is already framed should not yank the camera
       // around; only move when the selection is off-screen or clipped.
@@ -653,6 +695,33 @@ class Controls {
    *
    * @public
    */
+  /**
+   * Lifts the dragged selection until nothing sits below the floor.
+   *
+   * Applied to the group rather than to each fixture, so a multi-selection
+   * keeps its relative arrangement instead of collapsing onto the floor plane.
+   *
+   * @public
+   */
+  clampToFloor() {
+    if (!this.groupedInstances) return;
+    this.groupedInstances.updateMatrixWorld(true);
+
+    let deepest = 0;
+    this.pooledInstances.forEach((fixture) => {
+      const model = fixture._3DModel;
+      if (!model || !model._dummy) return;
+      model._dummy.getWorldPosition(floorProbe);
+      const clearance = floorProbe.z - (model.floorOffset || 0);
+      if (clearance < deepest) deepest = clearance;
+    });
+
+    if (deepest < 0) {
+      this.groupedInstances.position.z -= deepest;
+      this.groupedInstances.updateMatrixWorld(true);
+    }
+  }
+
   applyTransformation() {
     for (let i = this.groupedInstances.children.length - 1; i >= 0; i--) {
       const child = this.groupedInstances.children[i];
