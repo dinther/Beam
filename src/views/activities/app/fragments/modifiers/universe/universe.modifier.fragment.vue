@@ -9,6 +9,7 @@
         callback: displayPatchPopup,
       }"
       :auto-select="selectedFixtureIndex"
+      :highlight-ids="highlightedFixtureIds"
       @select="selectFixture"
       @delete="deleteFixtures"
     />
@@ -22,27 +23,6 @@
       ref="positionTool"
       :fixture="selectedFixture"
     />
-    <fixture-channels-widget
-      v-show="selectedFixture"
-      ref="channels"
-      class="fixture_channels"
-      :channels="selectedFixture ? selectedFixture.simplifiedChannels : []"
-      @input="setChannel"
-    />
-    <widget-color-picker
-      v-if="selectedFixture && selectedFixture.hasColor"
-      ref="colorPicker"
-      v-model="selectedFixture.color"
-      tabindex="0"
-    />
-    <!-- :rgb-data="selectedFixture ? selectedFixture.color : undefined"
-      @input="setFixtureColor" -->
-    <pan-tilt-widget
-      v-show="selectedFixture && selectedFixture.hasPan && selectedFixture.hasTilt"
-      ref="panTiltPicker"
-      :pan-tilt="selectedFixture ? selectedFixture.panTilt : undefined"
-      @input="setFixturePanTilt"
-    />
     <patch-popup
       v-model="patchPopupDisplayState"
       :universe="universe"
@@ -51,10 +31,8 @@
 </template>
 
 <script>
+import EventBus from '@/plugins/eventbus';
 import FixturePoolWidget from '../_widgets/modifier.widget.fixture.pool.vue';
-import FixtureChannelsWidget from '../_widgets/modifier.widget.fixture.channels.vue';
-import WidgetColorPicker from '../_widgets/modifier.widget.colorpicker.vue';
-import PanTiltWidget from '../_widgets/modifier.widget.pantilt.vue';
 
 import UniverseSettingsWidget from './_widgets/universe.modifier.widget.settings.vue';
 import FixtureSettingsWidget from './_widgets/universe.modifier.widget.fixture.settings.vue';
@@ -72,9 +50,6 @@ export default {
     FixturePoolWidget,
     FixtureSettingsWidget,
     PositionToolWidget,
-    FixtureChannelsWidget,
-    WidgetColorPicker,
-    PanTiltWidget,
     PatchPopup,
   },
   data() {
@@ -95,6 +70,10 @@ export default {
        * Index of the currently selected fixture in the universe's fixture pool.
        */
       selectedFixtureIndex: 0,
+      /**
+       * Ids of fixtures selected in the 3D view, mirrored into the list.
+       */
+      highlightedFixtureIds: [],
     };
   },
   watch: {
@@ -109,8 +88,10 @@ export default {
   },
   mounted() {
     this.fetchUniverseData(0);
+    EventBus.on('fixture_picked', this.handleFixturePicked);
   },
   beforeUnmount() {
+    EventBus.off('fixture_picked', this.handleFixturePicked);
     if (this.selectedFixture && this.selectedFixture.id) {
       this.selectedFixture.highlightSingle(false);
     }
@@ -127,8 +108,17 @@ export default {
           this.universe = this.$show.universePool.getFromId(id);
           this.selectFixture(0);
         } catch (err) {
-          this.universe = {};
-          this.selectedFixture = null;
+          // The requested ID is not in the pool (stale route, renumbered show).
+          // Fall back to the first available universe rather than a bare object:
+          // a plain {} carries none of the Universe methods the widgets call.
+          const [fallback] = this.$show.universePool.universes;
+          if (fallback) {
+            this.universe = fallback;
+            this.selectFixture(0);
+          } else {
+            this.universe = {};
+            this.selectedFixture = null;
+          }
         }
       }
     },
@@ -147,6 +137,33 @@ export default {
       }
     },
     /**
+     * Mirrors a selection made by clicking in the 3D view. Routing is the
+     * channel the fixture pool list already watches, so pushing the fixture id
+     * keeps the list, the settings widget and the position tool in step.
+     *
+     * @public
+     * @param {Object} payload {universeId, fixtureId}, or null to clear
+     */
+    handleFixturePicked(payload) {
+      if (!payload) {
+        this.selectedFixture = null;
+        this.highlightedFixtureIds = [];
+        return;
+      }
+      this.highlightedFixtureIds = payload.selectedIds || [];
+      const { universeId, fixtureId } = payload;
+      // A multi-fixture selection names no primary: routing to one of them
+      // would make the list call highlightSingle() and collapse the rest.
+      if (fixtureId === undefined) return;
+      const path = `/universe/${universeId}`;
+      // Re-picking the fixture that is already routed to is a no-op push;
+      // vue-router rejects it, and there is nothing to update anyway.
+      this.$router.push({ path, query: { fixtureId } }).catch(() => {});
+      if (this.universe && this.universe.id === universeId) {
+        this.selectFixture(fixtureId);
+      }
+    },
+    /**
      * Display the patch popup
      *
      * @public
@@ -159,41 +176,6 @@ export default {
         if (this.selectedFixture) {
           this.selectedFixture.highlightSingle(false, true);
         }
-      }
-    },
-    /**
-     * Sets the selected fixture channel value
-     *
-     * @public
-     * @param {Object} channel the channel to be update
-     */
-    setChannel(channel) {
-      this.selectedFixture.setQuickAccessor(channel, channel.value);
-    },
-    /**
-     * Sets the selected fixture color intensity value
-     *
-     * @public
-     * @param {Array} color an array containing [R,G,B] values.
-     */
-    setFixtureColor(color) {
-      if (this.selectedFixture) {
-        this.selectedFixture.color = color;
-      }
-    },
-    /**
-     * Sets the selected fixture pan & tilt values
-     *
-     * @public
-     * @param {Object} panTilt a panTilt object containing pan(fine)/tilt(fine) values
-     * @param {Number} panTilt.pan the fixture's new pan value
-     * @param {Number} panTilt.panFine the fixture's new pan fine value
-     * @param {Number} panTilt.tilt the fixture's new tilt value
-     * @param {Number} panTilt.tiltFine the fixture's new tilt fine value
-     */
-    setFixturePanTilt(panTilt) {
-      if (this.selectedFixture) {
-        this.selectedFixture.panTilt = panTilt;
       }
     },
     /**

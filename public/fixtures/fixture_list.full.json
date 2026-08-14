@@ -1,0 +1,3467 @@
+[
+  {
+    "name": "5star-systems",
+    "fixtures": [
+      {
+        "file": "spica-250m.json",
+        "name": "Spica 250M",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "abstract",
+    "fixtures": [
+      {
+        "file": "twister-4.json",
+        "name": "Twister 4",
+        "category": "Flower",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "acoustic-control",
+    "fixtures": [
+      {
+        "file": "par-180-cob-3in1.json",
+        "name": "PAR 180 COB 3in1",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "adb",
+    "fixtures": [
+      {
+        "file": "alc4.json",
+        "name": "ALC4",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "europe-105.json",
+        "name": "Europe 105",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "warp-m.json",
+        "name": "WARP/M",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "afx",
+    "fixtures": [
+      {
+        "file": "lmh460z.json",
+        "name": "LMH460Z",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "alien-pro",
+    "fixtures": [
+      {
+        "file": "alien-s.json",
+        "name": "Alien S",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "american-dj",
+    "fixtures": [
+      {
+        "file": "auto-spot-150.json",
+        "name": "Auto Spot 150",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "boom-box-fx2.json",
+        "name": "Boom Box Fx2",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "cob-cannon-wash.json",
+        "name": "COB Cannon Wash",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "crazy-pocket-8.json",
+        "name": "Crazy Pocket 8",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "dekker-led.json",
+        "name": "Dekker LED",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "dotz-par.json",
+        "name": "Dotz Par",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "encore-profile-1000-ww.json",
+        "name": "Encore Profile 1000 WW",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "flat-par-qa12xs.json",
+        "name": "Flat Par QA12XS",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "fog-fury-jett-pro.json",
+        "name": "Fog Fury Jett Pro",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "galaxian-3d.json",
+        "name": "Galaxian 3D",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "illusion-dotz-4-4.json",
+        "name": "Illusion Dotz 4.4",
+        "category": "Matrix",
+        "supported": true
+      },
+      {
+        "file": "inno-pocket-beam-q4.json",
+        "name": "Inno Pocket Beam Q4",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "inno-pocket-fusion.json",
+        "name": "Inno Pocket Fusion",
+        "category": "Barrel Scanner",
+        "supported": false
+      },
+      {
+        "file": "mega-bar-50rgb-rc.json",
+        "name": "Mega Bar 50RGB RC",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "mega-bar-50rgb.json",
+        "name": "Mega Bar 50RGB",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "mega-bar-rgba.json",
+        "name": "Mega Bar RGBA",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "mega-hex-par.json",
+        "name": "Mega Hex Par",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "mega-tripar-profile-plus.json",
+        "name": "Mega TRIPAR Profile Plus",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "mega-tripar-profile.json",
+        "name": "Mega TRIPAR Profile",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "pocket-pro.json",
+        "name": "Pocket Pro",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "quad-phase-hp.json",
+        "name": "Quad Phase HP",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "revo-4-ir.json",
+        "name": "Revo 4 IR",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "revo-burst.json",
+        "name": "Revo Burst",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "revo-sweep.json",
+        "name": "Revo Sweep",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "saber-spot-rgbw.json",
+        "name": "Saber Spot RGBW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "starburst.json",
+        "name": "Starbust",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "stinger-ii.json",
+        "name": "Stinger II",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "stinger-spot.json",
+        "name": "Stinger Spot",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "vizi-spot-led-pro.json",
+        "name": "Vizi Spot LED Pro",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "xs-400.json",
+        "name": "XS 400",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "ape-labs",
+    "fixtures": [
+      {
+        "file": "lightcan.json",
+        "name": "LightCan",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "arri",
+    "fixtures": [
+      {
+        "file": "broadcaster-2-plus.json",
+        "name": "Broadcaster 2 Plus",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "l10-c.json",
+        "name": "L10-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "l5-c.json",
+        "name": "L5-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "l7-c.json",
+        "name": "L7-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "skypanel-s120c.json",
+        "name": "Skypanel S120C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "skypanel-s30c.json",
+        "name": "Skypanel S30C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "skypanel-s360c.json",
+        "name": "Skypanel S360C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "skypanel-s60c.json",
+        "name": "Skypanel S60C",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "astera",
+    "fixtures": [
+      {
+        "file": "ax3-lightdrop.json",
+        "name": "AX3 Lightdrop",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "fp1-titan-tube.json",
+        "name": "FP1 Titan Tube",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "fp2-helios-tube.json",
+        "name": "FP2 Helios Tube",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "fp3-hyperion-tube.json",
+        "name": "FP3 Hyperion Tube",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "fp5-nyx-bulb.json",
+        "name": "FP5 NYX Bulb",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "audibax",
+    "fixtures": [
+      {
+        "file": "boston-60.json",
+        "name": "Boston 60",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "ayra",
+    "fixtures": [
+      {
+        "file": "tdc-triple-burst.json",
+        "name": "TDC Triple Burst",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "ayrton",
+    "fixtures": [
+      {
+        "file": "diablo-s.json",
+        "name": "Diablo-S",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "diablo-tc.json",
+        "name": "Diablo-TC",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "magicblade-fx.json",
+        "name": "MagicBlade FX",
+        "category": "Pixel Bar",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "beamz",
+    "fixtures": [
+      {
+        "file": "h2000-faze-machine.json",
+        "name": "H2000 Faze Machine",
+        "category": "Hazer",
+        "supported": false
+      },
+      {
+        "file": "panther-7r.json",
+        "name": "Panther 7R",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "pls25-par.json",
+        "name": "PLS25 Par",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "triple-flex-centre-pro-led.json",
+        "name": "Triple Flex Centre Pro LED",
+        "category": "Flower",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "big-dipper",
+    "fixtures": [
+      {
+        "file": "lp001.json",
+        "name": "LP001",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "ls90.json",
+        "name": "LS90",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "blizzard",
+    "fixtures": [
+      {
+        "file": "puck-rgbaw.json",
+        "name": "Puck RGBAW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rokbox-rgbw.json",
+        "name": "RokBox RGBW",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "boomtonedj",
+    "fixtures": [
+      {
+        "file": "crazy-spot-30.json",
+        "name": "Crazy Spot 30",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "silentpar-12x10w-5in1.json",
+        "name": "SilentPAR 12x10W 5in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-12x10w-6in1.json",
+        "name": "SilentPAR 12x10W 6in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-12x3w-3in1.json",
+        "name": "SilentPAR 12x3W 3in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-5x10w-5in1.json",
+        "name": "SilentPAR 5x10W 5in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-5x10w-6in1.json",
+        "name": "SilentPAR 5x10W 6in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-5x3w-3in1.json",
+        "name": "SilentPAR 5x3W 3in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-7x10w-5in1.json",
+        "name": "SilentPAR 7x10W 5in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-7x10w-6in1.json",
+        "name": "SilentPAR 7x10W 6in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "silentpar-7x3w-3in1.json",
+        "name": "SilentPAR 7x3W 3in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "xtrem-led.json",
+        "name": "Xtrem LED",
+        "category": "Flower",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "briteq",
+    "fixtures": [
+      {
+        "file": "beamspot1-dmx-fc.json",
+        "name": "BEAMSPOT1-DMX FC",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "bt-coloray-120r.json",
+        "name": "BT-COLORAY 120R",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "bt-coloray-18fcr.json",
+        "name": "BT-COLORAY 18FCR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "bt-coloray-60r.json",
+        "name": "BT-COLORAY 60R",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "bt-ledrotor.json",
+        "name": "BT-LEDROTOR",
+        "category": "Fan",
+        "supported": false
+      },
+      {
+        "file": "bt-stagepar-6in1.json",
+        "name": "BT-STAGEPAR 6in1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "btx-titan.json",
+        "name": "BTX-Titan",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "cob-slim-100-rgb.json",
+        "name": "COB Slim 100-RGB",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "pro-beamer-zoom-indoor.json",
+        "name": "PRO BEAMER ZOOM INDOOR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "pro-beamer-zoom-outdoor.json",
+        "name": "PRO BEAMER ZOOM OUTDOOR",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "cameo",
+    "fixtures": [
+      {
+        "file": "auro-beam-150.json",
+        "name": "Auro Beam 150",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "auro-spot-100.json",
+        "name": "Auro Spot 100",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "auro-spot-200.json",
+        "name": "Auro Spot 200",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "auro-spot-300.json",
+        "name": "Auro Spot 300",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "auro-spot-400.json",
+        "name": "Auro Spot 400",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "flash-matrix-250.json",
+        "name": "Flash Matrix 250",
+        "category": "Matrix",
+        "supported": false
+      },
+      {
+        "file": "flat-par-can-rgb-10-ir.json",
+        "name": "Flat PAR Can RGB 10 IR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "flat-par-can-tri-5x-3w-ir.json",
+        "name": "Flat PAR Can Tri 5x 3W IR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "flat-par-can-tri-7x-3w-ir.json",
+        "name": "Flat PAR Can Tri 7x 3W IR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "flat-pro-18.json",
+        "name": "Flat Pro 18",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "flat-pro-flood-600-ip65.json",
+        "name": "Flat Pro Flood 600 IP65",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "flat-pro-flood-ip65-tri.json",
+        "name": "Flat Pro Flood IP65 Tri",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "gobo-scanner-80.json",
+        "name": "Gobo Scanner 80",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "hydrabeam-100.json",
+        "name": "Hydrabeam 100",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "hydrabeam-300-rgbw.json",
+        "name": "Hydrabeam 300 RGBW",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "instant-air-1000-pro.json",
+        "name": "Instant Air 1000 Pro",
+        "category": "Fan",
+        "supported": false
+      },
+      {
+        "file": "instant-air-2000-pro.json",
+        "name": "Instant Air 2000 Pro",
+        "category": "Fan",
+        "supported": false
+      },
+      {
+        "file": "ioda-1000-rgb.json",
+        "name": "IODA 1000 RGB",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "ioda-400-rgy.json",
+        "name": "IODA 400 RGY",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "ioda-600-rgb.json",
+        "name": "IODA 600 RGB",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "multi-fx-bar.json",
+        "name": "Multi FX Bar",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "multi-par-cob-1.json",
+        "name": "Multi PAR COB 1",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "nanospot-120.json",
+        "name": "NanoSpot 120",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "outdoor-par-tri-12.json",
+        "name": "Outdoor PAR Tri 12",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "root-par-6.json",
+        "name": "ROOT PAR 6",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "steam-wizard-1000.json",
+        "name": "Steam Wizard 1000",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "steam-wizard-2000.json",
+        "name": "Steam Wizard 2000",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "storm.json",
+        "name": "STORM",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "thunder-wash-100-rgb.json",
+        "name": "Thunder Wash 100 RGB",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "thunder-wash-100-w.json",
+        "name": "Thunder Wash 100 W",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "thunder-wash-600-rgb.json",
+        "name": "Thunder Wash 600 RGB",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "thunder-wash-600-rgbw.json",
+        "name": "Thunder Wash 600 RGBW",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "thunder-wash-600-w.json",
+        "name": "Thunder Wash 600 W",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "zenit-w600.json",
+        "name": "Zenit W600",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "chauvet-dj",
+    "fixtures": [
+      {
+        "file": "colorband-pix-ip.json",
+        "name": "COLORband PiX IP",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "colorband-pix.json",
+        "name": "COLORband PiX",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "corepar-uv-usb.json",
+        "name": "COREpar UV USB",
+        "category": "Other",
+        "supported": false
+      },
+      {
+        "file": "eve-p-100-ww.json",
+        "name": "EVE P-100 WW",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "eve-p-130-rgb.json",
+        "name": "EVE P-130 RGB",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "freedom-h1.json",
+        "name": "Freedom H1",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "geyser-rgb.json",
+        "name": "Geyser RGB",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "gigbar-2.json",
+        "name": "GigBAR 2",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "intimidator-spot-110.json",
+        "name": "Intimidator Spot 110",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "intimidator-spot-260.json",
+        "name": "Intimidator Spot 260",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "kinta-x.json",
+        "name": "Kinta X",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "motiondrape-led.json",
+        "name": "MotionDrape LED",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "slimpar-pro-h-usb.json",
+        "name": "SlimPAR Pro H USB",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "slimpar-pro-qz12.json",
+        "name": "SlimPAR Pro QZ12",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "slimpar-pro-w.json",
+        "name": "SlimPAR Pro W",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "slimpar-q12-bt.json",
+        "name": "SlimPAR Q12 BT",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "slimpar-t12-bt.json",
+        "name": "SlimPAR T12 BT",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "washfx.json",
+        "name": "WashFX",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "chauvet-professional",
+    "fixtures": [
+      {
+        "file": "colordash-batten-quad-6.json",
+        "name": "COLORdash Batten-Quad 6",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "ovation-f-915vw.json",
+        "name": "Ovation F-915VW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rogue-r2-wash.json",
+        "name": "Rogue R2 Wash",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "chroma-q",
+    "fixtures": [
+      {
+        "file": "color-force-ii-12.json",
+        "name": "Color Force II 12",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "color-force-ii-48.json",
+        "name": "Color Force II 48",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "color-force-ii-72.json",
+        "name": "Color Force II 72",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "cinetec",
+    "fixtures": [
+      {
+        "file": "par-18x15w-rgbwa.json",
+        "name": "PAR 18x15W RGBWA",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "clay-paky",
+    "fixtures": [
+      {
+        "file": "a-leda-b-eye-k10.json",
+        "name": "A.leda B-EYE K10",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "a-leda-b-eye-k20.json",
+        "name": "A.leda B-EYE K20",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "alpha-spot-qwo-800.json",
+        "name": "Alpha Spot QWO 800",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "sharpy.json",
+        "name": "Sharpy",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "show-batten-100.json",
+        "name": "Show-Batten 100",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "spheriscan.json",
+        "name": "Spheriscan",
+        "category": "Scanner",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "clf",
+    "fixtures": [
+      {
+        "file": "hera.json",
+        "name": "Hera",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "coemar",
+    "fixtures": [
+      {
+        "file": "prospot-250-lx.json",
+        "name": "ProSpot 250 LX",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "contest",
+    "fixtures": [
+      {
+        "file": "irledflat-5x12SIXb.json",
+        "name": "IrLEDFLAT 5x12SIXb",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "dedolight",
+    "fixtures": [
+      {
+        "file": "dled4-bi.json",
+        "name": "DLED4-BI",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "dled7-bi.json",
+        "name": "DLED7-BI",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "dmg-lumiere",
+    "fixtures": [
+      {
+        "file": "maxi-mix.json",
+        "name": "MAXI MIX",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "mini-mix.json",
+        "name": "MINI MIX",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "sl1-mix.json",
+        "name": "SL1 MIX",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "dts",
+    "fixtures": [
+      {
+        "file": "scena-led-150.json",
+        "name": "Scena LED 150",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "xr1200-wash.json",
+        "name": "XR1200 WASH",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "xr4-spot.json",
+        "name": "XR4 Spot",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "elation",
+    "fixtures": [
+      {
+        "file": "acl-360-roller.json",
+        "name": "ACL 360 Roller",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "cuepix-blinder-ww2.json",
+        "name": "CUEPIX Blinder WW2",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "cuepix-blinder-ww4.json",
+        "name": "CUEPIX Blinder WW4",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "design-led-par-zoom.json",
+        "name": "Design LED Par Zoom",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "platinum-hfx.json",
+        "name": "Platinum HFX",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "platinum-seven.json",
+        "name": "Platinum Seven",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "platinum-spot-15r-pro.json",
+        "name": "Platinum Spot 15R Pro",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "proteus-hybrid.json",
+        "name": "Proteus Hybrid",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "sixpar-100-ip.json",
+        "name": "SIXPAR 100IP",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-100.json",
+        "name": "SIXPAR 100",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-200-ip.json",
+        "name": "SIXPAR 200 IP",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-200-wmg.json",
+        "name": "SIXPAR 200 WMG",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-200.json",
+        "name": "SIXPAR 200",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-300-ip.json",
+        "name": "SIXPAR 300 IP",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-300-wmg.json",
+        "name": "SIXPAR 300 WMG",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sixpar-300.json",
+        "name": "SIXPAR 300",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "uni-bar.json",
+        "name": "UNI BAR",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "eliminator",
+    "fixtures": [
+      {
+        "file": "stealth-beam.json",
+        "name": "Stealth Beam",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "stealth-wash-zoom.json",
+        "name": "Stealth Wash Zoom",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "empire-lighting",
+    "fixtures": [
+      {
+        "file": "8x-3w-led-spider-effect.json",
+        "name": "8x 3W LED Spider Effect",
+        "category": "Effect",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "epsilon",
+    "fixtures": [
+      {
+        "file": "duo-q-beam-bar.json",
+        "name": "Duo Q-Beam Bar",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "equinox",
+    "fixtures": [
+      {
+        "file": "gigabar.json",
+        "name": "Gigabar",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "rgb-power-batten.json",
+        "name": "RGB Power Batten",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "etc",
+    "fixtures": [
+      {
+        "file": "colorsource-par-deep-blue.json",
+        "name": "ColorSource PAR Deep Blue",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "colorsource-par.json",
+        "name": "ColorSource PAR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "colorsource-spot-deep-blue.json",
+        "name": "ColorSource Spot Deep Blue",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "colorsource-spot.json",
+        "name": "ColorSource Spot",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "fos4PD16.json",
+        "name": "fos/4 PD16",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "fos4PD24.json",
+        "name": "fos/4 PD24",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "fos4PD8.json",
+        "name": "fos/4 PD8",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "fos4PL16.json",
+        "name": "fos/4 PL16",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "fos4PL24.json",
+        "name": "fos/4 PL24",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "fos4PL8.json",
+        "name": "fos/4 PL8",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "source-four-led-series-2-daylight-hd.json",
+        "name": "Source Four LED Series 2 Daylight HD",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "source-four-led-series-2-lustr.json",
+        "name": "Source Four LED Series 2 Lustr",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "source-four-led-series-2-tungsten-hd.json",
+        "name": "Source Four LED Series 2 Tungsten HD",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "eurolite",
+    "fixtures": [
+      {
+        "file": "led-b-40.json",
+        "name": "LED B-40",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "led-bar-3-hcl-bar.json",
+        "name": "LED Bar-3 HCL Bar",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-big-party-spot.json",
+        "name": "LED Big PARty Spot",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-big-party-tcl-spot.json",
+        "name": "LED Big PARty TCL Spot",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-fe-1500.json",
+        "name": "LED FE-1500",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "led-h2o.json",
+        "name": "LED H²O",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "led-kls-801.json",
+        "name": "LED KLS-801",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "led-ml-56-rgbw.json",
+        "name": "LED ML-56 RGBW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-par-56-tcl.json",
+        "name": "LED PAR-56 TCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-party-spot.json",
+        "name": "LED PARty Spot",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-party-tcl-spot.json",
+        "name": "LED PARty TCL Spot",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-pix-12-hcl.json",
+        "name": "LED PIX-12 HCL",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "led-pix-144.json",
+        "name": "LED PIX-144",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "led-ps-4-hcl.json",
+        "name": "LED PS-4 HCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-sls-12-bcl.json",
+        "name": "LED SLS-12 BCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-sls-5-bcl.json",
+        "name": "LED SLS-5 BCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-sls-6-uv-floor.json",
+        "name": "LED SLS-6 UV Floor",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "led-svf-1.json",
+        "name": "LED SVF-1",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "led-tha-100f-mk2.json",
+        "name": "LED THA-100F MK2",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "led-tha-100f.json",
+        "name": "LED THA-100F",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "led-tl-4-qcl.json",
+        "name": "LED TL-4 QCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-tmh-17.json",
+        "name": "LED TMH-17",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-18.json",
+        "name": "LED TMH-18",
+        "category": "Matrix",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-7.json",
+        "name": "LED TMH-7",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-8.json",
+        "name": "LED TMH-8",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-9.json",
+        "name": "LED TMH-9",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-x12.json",
+        "name": "LED TMH-X12",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-tmh-x25.json",
+        "name": "LED TMH-X25",
+        "category": "Matrix",
+        "supported": true
+      },
+      {
+        "file": "multiflood-pro-ip-smd-rgbw.json",
+        "name": "Multiflood Pro IP SMD RGBW",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "n-150.json",
+        "name": "N-150",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "tmh-xb-130.json",
+        "name": "TMH XB-130",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "event-lighting",
+    "fixtures": [
+      {
+        "file": "par12x12.json",
+        "name": "Par12x12",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "par5x12.json",
+        "name": "Par5x12",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "evolight",
+    "fixtures": [
+      {
+        "file": "colours-archspot-54-rgb.json",
+        "name": "Colours Archspot 54 RGB",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "explo",
+    "fixtures": [
+      {
+        "file": "gasprojector-gx2.json",
+        "name": "Gasprojector GX2",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "x2-wave-flamer.json",
+        "name": "X2 Wave Flamer",
+        "category": "Effect",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "eyourlife",
+    "fixtures": [
+      {
+        "file": "led-rgbw-54x3-par64.json",
+        "name": "LED RGBW 54x3 Par64",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "fiilex",
+    "fixtures": [
+      {
+        "file": "p3-color.json",
+        "name": "P3 Color",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "flash-professional",
+    "fixtures": [
+      {
+        "file": "led-moving-head-150w.json",
+        "name": "LED Moving Head 150W",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-par-64-cob-300w-rgbwauv.json",
+        "name": "LED PAR 64 COB 300W RGBWAUV",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-par-64-slim-7x10w-rgbw-mk2.json",
+        "name": "LED PAR 64 SLIM 7x10W RGBW Mk2",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "fovitec",
+    "fixtures": [
+      {
+        "file": "600xb.json",
+        "name": "600XB",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "fractal-lights",
+    "fixtures": [
+      {
+        "file": "par-led-7x10w.json",
+        "name": "PAR LED 7x10W",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "par-led-7x12w.json",
+        "name": "PAR LED 7x12W",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "par-led-7x9w.json",
+        "name": "PAR LED 7x9W",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "fun-generation",
+    "fixtures": [
+      {
+        "file": "led-pot-12-1w-rgbw.json",
+        "name": "LED Pot 12×1W RGBW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "picobeam-30-quad-led.json",
+        "name": "PicoBeam 30 Quad LED",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "picobeam-60-cob-rgbw.json",
+        "name": "PicoBeam 60 COB RGBW",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "picoblade-fx-4x10w-rgbw.json",
+        "name": "PicoBlade FX 4x10W RGBW",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "picospot-20-led.json",
+        "name": "PicoSpot 20 LED",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "picospot-45-led.json",
+        "name": "PicoSpot 45 LED",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "picowash-40-pixel-quad-led.json",
+        "name": "PicoWash 40 Pixel Quad LED",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "separ-quad-led-rgb-uv.json",
+        "name": "SePar Quad LED RGB UV",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "separ-quad-led-rgbw.json",
+        "name": "SePar Quad LED RGBW",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "futurelight",
+    "fixtures": [
+      {
+        "file": "dj-scan-250.json",
+        "name": "DJ-Scan 250",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "dmh-75-i-led-moving-head.json",
+        "name": "DMH-75.i LED Moving Head",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "pro-slim-par-7-hcl.json",
+        "name": "PRO Slim PAR-7 HCL",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "sc-250-scanner.json",
+        "name": "SC-250 Scanner",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "stb-648-led-strobe-smd-5050.json",
+        "name": "STB-648 LED Strobe SMD 5050",
+        "category": "Strobe",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "gantom",
+    "fixtures": [
+      {
+        "file": "precision-dmx.json",
+        "name": "Precision DMX",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "generic",
+    "fixtures": [
+      {
+        "file": "4-channel-dimmer-pack.json",
+        "name": "4-Channel Dimmer Pack",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "cmy-fader.json",
+        "name": "CMY Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "cw-ww-fader.json",
+        "name": "CW/WW Fader",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "desk-channel.json",
+        "name": "Desk Channel",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "drgb-fader.json",
+        "name": "DRGB Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "drgbw-fader.json",
+        "name": "DRGBW Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "grbw-fader.json",
+        "name": "GRBW Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "pan-tilt.json",
+        "name": "Pan/Tilt Fader",
+        "category": "Moving Head",
+        "supported": false
+      },
+      {
+        "file": "rgb-fader.json",
+        "name": "RGB Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rgba-fader.json",
+        "name": "RGBA Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rgbd-fader.json",
+        "name": "RGBD Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rgbw-fader.json",
+        "name": "RGBW Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rgbwauv-fader.json",
+        "name": "RGBWAUV Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rgbww-fader.json",
+        "name": "RGBWW Fader",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "strobe.json",
+        "name": "Strobe",
+        "category": "Strobe",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "ghost",
+    "fixtures": [
+      {
+        "file": "ip-spot-bat.json",
+        "name": "IP Spot Bat",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "ip-spot-pro.json",
+        "name": "IP Spot Pro",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "glp",
+    "fixtures": [
+      {
+        "file": "force-120.json",
+        "name": "Force 120",
+        "category": "Fan",
+        "supported": false
+      },
+      {
+        "file": "impression-fr1.json",
+        "name": "impression FR1",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "impression-laser.json",
+        "name": "impression Laser",
+        "category": "Laser",
+        "supported": true
+      },
+      {
+        "file": "impression-spot-one.json",
+        "name": "impression Spot One",
+        "category": "Color Changer",
+        "supported": true
+      },
+      {
+        "file": "impression-x4-bar-10.json",
+        "name": "Impression X4 Bar 10",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "jdc1.json",
+        "name": "JDC1",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "knv-arc.json",
+        "name": "KNV Arc",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "knv-cube.json",
+        "name": "KNV Cube",
+        "category": "Matrix",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "glx",
+    "fixtures": [
+      {
+        "file": "gls-4-led-stage-4.json",
+        "name": "GLS-4 LED Stage 4",
+        "category": "Stand",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "griven",
+    "fixtures": [
+      {
+        "file": "kolorado-4000.json",
+        "name": "Kolorado 4000",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "gruft",
+    "fixtures": [
+      {
+        "file": "pixel-tube.json",
+        "name": "Pixel Tube",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "ventilator.json",
+        "name": "Ventilator",
+        "category": "Fan",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "hazebase",
+    "fixtures": [
+      {
+        "file": "base-hazer-pro.json",
+        "name": "base*hazer*pro",
+        "category": "Hazer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "hive",
+    "fixtures": [
+      {
+        "file": "bee-50-c.json",
+        "name": "Bee 50-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "bumble-bee-25-cx.json",
+        "name": "Bumble Bee 25-CX",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "hornet-200-c.json",
+        "name": "Hornet 200-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "hornet-200-cx.json",
+        "name": "Hornet 200-CX",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "super-hornet-575-c.json",
+        "name": "Super Hornet 575-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "wasp-100-c.json",
+        "name": "Wasp 100-C",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "wasp-100-cx.json",
+        "name": "Wasp 100-CX",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "hong-yi",
+    "fixtures": [
+      {
+        "file": "hy-g60.json",
+        "name": "HY-G60",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "ibiza-light",
+    "fixtures": [
+      {
+        "file": "lp64-led-promo.json",
+        "name": "LP64 LED-PROMO",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "ls-005led.json",
+        "name": "LS-005LED",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "par-mini-rgb3.json",
+        "name": "LED PAR CAN 12x3W 3-in-1 RGB",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "ignition",
+    "fixtures": [
+      {
+        "file": "led-accu-par.json",
+        "name": "LED Accu PAR",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "infinity",
+    "fixtures": [
+      {
+        "file": "iw-340-rdm.json",
+        "name": "iW-340 RDM",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "iw-720-rdm.json",
+        "name": "iW-720 RDM",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "jb-lighting",
+    "fixtures": [
+      {
+        "file": "jbled-a7.json",
+        "name": "JBLED A7",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "varyscan-p7.json",
+        "name": "Varyscan P7",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "jb-systems",
+    "fixtures": [
+      {
+        "file": "imove-5s.json",
+        "name": "iMove 5S",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "irock-5c.json",
+        "name": "iRock 5C",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "twin-effect-laser.json",
+        "name": "Twin Effect Laser",
+        "category": "Laser",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "kam",
+    "fixtures": [
+      {
+        "file": "gobotracer.json",
+        "name": "GoboTracer",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "lalucenatz",
+    "fixtures": [
+      {
+        "file": "18leds-par-light.json",
+        "name": "18LEDs Par Light",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "dj-lights.json",
+        "name": "DJ Lights",
+        "category": "Flower",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "laserworld",
+    "fixtures": [
+      {
+        "file": "cs-1000rgb.json",
+        "name": "CS-1000RGB",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "ds-1000rgb.json",
+        "name": "DS-1000RGB",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "shownet.json",
+        "name": "ShowNET",
+        "category": "Laser",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "ledj",
+    "fixtures": [
+      {
+        "file": "slimline-12q5-rgba.json",
+        "name": "Slimline 12Q5 RGBA",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "slimline-12q5-rgbw.json",
+        "name": "Slimline 12Q5 RGBW",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "lep-laser",
+    "fixtures": [
+      {
+        "file": "diamond-pro-2-8.json",
+        "name": "Diamond PRO 2.8",
+        "category": "Laser",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "light-sky",
+    "fixtures": [
+      {
+        "file": "aurora.json",
+        "name": "Aurora",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "lightmaxx",
+    "fixtures": [
+      {
+        "file": "dj-scan-led.json",
+        "name": "DJ Scan LED",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "easy-wash-quad-led.json",
+        "name": "Easy Wash Quad LED",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-nano-par.json",
+        "name": "LED Nano PAR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "led-par-56.json",
+        "name": "LED Par 56",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "platinum-mini-tri-par.json",
+        "name": "Platinum Mini TRI-PAR",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "vector-pixel-bar-18x-15w-rgbwa.json",
+        "name": "Vector Pixel BAR 18x 15W RGBWA",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "vega-zoom-wash.json",
+        "name": "Vega Zoom Wash",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "lite-tek",
+    "fixtures": [
+      {
+        "file": "beam-230.json",
+        "name": "Beam 230",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "litecraft",
+    "fixtures": [
+      {
+        "file": "washx-21.json",
+        "name": "WashX.21",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "litegear",
+    "fixtures": [
+      {
+        "file": "litemat-plus-1.json",
+        "name": "LiteMat Plus 1",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litemat-plus-2.json",
+        "name": "LiteMat Plus 2",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litemat-plus-2l.json",
+        "name": "LiteMat Plus 2L",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litemat-plus-3.json",
+        "name": "LiteMat Plus 3",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litemat-plus-4.json",
+        "name": "LiteMat Plus 4",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litemat-plus-8.json",
+        "name": "LiteMat Plus 8",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litetile-plus-4.json",
+        "name": "LiteTile Plus 4",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "litetile-plus-8.json",
+        "name": "LiteTile Plus 8",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "s2-litemat-1.json",
+        "name": "S2 LiteMat 1",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "s2-litemat-2.json",
+        "name": "S2 LiteMat 2",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "s2-litemat-2l.json",
+        "name": "S2 LiteMat 2L",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "s2-litemat-3.json",
+        "name": "S2 LiteMat 3",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "s2-litemat-4.json",
+        "name": "S2 LiteMat 4",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "lixada",
+    "fixtures": [
+      {
+        "file": "mini-beam-rgbw.json",
+        "name": "Mini Beam RGBW",
+        "category": "Unknown",
+        "supported": false
+      },
+      {
+        "file": "mini-gobo-moving-head-light.json",
+        "name": "Mini Gobo Moving Head Light",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mini-moving-head-rgbw.json",
+        "name": "Mini Moving Head RGBW",
+        "category": "Unknown",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "look",
+    "fixtures": [
+      {
+        "file": "cryofog.json",
+        "name": "Cryofog",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "viper-nt.json",
+        "name": "Viper NT",
+        "category": "Smoke",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "magicfx",
+    "fixtures": [
+      {
+        "file": "psyco2jet.json",
+        "name": "PSYCO2JET",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "smokejet.json",
+        "name": "SMOKEJET",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "stage-flame.json",
+        "name": "Stage Flame",
+        "category": "Effect",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "mark",
+    "fixtures": [
+      {
+        "file": "mbar-381-ip.json",
+        "name": "MBAR 381 IP",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "superbat-led-72.json",
+        "name": "SUPERBAT LED 72",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "martin",
+    "fixtures": [
+      {
+        "file": "atomic-3000.json",
+        "name": "Atomic 3000",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "mac-250-beam.json",
+        "name": "MAC 250 Beam",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-250-krypton.json",
+        "name": "Mac 250 Krypton",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-250-wash.json",
+        "name": "MAC 250 Wash",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-600.json",
+        "name": "MAC 600",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-700-wash.json",
+        "name": "MAC 700 Wash",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-aura.json",
+        "name": "MAC Aura",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-axiom-hybrid.json",
+        "name": "MAC Axiom Hybrid",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-encore-performance.json",
+        "name": "MAC Encore Performance",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-viper-airfx.json",
+        "name": "MAC Viper AirFX",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-viper-performance.json",
+        "name": "MAC Viper Performance",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mac-viper-wash.json",
+        "name": "MAC Viper Wash (DX)",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "magnum-2500-hz.json",
+        "name": "Magnum 2500 HZ",
+        "category": "Hazer",
+        "supported": false
+      },
+      {
+        "file": "mania-scx500.json",
+        "name": "Mania SCX500",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "roboscan-812.json",
+        "name": "RoboScan 812",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "rush-mh-2-wash.json",
+        "name": "Rush MH 2 Wash",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "rush-mh-3-beam.json",
+        "name": "Rush MH 3 Beam",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "rush-mh-5-profile.json",
+        "name": "Rush MH 5 Profile",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "rush-mh-7-hybrid.json",
+        "name": "Rush MH 7 Hybrid",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "rush-par-2-rgbw-zoom.json",
+        "name": "Rush PAR 2 RGBW Zoom",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "rush-scanner-1-led.json",
+        "name": "Rush Scanner 1 LED",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "stagebar-54l.json",
+        "name": "Stagebar 54L",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "stagebar-54s.json",
+        "name": "Stagebar 54S",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "mdg",
+    "fixtures": [
+      {
+        "file": "hazer-atmosphere-aps.json",
+        "name": "Hazer ATMOSPHERE APS",
+        "category": "Hazer",
+        "supported": false
+      },
+      {
+        "file": "theone-atmospheric-generator.json",
+        "name": "theONE Atmospheric Generator",
+        "category": "Hazer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "mega-led-lighting",
+    "fixtures": [
+      {
+        "file": "led-par-light-372.json",
+        "name": "LED PAR Light-372",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "zoom-360.json",
+        "name": "ZOOM 360",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "minuit-une",
+    "fixtures": [
+      {
+        "file": "ivl-carre.json",
+        "name": "IVL Carré",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "m-carre.json",
+        "name": "M-Carré",
+        "category": "Unknown",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "nicols",
+    "fixtures": [
+      {
+        "file": "led-bar-123-fc-ip.json",
+        "name": "LED BAR 123 FC IP",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "pat-252.json",
+        "name": "PAT 252",
+        "category": "Scanner",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "orion",
+    "fixtures": [
+      {
+        "file": "orcan2.json",
+        "name": "ORCAN2",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "panasonic",
+    "fixtures": [
+      {
+        "file": "pt-rz120.json",
+        "name": "PT-RZ120",
+        "category": "Other",
+        "supported": false
+      },
+      {
+        "file": "pt-rz120l.json",
+        "name": "PT-RZ120L",
+        "category": "Other",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "phocea-light",
+    "fixtures": [
+      {
+        "file": "box-leds-batterie-6x15w.json",
+        "name": "Box LEDs Batterie 6x15W",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "powerlighting",
+    "fixtures": [
+      {
+        "file": "wash-84w.json",
+        "name": "Wash 84W",
+        "category": "Color Changer",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "pr-lighting",
+    "fixtures": [
+      {
+        "file": "xs-250-spot.json",
+        "name": "XS 250 Spot",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "prolights",
+    "fixtures": [
+      {
+        "file": "diamond19.json",
+        "name": "DIAMOND19",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "pixpan16.json",
+        "name": "PIXPAN16",
+        "category": "Matrix",
+        "supported": false
+      },
+      {
+        "file": "polar3000.json",
+        "name": "POLAR3000",
+        "category": "Strobe",
+        "supported": false
+      },
+      {
+        "file": "smartbat.json",
+        "name": "SMARTBAT",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "v700spot.json",
+        "name": "V700SPOT",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "qtx",
+    "fixtures": [
+      {
+        "file": "lux-ld01.json",
+        "name": "Lux Ld01",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "lux-ld30w.json",
+        "name": "LUX-LD30W",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "renkforce",
+    "fixtures": [
+      {
+        "file": "gm107.json",
+        "name": "GM107",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "robe",
+    "fixtures": [
+      {
+        "file": "colorspot-2500e-at.json",
+        "name": "ColorSpot 2500E AT",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "dj-scan-250-xt.json",
+        "name": "DJ Scan 250 XT",
+        "category": "Scanner",
+        "supported": false
+      },
+      {
+        "file": "robin-300e-wash.json",
+        "name": "Robin 300E Wash",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "robin-600e-spot.json",
+        "name": "Robin 600E Spot",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "robin-ledbeam-100.json",
+        "name": "Robin LEDBeam 100",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "robin-ledbeam-150.json",
+        "name": "Robin LEDBeam 150",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "robin-ledwash-600.json",
+        "name": "Robin LEDWash 600",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "robin-parfect-150.json",
+        "name": "Robin ParFect 150",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "robin-viva-cmy.json",
+        "name": "ROBIN Viva CMY",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "spot-160-xt.json",
+        "name": "Spot 160 XT",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "robert-juliat",
+    "fixtures": [
+      {
+        "file": "613sx.json",
+        "name": "613SX",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "rockville",
+    "fixtures": [
+      {
+        "file": "rockpar50.json",
+        "name": "RockPAR50",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "sgm",
+    "fixtures": [
+      {
+        "file": "p-5.json",
+        "name": "P-5",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "shehds",
+    "fixtures": [
+      {
+        "file": "led-flat-par-12x3w-rgbw.json",
+        "name": "LED Flat Par 12x3W RGBW",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "showline",
+    "fixtures": [
+      {
+        "file": "sl-nitro-510c.json",
+        "name": "SL NITRO 510C",
+        "category": "Strobe",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "showlite",
+    "fixtures": [
+      {
+        "file": "lb-4390.json",
+        "name": "LB-4390",
+        "category": "Stand",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "showpro",
+    "fixtures": [
+      {
+        "file": "litebar-h9.json",
+        "name": "Litebar H9",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "showtec",
+    "fixtures": [
+      {
+        "file": "archi-painter-24-8-q4.json",
+        "name": "Archi Painter 24/8 Q4",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "atmos-2000.json",
+        "name": "Atmos 2000",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "club-par-12-4-rgbw.json",
+        "name": "Club PAR 12/4 RGBW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "compact-par-18.json",
+        "name": "Compact Par 18",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "compact-par-7-tri.json",
+        "name": "Compact Par 7 Tri",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "dominator.json",
+        "name": "Dominator",
+        "category": "Laser",
+        "supported": false
+      },
+      {
+        "file": "horizon-8.json",
+        "name": "Horizon 8",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "kanjo-spot-60.json",
+        "name": "Kanjo Spot 60",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "kanjo-wash-rgb.json",
+        "name": "Kanjo Wash RGB",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-light-bar-rgb-v3.json",
+        "name": "LED Light Bar RGB V3",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "phantom-140-led-spot.json",
+        "name": "Phantom 140 LED Beam",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "phantom-25-led-wash.json",
+        "name": "Phantom 25 LED Wash",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "phantom-3r-beam.json",
+        "name": "Phantom 3R Beam",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "phantom-50-led-spot.json",
+        "name": "Phantom 50 LED Spot",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "phantom-matrix-fx.json",
+        "name": "Phantom Matrix FX",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "pixel-bar-12-mkii.json",
+        "name": "Pixel Bar 12 MKII",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "sunraise-led.json",
+        "name": "Sunraise LED",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "sunstrip-active-mkii.json",
+        "name": "Sunstrip Active MKII",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "xs-1-rgbw.json",
+        "name": "XS-1 RGBW",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "showven",
+    "fixtures": [
+      {
+        "file": "sparkular-fall.json",
+        "name": "Sparkular Fall",
+        "category": "Effect",
+        "supported": false
+      },
+      {
+        "file": "sparkular.json",
+        "name": "Sparkular",
+        "category": "Effect",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "silver-star",
+    "fixtures": [
+      {
+        "file": "mx-indigo-6000xe.json",
+        "name": "MX-Indigo 6000XE",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "skypix",
+    "fixtures": [
+      {
+        "file": "ribalta-beam.json",
+        "name": "Ribalta Beam",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "solaris",
+    "fixtures": [
+      {
+        "file": "smart-36.json",
+        "name": "SMART 36",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "solena",
+    "fixtures": [
+      {
+        "file": "max-par-20.json",
+        "name": "Max Par 20",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "mini-par-12.json",
+        "name": "Mini Par 12",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "soundlight",
+    "fixtures": [
+      {
+        "file": "3204r-h.json",
+        "name": "3204R-H",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "stage-right",
+    "fixtures": [
+      {
+        "file": "mini-beam-rgbw.json",
+        "name": "Mini Beam RGBW",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "stage-wash-7x10w-led-moving-head.json",
+        "name": "Stage Wash 7x10W LED Moving Head",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "stairville",
+    "fixtures": [
+      {
+        "file": "af-180-led-fogger.json",
+        "name": "AF-180 LED Fogger",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "af-250.json",
+        "name": "AF-250",
+        "category": "Smoke",
+        "supported": false
+      },
+      {
+        "file": "afh-600.json",
+        "name": "AFH-600",
+        "category": "Hazer",
+        "supported": false
+      },
+      {
+        "file": "bel6-ip-bar-hex.json",
+        "name": "BEL6 IP Bar HEX",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "clb5-2p-rgb-ww-compact-led-par.json",
+        "name": "CLB5 2P RGB WW Compact LED Bar",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "led-bar-240-8.json",
+        "name": "LED Bar 240/8",
+        "category": "Pixel Bar",
+        "supported": false
+      },
+      {
+        "file": "led-flood-panel-150.json",
+        "name": "LED Flood Panel 150",
+        "category": "Blinder",
+        "supported": false
+      },
+      {
+        "file": "mh-100.json",
+        "name": "MH-100",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mh-x25.json",
+        "name": "MH-X25",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mh-x30-led-spot.json",
+        "name": "MH-x30 LED Spot",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mh-x30.json",
+        "name": "MH-x30",
+        "category": "Unknown",
+        "supported": false
+      },
+      {
+        "file": "mh-x50.json",
+        "name": "MH-X50+",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "mh-x60.json",
+        "name": "MH-X60",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "octagon-theater-20x6w-cw-ww-a.json",
+        "name": "Octagon Theater 20x6W CW/WW/A",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "par-56.json",
+        "name": "PAR 56",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "revueled-120-cob-rgbww.json",
+        "name": "RevueLED 120 COB RGBWW",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "revueled-120-cob-true-white.json",
+        "name": "RevueLED 120 COB True White",
+        "category": "Dimmer",
+        "supported": false
+      },
+      {
+        "file": "stage-tri-led.json",
+        "name": "Stage TRI LED",
+        "category": "Stand",
+        "supported": false
+      },
+      {
+        "file": "z120m-par-64-led-rgbw-120w.json",
+        "name": "Z120M Par 64 LED RGBW 120W",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "starway",
+    "fixtures": [
+      {
+        "file": "servo-color-4k.json",
+        "name": "Servo Color 4K",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "stickolor-1210uhd.json",
+        "name": "SticKolor 1210UHD",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "studio-due",
+    "fixtures": [
+      {
+        "file": "light-deflector.json",
+        "name": "Light Deflector",
+        "category": "Scanner",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "sun-star",
+    "fixtures": [
+      {
+        "file": "g-2011-nova.json",
+        "name": "G-2011 / NOVA",
+        "category": "Laser",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "tecshow",
+    "fixtures": [
+      {
+        "file": "nebula-18.json",
+        "name": "Nebula 18",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "nebula-6.json",
+        "name": "Nebula 6",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "tiptop-stage-light",
+    "fixtures": [
+      {
+        "file": "3-10w-battery-led-wedge-par.json",
+        "name": "3*10W Battery LED WEDGE PAR",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "tmb",
+    "fixtures": [
+      {
+        "file": "solaris-flare.json",
+        "name": "Solaris Flare",
+        "category": "Strobe",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "uking",
+    "fixtures": [
+      {
+        "file": "mini-led-spot-25w.json",
+        "name": "Mini LED Spot 25W",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "par-light-b262.json",
+        "name": "Par Light B262",
+        "category": "Color Changer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "ultratec",
+    "fixtures": [
+      {
+        "file": "radiance-hazer.json",
+        "name": "Radiance Hazer",
+        "category": "Hazer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "varytec",
+    "fixtures": [
+      {
+        "file": "bat-par-6-rgbuv.json",
+        "name": "BAT.PAR 6 RGBUV",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "bat-par-6-rgbwa.json",
+        "name": "BAT.PAR 6 RGBWA",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "easy-move-xs-hp-wash-7x8w-rgbw.json",
+        "name": " Easy Move XS HP Wash 7x8W RGBW",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "giga-bar-hex-3.json",
+        "name": "Giga Bar HEX 3",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "hero-wash-340fx-rgbw-zoom.json",
+        "name": "Hero Wash 340FX RGBW Zoom",
+        "category": "Moving Head",
+        "supported": true
+      },
+      {
+        "file": "led-hellball-3-rgb.json",
+        "name": "LED Hellball 3 RGB",
+        "category": "Flower",
+        "supported": false
+      },
+      {
+        "file": "led-theater-spot-100.json",
+        "name": "LED Theater Spot 100",
+        "category": "Dimmer",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "velleman",
+    "fixtures": [
+      {
+        "file": "aeron-250-ii.json",
+        "name": "Aeron 250 II",
+        "category": "Scanner",
+        "supported": false
+      }
+    ]
+  },
+  {
+    "name": "venue",
+    "fixtures": [
+      {
+        "file": "thintri64.json",
+        "name": "ThinTri64",
+        "category": "Color Changer",
+        "supported": false
+      },
+      {
+        "file": "tristrip3z.json",
+        "name": "TriStrip3Z",
+        "category": "Pixel Bar",
+        "supported": false
+      }
+    ]
+  }
+]

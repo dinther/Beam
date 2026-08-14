@@ -82,6 +82,37 @@ const FIXTURE_TYPES = {
   MOVING_HEAD: 'Moving Head',
 };
 
+/** Fallback bulb colour temperature, for profiles that omit one. */
+const DEFAULT_COLOR_TEMP = 8000;
+
+/**
+ * Stand-in for a fixture the renderer has no model for.
+ *
+ * Such a fixture still patches, addresses and holds channel values -- it simply
+ * draws nothing. Previously this threw, which meant patching any of the 360
+ * non-moving-head profiles in the library broke the app rather than showing an
+ * unlit fixture.
+ *
+ * @returns {Object} an inert 3D model accepting the same writes
+ */
+function unsupportedModel() {
+  return {
+    unsupported: true,
+    colorPreset: null,
+    colorIntensity: null,
+    colorWheelSlot: 0,
+    goboWheelSlot: 0,
+    intensity: 0,
+    pan: 0,
+    tilt: 0,
+    panFine: 0,
+    tiltFine: 0,
+    shutter: 1,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+  };
+}
+
 /**
  * Default fixture name
  *
@@ -694,7 +725,7 @@ class Fixture extends Proxify {
     // eslint-disable-next-line prefer-destructuring
     this.category = this.OFLData.categories[0]; // We're only interested in the first category asset ATM.
     this.wheels = this.OFLData.wheels; // Isolating and setting fixture's wheels configuration from OFL data
-    this.bulb = this.OFLData.physical.bulb; // Isolating and setting fixture's bulb configuration from OFL data
+    this.bulb = (this.OFLData.physical || {}).bulb; // Isolating and setting fixture's bulb configuration from OFL data
     this._name = this.OFLData.name; // Isolating and setting fixture's default name from OFL data
     this.modes = this.OFLData.modes; // Isolating and setting fixture's modes configuration from OFL data
     this.prepareChannels(); // Prepare fixture's channels
@@ -710,7 +741,14 @@ class Fixture extends Proxify {
    * @todo implement every fixture type
    */
   prepare3DModelInstance() {
-    switch (this.category) { // Checking fixture category
+    // Matched against every category, not just the first: a number of movers
+    // are listed as e.g. ["Color Changer", "Moving Head"], and testing only
+    // categories[0] rejected them.
+    const categories = this.OFLData.categories || [];
+    const renderable = categories.includes(FIXTURE_TYPES.MOVING_HEAD)
+      && !!this.OFLData.physical;
+
+    switch (renderable ? FIXTURE_TYPES.MOVING_HEAD : null) {
       case FIXTURE_TYPES.MOVING_HEAD: { // Fixture is a moving head
         const movingHead = new MovingHead({ // Creating new moving head instance
           minAngle: this.OFLData.physical.lens ? this.OFLData.physical.lens.degreesMinMax[0] : 10, // Setting moving head's minimum beam angle
@@ -719,7 +757,9 @@ class Fixture extends Proxify {
           maxTilt: this.quickChannelsAccessors.Tilt ? this.quickChannelsAccessors.Tilt[0].maxVal : 0,
           minPan: this.quickChannelsAccessors.Pan ? this.quickChannelsAccessors.Pan[0].minVal : 0,
           maxPan: this.quickChannelsAccessors.Pan ? this.quickChannelsAccessors.Pan[0].maxVal : 0,
-          colorTemp: this.OFLData.physical.bulb.colorTemperature, // Setting moving head's default bulb color temperature
+          // Not every profile carries a bulb block; a daylight-ish default is
+          // better than refusing to build the fixture.
+          colorTemp: (this.OFLData.physical.bulb || {}).colorTemperature || DEFAULT_COLOR_TEMP,
           intensity: 0.0, // Setting moving head's default intensity
           pan: 128, // Setting moving head's default pan value
           tilt: 128, // Setting moving head's default tilt value
@@ -729,10 +769,14 @@ class Fixture extends Proxify {
         movingHead.position = this._position; // Setting moving head's position in 3D space
         movingHead.rotation = this._rotation; // Setting moving head's rotation in 3D space
         this._3DModel = movingHead; // Binding moving head instance to this fixture instance
+        // Reverse link, so a ray hitting the 3D model can name its fixture.
+        movingHead.fixtureHandle = this;
         break;
       }
-      default: { // Do nothing for every other fixture types.
-        throw new Error('This fixture type is not supported yet.');
+      default: {
+        // No renderer for this type yet: patch it, address it, draw nothing.
+        this._3DModel = unsupportedModel();
+        break;
       }
     }
   }

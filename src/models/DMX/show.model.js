@@ -11,7 +11,6 @@ import FixturePool from './fixture.pool.model';
 import Live from './live.model';
 
 const DEFAULT_PROJECT_NAME = 'new_project.asls';
-const DEFAULT_BPM_VALUE = 120;
 
 const SHOWFILE_EXTENSIONS = {
   ASLS: 'json',
@@ -80,10 +79,8 @@ class Show extends EventEmitter {
   get showData() {
     return {
       name: this.name,
-      bpm: this.bpm,
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
       universes: this.universePool.universes.map((u) => u.showData),
-      visualizer: this.visualizerHandle ? this.visualizerHandle.showData : {},
     };
   }
 
@@ -125,15 +122,7 @@ class Show extends EventEmitter {
    * @type {Number}
    */
   // eslint-disable-next-line class-methods-use-this
-  set bpm(bpm) {
-    Live.bpm = bpm;
-  }
-
   // eslint-disable-next-line class-methods-use-this
-  get bpm() {
-    return Live.bpm;
-  }
-
   /**
    * @method undo
    * forward undo instruction to prify instance
@@ -151,15 +140,6 @@ class Show extends EventEmitter {
   }
 
   /**
-   * @method tapTempo
-   * Forwards tap tempo request to live singleton
-   */
-  tapTempo() {
-    this.bpm = Live.tapTempo();
-    return this.bpm;
-  }
-
-  /**
    * Persists the show to disk.
    *
    * Fire-and-forget: the save state is reported optimistically so the UI stays
@@ -169,10 +149,10 @@ class Show extends EventEmitter {
    * @public
    */
   persistLocally() {
-    if (typeof window !== 'undefined' && window.showStore) {
+    if (typeof window !== 'undefined' && window.jsonStore) {
       // Serialised here: show data is wrapped in reactive proxies, which
       // structured clone cannot carry across the IPC boundary.
-      window.showStore.write(JSON.stringify(this.showData, null, 2));
+      window.jsonStore.write('show', JSON.stringify(this.showData, null, 2));
     }
     this.isSaved = true;
     this.emit('saveState', this.isSaved);
@@ -217,7 +197,6 @@ class Show extends EventEmitter {
     this.fixturePool.clearAll(true);
     this.name = '';
     this.isSaved = true;
-    this.bpm = DEFAULT_BPM_VALUE;
   }
 
   /**
@@ -265,8 +244,8 @@ class Show extends EventEmitter {
    * @returns {Boolean} whether a stored show was found and loaded
    */
   async loadPersisted() {
-    if (typeof window === 'undefined' || !window.showStore) return false;
-    const showData = await window.showStore.read();
+    if (typeof window === 'undefined' || !window.jsonStore) return false;
+    const showData = await window.jsonStore.read('show');
     if (!showData) return false;
     await this.loadFromData(showData);
     return true;
@@ -302,10 +281,6 @@ class Show extends EventEmitter {
     this.loading.percentage = 20;
     this.clearShowData();
 
-    this.loading.message = 'Setting preferences';
-    this.loading.percentage = 30;
-    this.visualizerHandle.preferences = showData.visualizer;
-
     this.loading.message = 'Preloading fixture library';
     this.loading.percentage = 40;
     await this.preloadFixtureList();
@@ -317,7 +292,6 @@ class Show extends EventEmitter {
     this.loading.message = 'Setting up universes';
     this.loading.percentage = 80;
     this.name = showData.name;
-    this.bpm = showData.bpm;
     await this.prepareUniverses(showData);
 
     this.loading.message = 'Finalizing';

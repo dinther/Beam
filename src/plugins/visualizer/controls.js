@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   TransformControls,
 } from 'three/examples/jsm/controls/TransformControls.js';
+import EventBus from '@/plugins/eventbus';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 
@@ -29,6 +30,58 @@ const quaternion = new THREE.Quaternion();
  * @constant {Object} euler
  */
 const euler = new THREE.Euler();
+/**
+ * Gizmo modes the transform handle can be put into
+ *
+ * @constant {Object} GIZMO_MODES
+ */
+const GIZMO_MODES = {
+  TRANSLATE: 'translate',
+  ROTATE: 'rotate',
+};
+/**
+ * How far the pointer may travel between press and release and still count as
+ * a click rather than a camera orbit.
+ *
+ * @constant {Number} CLICK_SLOP_PX
+ */
+const CLICK_SLOP_PX = 4;
+/**
+ * Picking ray and normalised pointer position
+ *
+ * @constant {Object} raycaster
+ */
+const raycaster = new THREE.Raycaster();
+/**
+ * @constant {Object} pointer
+ */
+const pointer = new THREE.Vector2();
+/**
+ * Scratch objects used to project instances to screen space for band selection
+ *
+ * @constant {Object} pickMatrix
+ */
+const pickMatrix = new THREE.Matrix4();
+/**
+ * @constant {Object} pickPosition
+ */
+const pickPosition = new THREE.Vector3();
+/**
+ * Scratch frustum + matrix used to test whether a selection is already framed
+ *
+ * @constant {Object} frustum
+ */
+const frustum = new THREE.Frustum();
+/**
+ * @constant {Object} projScreenMatrix
+ */
+const projScreenMatrix = new THREE.Matrix4();
+/**
+ * Reusable corner vector for frustum containment tests
+ *
+ * @constant {Object} corner
+ */
+const corner = new THREE.Vector3();
 /**
  * Controls display mode enumeration
  *
@@ -87,7 +140,7 @@ const boundingBoxEdges = new THREE.LineSegments(boundingBoxEdgesGeometry, boundi
  */
 // Low and off to one side, looking up into the array: the view an audience
 // standing under a flown rig actually gets.
-const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(2.0, 6.0, 0.4);
+const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(4.6, 4.6, 1.5);
 
 /**
  * Where the camera looks when nothing is selected.
@@ -98,7 +151,7 @@ const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(2.0, 6.0, 0.4);
  *
  * @constant {Object} DEFAULT_ZOOM_OUT_TARGET
  */
-const DEFAULT_ZOOM_OUT_TARGET = new THREE.Vector3(0, 0, 2.0);
+const DEFAULT_ZOOM_OUT_TARGET = new THREE.Vector3(0, 0, 4.1);
 
 /**
  * @class Controls
@@ -113,6 +166,13 @@ class Controls {
       this.handle = null;
       // Setiting up control mode
       this.mode = CONTROL_MODES.DISCRETE;
+      // The gizmo a selection brings back. Persists for the session, so
+      // picking a fixture restores whichever tool was last worked with.
+      this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
+      // Where the pointer went down, used to tell a click from a drag.
+      this.pointerDownAt = null;
+      // Rubber-band overlay element, created on first drag.
+      this.selectionBandEl = null;
       // Initilising instance pool
       this.pooledInstances = [];
       // Preparing bounding box object
@@ -192,6 +252,11 @@ class Controls {
     });
 
     SceneManager.add(this.groupedInstances, helper); // Adding instances to scene
+    // Picking: a click on a fixture selects it, a click on empty scene clears.
+    el.addEventListener('pointerdown', this.handlePointerDown.bind(this));
+    el.addEventListener('pointermove', this.handlePointerMove.bind(this));
+    el.addEventListener('pointerup', this.handlePointerUp.bind(this));
+
     this.handle.addEventListener('mouseDown', () => { // Listening for mousedown events on control helpers
       this.controlHandle.enabled = false; // Disabling camera controls to enable user interaction
     });
@@ -225,11 +290,13 @@ class Controls {
       MovingHead.clearHiglighting();
     } else if (e.key.toLowerCase() === 't') {
       this.mode = CONTROL_MODES.NORMAL;
-      this.handle.setMode('translate');
+      this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
+      this.handle.setMode(GIZMO_MODES.TRANSLATE);
       this.showHelpers();
     } else if (e.key.toLowerCase() === 'r') {
       this.mode = CONTROL_MODES.NORMAL;
-      this.handle.setMode('rotate');
+      this.lastGizmoMode = GIZMO_MODES.ROTATE;
+      this.handle.setMode(GIZMO_MODES.ROTATE);
       this.showHelpers();
     } else if (e.key.toLowerCase() === 'z' && e.ctrlKey) {
       this.applyTransformation();
@@ -240,8 +307,314 @@ class Controls {
     }
   }
 
+  /**
+   * Records where a press started so the release can tell a click from a drag.
+   *
+   * @public
+   * @param {Object} e pointerdown event
+   */
+  handlePointerDown(e) {
+    // A press that starts on a gizmo axis belongs to the transform handle.
+    // Middle and right belong to the camera.
+    if (e.button !== 0 || (this.handle && this.handle.axis)) {
+      this.pointerDownAt = null;
+      return;
+    }
+    this.pointerDownAt = { x: e.clientX, y: e.clientY };
+    // Capture so a band drag survives leaving the canvas.
+    if (e.currentTarget.setPointerCapture) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+  }
+
+  /**
+   * Grows the rubber band while the left button is held.
+   *
+   * @public
+   * @param {Object} e pointermove event
+   */
+  handlePointerMove(e) {
+    const down = this.pointerDownAt;
+    if (!down) return;
+    const travelled = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    if (travelled <= CLICK_SLOP_PX) return;
+    this.drawSelectionBand(down, e);
+  }
+
+  /**
+   * Draws (creating on first use) the rubber-band rectangle.
+   *
+   * @public
+   * @param {Object} from pointer position where the drag started
+   * @param {Object} to current pointer position
+   */
+  drawSelectionBand(from, to) {
+    if (!this.selectionBandEl) {
+      const el = document.createElement('div');
+      // Fixed positioning keeps this independent of how the canvas is laid out.
+      el.style.cssText = [
+        'position:fixed',
+        'border:1px solid rgb(162, 45, 88)',
+        'background:rgba(162, 45, 88, 0.15)',
+        'pointer-events:none',
+        'z-index:100',
+      ].join(';');
+      document.body.appendChild(el);
+      this.selectionBandEl = el;
+    }
+    const { style } = this.selectionBandEl;
+    style.display = 'block';
+    style.left = `${Math.min(from.x, to.clientX)}px`;
+    style.top = `${Math.min(from.y, to.clientY)}px`;
+    style.width = `${Math.abs(to.clientX - from.x)}px`;
+    style.height = `${Math.abs(to.clientY - from.y)}px`;
+  }
+
+  /**
+   * Removes the rubber band from view.
+   *
+   * @public
+   */
+  hideSelectionBand() {
+    if (this.selectionBandEl) this.selectionBandEl.style.display = 'none';
+  }
+
+  /**
+   * Selects every fixture whose 3D position projects inside the dragged
+   * rectangle.
+   *
+   * @public
+   * @param {Object} e pointerup event closing the band
+   * @param {Object} down pointer position where the drag started
+   * @param {Boolean} additive whether to add to the existing selection
+   */
+  selectFixturesInBand(e, down, additive) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const left = Math.min(down.x, e.clientX);
+    const right = Math.max(down.x, e.clientX);
+    const top = Math.min(down.y, e.clientY);
+    const bottom = Math.max(down.y, e.clientY);
+
+    const mesh = MovingHead.instancedMesh;
+    const picked = [];
+    for (let i = 0; i < mesh.count; i++) {
+      mesh.getMatrixAt(i, pickMatrix);
+      pickPosition.setFromMatrixPosition(pickMatrix);
+      // Behind the camera the projection flips, so drop those first.
+      pickPosition.applyMatrix4(this.cameraHandle.matrixWorldInverse);
+      if (pickPosition.z < 0) {
+        pickPosition.setFromMatrixPosition(pickMatrix);
+        pickPosition.project(this.cameraHandle);
+        const x = rect.left + (((pickPosition.x + 1) / 2) * rect.width);
+        const y = rect.top + (((1 - pickPosition.y) / 2) * rect.height);
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          const instance = MovingHead.getInstance(i);
+          if (instance && instance.fixtureHandle) picked.push(instance.fixtureHandle);
+        }
+      }
+    }
+
+    if (!picked.length) {
+      if (!additive) this.deselectAll();
+      return;
+    }
+    if (!additive) {
+      this.detachAll();
+      MovingHead.clearHiglighting();
+    }
+    picked.forEach((fixture) => {
+      if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
+    });
+    // Only a single-fixture selection names a primary. Naming one of many
+    // routes the pool list to it, and the list answers by calling
+    // highlightSingle(), which starts with detachAll() - that would collapse
+    // the multi-selection just built back down to one fixture.
+    this.emitSelection(this.pooledInstances.length === 1 ? this.pooledInstances[0] : null);
+  }
+
+  /**
+   * Selects the fixture under the pointer, or clears the selection when the
+   * click landed on empty scene. Orbit drags and gizmo drags are ignored.
+   *
+   * @public
+   * @param {Object} e pointerup event
+   */
+  handlePointerUp(e) {
+    const down = this.pointerDownAt;
+    this.pointerDownAt = null;
+    // Whatever else this release turns out to be, the band is finished.
+    this.hideSelectionBand();
+    if (e.currentTarget.releasePointerCapture && e.currentTarget.hasPointerCapture
+      && e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    if (!down || e.button !== 0) return;
+    if (this.handle && (this.handle.dragging || this.handle.axis)) return;
+    // Ctrl/Shift/Cmd extend the selection, matching the fixture list.
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+
+    const travelled = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    if (travelled > CLICK_SLOP_PX) {
+      this.selectFixturesInBand(e, down, additive);
+      return;
+    }
+
+    const fixture = this.pickFixtureAt(e);
+    if (fixture) {
+      this.selectFixture(fixture, additive);
+    } else if (!additive) {
+      // A modified click that misses keeps whatever is already selected.
+      this.deselectAll();
+    }
+  }
+
+  /**
+   * Raycasts the pointer against the fixtures' pick proxies.
+   *
+   * @public
+   * @param {Object} e pointer event carrying the client coordinates
+   * @return {Object} the Fixture instance under the pointer, or null
+   */
+  pickFixtureAt(e) {
+    if (!this.cameraHandle) return null;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    pointer.x = (((e.clientX - rect.left) / rect.width) * 2) - 1;
+    pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
+    raycaster.setFromCamera(pointer, this.cameraHandle);
+
+    // The proxy is an invisible per-instance box kept in sync with each head;
+    // invisible objects still raycast, which is what it exists for.
+    const hits = raycaster.intersectObject(MovingHead.instancedMesh, false);
+    const hit = hits.find((h) => h.instanceId !== undefined);
+    if (!hit) return null;
+    const instance = MovingHead.getInstance(hit.instanceId);
+    return (instance && instance.fixtureHandle) || null;
+  }
+
+  /**
+   * Selects a fixture from the 3D view and tells the UI to follow.
+   *
+   * @public
+   * @param {Object} fixture handle to the Fixture instance to select
+   */
+  /**
+   * Index of a fixture in the current selection. Fixtures reach the pool both
+   * raw (from a 3D pick) and wrapped in Vue's reactive proxy (from the list),
+   * so identity alone is not a safe test; ids are.
+   *
+   * @public
+   * @param {Object} fixture handle to a Fixture instance
+   * @return {Number} index in pooledInstances, or -1
+   */
+  pooledIndexOf(fixture) {
+    return this.pooledInstances.findIndex((f) => f === fixture
+      || (f.id === fixture.id && f.universe === fixture.universe));
+  }
+
+  /**
+   * Announces the current selection: which fixture the UI should follow (only
+   * ever a single one) and the full set to mirror into the fixture list.
+   *
+   * @public
+   * @param {Object} primary fixture the UI should route to, or null
+   */
+  emitSelection(primary) {
+    const selectedIds = this.pooledInstances.map((f) => f.id);
+    EventBus.emit('fixture_picked', {
+      universeId: primary ? primary.universe : undefined,
+      fixtureId: primary ? primary.id : undefined,
+      selectedIds,
+    });
+  }
+
+  selectFixture(fixture, additive = false) {
+    if (!additive) {
+      fixture.highlightSingle(true, true);
+      // Only a plain click drives the UI selection; extending the 3D selection
+      // must not re-route the fixture list to the fixture just added.
+      this.emitSelection(fixture);
+      return;
+    }
+    if (this.pooledIndexOf(fixture) > -1) {
+      this.removeFromSelection(fixture);
+    } else {
+      fixture.highlight(true, true);
+      this.emitSelection(null);
+    }
+  }
+
+  /**
+   * Drops a single fixture out of a multi-selection, keeping the rest.
+   *
+   * @public
+   * @param {Object} fixture handle to the Fixture instance to remove
+   */
+  removeFromSelection(fixture) {
+    // Write pending gizmo movement back to the instances before the pool
+    // changes, otherwise the fixture being removed loses its transform.
+    this.applyTransformation();
+    fixture.highlight(false, false);
+    const index = this.pooledIndexOf(fixture);
+    if (index > -1) this.pooledInstances.splice(index, 1);
+    if (this.pooledInstances.length) {
+      this.showHelpers();
+      this.emitSelection(null);
+    } else {
+      this.deselectAll();
+    }
+  }
+
+  /**
+   * Drops the whole selection: no highlight, no gizmo, no bounding box.
+   *
+   * @public
+   */
+  deselectAll() {
+    this.mode = CONTROL_MODES.DISCRETE;
+    this.detachAll();
+    this.hideHelpers();
+    MovingHead.clearHiglighting();
+    EventBus.emit('fixture_picked', null);
+  }
+
+  /**
+   * Whether the current selection's bounding box sits entirely inside the
+   * camera frustum. A partially clipped selection counts as out of view, so it
+   * still gets centred.
+   *
+   * @public
+   * @return {Boolean} whether the selection is fully framed already
+   */
+  isSelectionInView() {
+    if (!this.cameraHandle || !this.pooledInstances.length) return false;
+    this.cameraHandle.updateMatrixWorld();
+    projScreenMatrix.multiplyMatrices(
+      this.cameraHandle.projectionMatrix,
+      this.cameraHandle.matrixWorldInverse,
+    );
+    frustum.setFromProjectionMatrix(projScreenMatrix);
+    const { min, max } = this.boundingBox;
+    const xs = [min.x, max.x];
+    const ys = [min.y, max.y];
+    const zs = [min.z, max.z];
+    for (let x = 0; x < 2; x++) {
+      for (let y = 0; y < 2; y++) {
+        for (let z = 0; z < 2; z++) {
+          corner.set(xs[x], ys[y], zs[z]);
+          if (!frustum.containsPoint(corner)) return false;
+        }
+      }
+    }
+    return true;
+  }
+
   setFocus(state) {
     if (!state || this.autoFocus) {
+      // Selecting a fixture that is already framed should not yank the camera
+      // around; only move when the selection is off-screen or clipped.
+      if (state && this.isSelectionInView()) return;
       this.cameraHandle.updateMatrixWorld();
       const startPos = new THREE.Vector3();
       startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
@@ -409,6 +782,12 @@ class Controls {
   attach(instance) {
     this.applyTransformation();
     this.pooledInstances.push(instance);
+    // Selecting a fixture brings the gizmo back in whichever mode was last
+    // used, rather than leaving the user to press T/R every time.
+    if (this.handle) {
+      this.mode = CONTROL_MODES.NORMAL;
+      this.handle.setMode(this.lastGizmoMode);
+    }
     this.showHelpers();
   }
 

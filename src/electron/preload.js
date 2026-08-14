@@ -19,8 +19,6 @@ contextBridge.exposeInMainWorld('artnet', {
     ipcRenderer.on('artnet:frame', listener);
     return () => ipcRenderer.removeListener('artnet:frame', listener);
   },
-  /** Emit an ArtDMX packet: { universe, data, ip, port } */
-  send: (packet) => ipcRenderer.send('artnet:send', packet),
   /** Open the receive socket. */
   start: (config) => ipcRenderer.invoke('artnet:start', config),
   /** Close the receive socket. */
@@ -28,22 +26,24 @@ contextBridge.exposeInMainWorld('artnet', {
 });
 
 /**
- * Show persistence.
+ * Named JSON stores in the application data directory.
  *
- * The working show lives in a file in the application data directory rather
- * than in browser storage: this is a desktop application, and its state should
- * be inspectable and backup-able like any other program's.
+ * This is a desktop application, so its state lives in files that can be
+ * inspected and backed up rather than in browser storage. `show` holds the
+ * working show; `preferences` holds application settings, which deliberately
+ * do not travel with a show.
  */
-contextBridge.exposeInMainWorld('showStore', {
-  /** @returns {Promise<Object|null>} the persisted show, or null if none */
-  read: () => ipcRenderer.invoke('show:read'),
+contextBridge.exposeInMainWorld('jsonStore', {
+  /** @returns {Promise<Object|null>} parsed contents, or null if absent */
+  read: (name) => ipcRenderer.invoke('store:read', name),
   /**
-   * @param {String} json serialised show data
+   * @param {String} name
+   * @param {String} json serialised contents
    * @returns {Promise<Boolean>} whether the write succeeded
    */
-  write: (json) => ipcRenderer.invoke('show:write', json),
+  write: (name, json) => ipcRenderer.invoke('store:write', name, json),
   /** @returns {Promise<Boolean>} whether anything was removed */
-  clear: () => ipcRenderer.invoke('show:clear'),
-  /** @returns {Promise<String>} absolute path of the show file */
-  path: () => ipcRenderer.invoke('show:path'),
+  clear: (name) => ipcRenderer.invoke('store:clear', name),
+  /** @returns {Promise<String>} absolute path of the file */
+  path: (name) => ipcRenderer.invoke('store:path', name),
 });

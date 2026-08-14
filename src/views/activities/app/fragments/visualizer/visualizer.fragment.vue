@@ -130,6 +130,8 @@ export default {
   async mounted() {
     this.$show.visualizerHandle = new Visualizer(this.$refs.visualizer);
     await this.$show.visualizerHandle.init();
+    // Workspace settings, applied from their own store rather than from a show.
+    this.$show.visualizerHandle.preferences = null;
     new ResizeObserver(
       this.$show.visualizerHandle.resize.bind(this.$show.visualizerHandle),
     ).observe(this.$refs.visualizer);

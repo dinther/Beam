@@ -26,10 +26,6 @@ const PROFILE_LENGTH = 1.05;
 const PROFILE_WIDTH = 0.024;
 const PROFILE_HEIGHT = 0.010;
 
-/** LEDs run from 25 mm to 1025 mm along the profile. */
-const LED_ZONE_START = 0.025;
-const LED_ZONE_END = 1.025;
-
 /** Emitter die size, roughly a 5050 LED. */
 const LED_SIZE = 0.005;
 
@@ -268,8 +264,10 @@ const field = {
 
 const scratch = {
   matrix: new THREE.Matrix4(),
-  rotation: new THREE.Euler(),
+  basis: new THREE.Matrix4(),
+  quaternion: new THREE.Quaternion(),
   offset: new THREE.Vector3(),
+  scale: new THREE.Vector3(1, 1, 1),
 };
 
 /** Pushes the current scene haze into the one uniform that holds it. */
@@ -394,59 +392,85 @@ function init({ scene, maxBars, maxLeds }) {
 /**
  * Adds one bar's extrusion and LEDs to the shared meshes.
  *
+ * Defined by its two endpoints rather than a centre and a length, because bars
+ * rarely sit axis-aligned once a structure is anything other than a wall.
+ *
  * @param {Object} options
- * @param {Object} options.position THREE.Vector3, centre of the extrusion
- * @param {Number} [options.roll] rotation about the bar's long axis, degrees
- * @param {Number} [options.density] LEDs per metre
+ * @param {Object} options.start THREE.Vector3, one end of the run
+ * @param {Object} options.end THREE.Vector3, the other end
+ * @param {Number} options.pixelCount LEDs on this bar
  * @param {Number} options.firstPixel global pixel index of the first LED
- * @param {Boolean} [options.reverse] run the pixel chain from the +X end back
- *   toward -X, for serpentine wiring where alternate rows are reversed
+ * @param {Object} [options.facing] THREE.Vector3 the emitters should point
+ *   toward; squared up against the bar's axis, so it need only be approximate
+ * @param {Boolean} [options.reverse] run the chain from `end` back to `start`
+ * @param {Number} [options.endInset] how far the extrusion stops short of each
+ *   endpoint, so bars meeting at a corner do not interpenetrate
+ * @param {Number} [options.ledInset] how far the first and last LED sit inside
+ *   the endpoints
+ * @returns {Number} LEDs added
  */
 function addBar({
-  position, roll = 0, density = 60, firstPixel, reverse = false,
+  start, end, pixelCount, firstPixel,
+  facing = null, reverse = false, endInset = 0.03, ledInset = 0.055,
 }) {
-  const ledCount = Math.round((LED_ZONE_END - LED_ZONE_START) * density);
   if (field.barCount >= field.maxBars) return 0;
-  if (field.ledCount + ledCount > field.maxLeds) return 0;
+  if (field.ledCount + pixelCount > field.maxLeds) return 0;
 
-  const rollRad = THREE.MathUtils.degToRad(roll);
-  scratch.rotation.set(rollRad, 0, 0);
+  const axis = new THREE.Vector3().subVectors(end, start);
+  const length = axis.length();
+  if (length < 1e-6) return 0;
+  axis.normalize();
 
-  // The extrusion.
-  scratch.matrix.makeRotationFromEuler(scratch.rotation);
-  scratch.matrix.setPosition(position.x, position.y, position.z);
+  // Emitter normal: the requested facing squared up against the bar's axis, so
+  // callers can ask for "outward from the centre" without doing the maths.
+  const normal = facing ? facing.clone() : new THREE.Vector3(0, 0, 1);
+  normal.addScaledVector(axis, -normal.dot(axis));
+  if (normal.lengthSq() < 1e-9) {
+    // Facing was parallel to the bar; any perpendicular will do.
+    normal.set(0, 0, 1).addScaledVector(axis, -axis.z);
+    if (normal.lengthSq() < 1e-9) normal.set(0, 1, 0);
+  }
+  normal.normalize();
+
+  // Right-handed basis: X along the bar, Z out through the emitters.
+  const side = new THREE.Vector3().crossVectors(normal, axis).normalize();
+  scratch.basis.makeBasis(axis, side, normal);
+  scratch.quaternion.setFromRotationMatrix(scratch.basis);
+
+  // The extrusion, stopping short of each endpoint and scaled to fit.
+  const profileLength = Math.max(length - endInset * 2, 0.01);
+  scratch.offset.copy(start).addScaledVector(axis, length / 2);
+  scratch.scale.set(profileLength / PROFILE_LENGTH, 1, 1);
+  scratch.matrix.compose(scratch.offset, scratch.quaternion, scratch.scale);
   field.profiles.setMatrixAt(field.barCount, scratch.matrix);
   field.barCount += 1;
   field.profiles.count = field.barCount;
 
-  // Each LED occupies one pitch slot, the first beginning at LED_ZONE_START
-  // and the last ending at LED_ZONE_END, so centres sit half a pitch inside.
-  const pitch = (LED_ZONE_END - LED_ZONE_START) / ledCount;
-  const originX = -PROFILE_LENGTH / 2 + LED_ZONE_START;
-  const surfaceZ = PROFILE_HEIGHT / 2 + LED_STANDOFF;
+  // Each LED occupies one pitch slot inside the inset run.
+  const span = Math.max(length - ledInset * 2, 0.01);
+  const pitch = span / pixelCount;
+  const surface = PROFILE_HEIGHT / 2 + LED_STANDOFF;
+  scratch.scale.set(1, 1, 1);
 
-  for (let i = 0; i < ledCount; i += 1) {
+  for (let i = 0; i < pixelCount; i += 1) {
     const instance = field.ledCount + i;
 
-    // Seat on the rolled face, then out to the bar's own position.
-    scratch.offset.set(0, 0, surfaceZ).applyEuler(scratch.rotation);
-    scratch.matrix.makeRotationFromEuler(scratch.rotation);
-    scratch.matrix.setPosition(
-      position.x + originX + (i + 0.5) * pitch,
-      position.y + scratch.offset.y,
-      position.z + scratch.offset.z,
-    );
+    scratch.offset.copy(start)
+      .addScaledVector(axis, ledInset + (i + 0.5) * pitch)
+      .addScaledVector(normal, surface);
+    scratch.matrix.compose(scratch.offset, scratch.quaternion, scratch.scale);
 
     field.emitters.setMatrixAt(instance, scratch.matrix);
     field.glow.setMatrixAt(instance, scratch.matrix);
-    // Position along the extrusion is unchanged; only which pixel of the chain
-    // lands there flips, so a reversed row lights right to left.
+
+    // Position along the bar is unchanged; only which pixel of the chain lands
+    // there flips, so a reversed run lights from the far end back.
     field.pixelAttribute.array[instance] = reverse
-      ? firstPixel + (ledCount - 1 - i)
+      ? firstPixel + (pixelCount - 1 - i)
       : firstPixel + i;
   }
 
-  field.ledCount += ledCount;
+  field.ledCount += pixelCount;
   field.emitters.count = field.ledCount;
   field.glow.count = field.ledCount;
 
@@ -455,7 +479,7 @@ function addBar({
   field.glow.instanceMatrix.needsUpdate = true;
   field.pixelAttribute.needsUpdate = true;
 
-  return ledCount;
+  return pixelCount;
 }
 
 /**

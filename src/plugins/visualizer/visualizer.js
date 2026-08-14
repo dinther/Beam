@@ -12,8 +12,10 @@ import MovingHead from './moving_head';
 import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
 import DMXStore from './dmx_store';
+import Dodecahedron from './dodecahedron';
 import SceneEnv from './scene_env';
 import Perf from './perf_overlay';
+import Preferences from './preferences';
 import createLEDDebugPanel from './led_debug_panel';
 import {
   EffectComposer,
@@ -43,6 +45,43 @@ let finalComposer = null;
  * screen-space glare a fair stand-in for scattering, at no geometry cost.
  */
 let bloomEffect = null;
+
+/**
+ * Scene reference helpers.
+ *
+ * Module-scoped rather than stored on the Visualizer instance: the instance is
+ * reached through a Vue-reactive handle, and three.js cannot render a proxied
+ * Object3D.
+ */
+const helpers = {
+  grid: null,
+  axes: null,
+  floor: null,
+  gridVisible: true,
+  axesVisible: true,
+  floorVisible: true,
+};
+
+/**
+ * Coerces a preference value to a boolean.
+ *
+ * Values arrive from several places -- a checkbox, a showfile, or a select
+ * emitting an index -- so anything absent means "leave it on", but a literal
+ * zero means off. Comparing against `false` alone gets that backwards.
+ *
+ * @param {*} value
+ * @returns {Boolean}
+ */
+function asVisible(value) {
+  return value === undefined || value === null ? true : !!value;
+}
+
+/** Pushes stored visibility onto whichever helpers have been built. */
+function applyHelperVisibility() {
+  if (helpers.grid) helpers.grid.visible = helpers.gridVisible;
+  if (helpers.axes) helpers.axes.visible = helpers.axesVisible;
+  if (helpers.floor) helpers.floor.visible = helpers.floorVisible;
+}
 
 /**
  * Whether screen-space bloom is part of the chain.
@@ -126,6 +165,9 @@ class Visualizer {
    * @async
    */
   async init() {
+    // Loaded before anything is built, so the scene comes up already dressed
+    // rather than flickering through defaults.
+    await Preferences.load();
     await ModelInstancer.init(`${import.meta.env.VITE_STATIC_URL}/visualizer/models/model_list.json`);
     this.prepareCamera();
     this.prepareRenderer();
@@ -143,12 +185,70 @@ class Visualizer {
    * @type {Object}
    */
   set preferences(preferences) {
-    if (preferences) {
-      this.globalBrightness = preferences.globalBrightness;
-      this.globalFoggingDensity = preferences.globalFoggingDensity;
-      this.globalFoggingState = preferences.globalFoggingState;
-      this.globalFoggingTurbulences = preferences.globalFoggingTurbulences;
-    }
+    // Falls back to the stored preferences, which is how the visualizer dresses
+    // itself on startup without a show being involved.
+    const source = preferences || Preferences.all();
+    this.globalBrightness = source.globalBrightness;
+    this.globalFoggingDensity = source.globalFoggingDensity;
+    this.globalFoggingState = source.globalFoggingState;
+    this.globalFoggingTurbulences = source.globalFoggingTurbulences;
+    this.showGrid = source.showGrid;
+    this.showAxes = source.showAxes;
+    this.showFloor = source.showFloor;
+  }
+
+  /**
+   * Reference grid visibility.
+   *
+   * The helpers are stored as a preference rather than a view toggle so that a
+   * show opens looking the way it was left.
+   *
+   * @type {Boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set showGrid(visible) {
+    helpers.gridVisible = asVisible(visible);
+    Preferences.set('showGrid', helpers.gridVisible);
+    applyHelperVisibility();
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get showGrid() {
+    return helpers.gridVisible;
+  }
+
+  /**
+   * Origin axes visibility.
+   *
+   * @type {Boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set showAxes(visible) {
+    helpers.axesVisible = asVisible(visible);
+    Preferences.set('showAxes', helpers.axesVisible);
+    applyHelperVisibility();
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get showAxes() {
+    return helpers.axesVisible;
+  }
+
+  /**
+   * Floor visibility.
+   *
+   * @type {Boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set showFloor(visible) {
+    helpers.floorVisible = asVisible(visible);
+    Preferences.set('showFloor', helpers.floorVisible);
+    applyHelperVisibility();
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get showFloor() {
+    return helpers.floorVisible;
   }
 
   /**
@@ -162,6 +262,7 @@ class Visualizer {
       ? DEFAULT_PREFERENCES.FOGGING_STATE
       : !!value;
     MovingHead.fogState = SceneEnv.hazeEnabled;
+    Preferences.set('globalFoggingState', SceneEnv.hazeEnabled ? 1 : 0);
     this.applyFogToBloom();
   }
 
@@ -180,6 +281,7 @@ class Visualizer {
       ? Math.min(Math.max(value, 0), 100) / 100
       : DEFAULT_PREFERENCES.FOGGING_DENSITY / 100;
     MovingHead.fogDensity = SceneEnv.hazeDensity;
+    Preferences.set('globalFoggingDensity', SceneEnv.hazeDensity * 100);
     this.applyFogToBloom();
   }
 
@@ -201,6 +303,7 @@ class Visualizer {
     SceneEnv.hazeTurbulence = normalised;
     // The beam shader scales this differently; keep its own convention.
     MovingHead.fogTurbulence = normalised * 2;
+    Preferences.set('globalFoggingTurbulences', normalised * 100);
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -215,6 +318,7 @@ class Visualizer {
    */
   set globalBrightness(value) {
     this._globalBrightness = value ? value / 100 : DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS;
+    Preferences.set('globalBrightness', this._globalBrightness * 100);
     if (this.globalLightHandle) {
       this.globalLightHandle.intensity = this._globalBrightness * 0.25;
     }
@@ -255,14 +359,18 @@ class Visualizer {
     return false;
   }
 
+  /**
+   * Current settings, for the preferences popup to restore on cancel.
+   *
+   * Deliberately not part of a show: these describe the workspace, not the
+   * rig, and persist to their own file.
+   *
+   * @readonly
+   * @type {Object}
+   */
+  // eslint-disable-next-line class-methods-use-this
   get showData() {
-    return {
-      globalFoggingState: this.globalFoggingState,
-      globalFoggingDensity: this.globalFoggingDensity,
-      globalFoggingTurbulences: this.globalFoggingTurbulences,
-      globalBrightness: this.globalBrightness,
-      autoRotate: this.autoRotate,
-    };
+    return Preferences.all();
   }
 
   /**
@@ -332,9 +440,11 @@ class Visualizer {
     const gridHelper = new InfiniteGridHelper(5, 100, new THREE.Color('white'), 100);
     gridHelper.rotateX(Math.PI / 2.0);
     gridHelper.position.setZ(-0.3);
+    helpers.grid = gridHelper;
     SceneManager.add(gridHelper);
 
     const axesHelper = new THREE.AxesHelper(2);
+    helpers.axes = axesHelper;
 
     axesHelper.material.depthTest = false;
     axesHelper.renderOrder = 999;
@@ -362,11 +472,17 @@ class Visualizer {
 
     const floor_geometry = new THREE.BoxGeometry(50, 50, 0.5, 1, 1, 1);
     const floor = new THREE.Mesh(floor_geometry, checkerMaterial);
+    floor.receiveShadow = true;
     floor.position.setZ(-0.25);
+    helpers.floor = floor;
 
     this.globalLightHandle.target = floor;
 
     SceneManager.add(this.globalLightHandle, floor, axesHelper);
+
+    // Preferences are applied when the show loads, which is before any of this
+    // exists; push them onto the objects now that it does.
+    applyHelperVisibility();
 
     // Proof-of-concept LED bar matrix, driven straight from Art-Net.
     //
@@ -376,52 +492,16 @@ class Visualizer {
     // spanning 36 universes.
     DMXStore.attachArtNet();
 
-    // A flat wall of bars: 3 across, 30 high. Columns are spaced by the bar's
-    // own length so they butt end to end into continuous rows; rows keep the
-    // 300 mm pitch. 90 bars of 60 LEDs is 5,400 pixels, spanning 32 universes.
-    const COLUMNS = 3;
-    const ROWS = 30;
-    // 3 columns of 1.05 m is 3.15 m wide, so 30 rows at 105 mm make the wall
-    // roughly square.
-    const ROW_PITCH = 0.105;
-    const COLUMN_PITCH = 1.05;
-    const LEDS_PER_BAR = 60;
-    const BASE_HEIGHT = 0.5;
-
-    const columnOrigin = -((COLUMNS - 1) * COLUMN_PITCH) / 2;
-
+    // A dodecahedron built from 30 one-metre LED bars, transcribed from the
+    // wiring diagram; see dodecahedron.js. 1,800 pixels, 5,400 channels,
+    // spanning 11 universes.
     LEDField.init({
       scene: SceneManager,
-      maxBars: COLUMNS * ROWS,
-      maxLeds: COLUMNS * ROWS * LEDS_PER_BAR,
+      maxBars: Dodecahedron.barCount,
+      maxLeds: Dodecahedron.pixelCount,
     });
 
-    for (let row = 0; row < ROWS; row += 1) {
-      // Serpentine wiring: the chain runs left to right along even rows and
-      // back right to left along odd ones, so consecutive rows join at the end
-      // nearest each other instead of needing a return cable.
-      const reversed = row % 2 === 1;
-
-      for (let column = 0; column < COLUMNS; column += 1) {
-        // Where this bar sits in the chain, which on a reversed row is the
-        // mirror of where it sits physically.
-        const chainPosition = reversed ? COLUMNS - 1 - column : column;
-        const index = row * COLUMNS + chainPosition;
-
-        LEDField.addBar({
-          position: new THREE.Vector3(
-            columnOrigin + column * COLUMN_PITCH,
-            0,
-            BASE_HEIGHT + row * ROW_PITCH,
-          ),
-          // Tilted 45 degrees off straight-down, angled toward the camera side.
-          roll: 225,
-          density: LEDS_PER_BAR,
-          firstPixel: index * LEDS_PER_BAR,
-          reverse: reversed,
-        });
-      }
-    }
+    Dodecahedron.build(LEDField);
 
     // Debug panel for the LED proof of concept. Writes straight into shader
     // uniforms so values can be found by eye rather than by rebuild.
@@ -440,6 +520,10 @@ class Visualizer {
     });
 
     this.renderer.autoClear = true;
+    // Shadow casting is driven by the fixtures' spot lights; without `enabled`
+    // the map is never rendered and `autoUpdate` alone does nothing.
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = true;
     this.renderer.physicallyCorrectLights = true;
     this.renderer.setPixelRatio(0.8); // Forcing pixel ratio to 1 to avoid unnecessary computations
@@ -520,8 +604,8 @@ class Visualizer {
     // Framed on the LED array, which is centred at z = 2. Kept in step with
     // Controls.DEFAULT_ZOOM_OUT_ENDPOS so the opening frame and whatever the
     // focus animation settles on are the same view.
-    this.camera.position.set(2.0, 6.0, 0.4);
-    this.camera.lookAt(0, 0, 2.0);
+    this.camera.position.set(4.6, 4.6, 1.5);
+    this.camera.lookAt(0, 0, 4.1);
   }
 
   /**
@@ -534,12 +618,19 @@ class Visualizer {
     this.controls.screenSpacePannning = false;
     this.controls.minDistance = 0.2;
     this.controls.maxDistance = 100;
-    this.controls.target.set(0, 0, 2.0);
+    this.controls.target.set(0, 0, 4.1);
     // Was PI / 2.1, which pinned the orbit just above horizontal. Fixtures
     // aimed downward can only be seen from underneath, so the camera has to be
     // able to get below them; stopping just short of the pole avoids the
     // gimbal flip at straight-up.
     this.controls.maxPolarAngle = Math.PI * 0.98;
+    // Left is reserved for picking and rubber-band selection, so the camera
+    // moves on the other two: middle pans, right orbits.
+    this.controls.mouseButtons = {
+      LEFT: null,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
     this.controls.autoRotate = this.autoRotate;
     this.controls.autoRotateSpeed = 5
     AnimationManager.add(() => {

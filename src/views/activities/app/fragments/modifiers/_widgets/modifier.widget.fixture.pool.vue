@@ -13,6 +13,7 @@
       draggable
       auto-select-first
       :auto-select="selected"
+      :highlight-ids="highlightIds"
       :items="pool.listable"
       @select="selectFixture"
       @delete="deleteFixtures"
@@ -60,6 +61,13 @@ export default {
     autoSelect: {
       type: Number,
       default: 0,
+    },
+    /**
+     * Ids of fixtures highlighted from outside the list (3D selection)
+     */
+    highlightIds: {
+      type: Array,
+      default: null,
     },
   },
   emits: ['select', 'delete', 'highlight', 'focused'],

@@ -226,6 +226,15 @@ export default {
      */
     draggable: Boolean,
     /**
+     * Ids of items to show as highlighted, driven from outside the list (e.g.
+     * a selection made in the 3D view). Null leaves the list in charge of its
+     * own highlighting.
+     */
+    highlightIds: {
+      type: Array,
+      default: null,
+    },
+    /**
      * Whether or not item highlighting is disabled
      */
     noHighlight: Boolean,
@@ -374,6 +383,12 @@ export default {
           }
         }
       }
+    },
+    highlightIds: {
+      handler(ids) {
+        this.applyExternalHighlight(ids);
+      },
+      deep: true,
     },
     preventUnfocus() {
       this.unfocusElBlacklist.push(...this.preventUnfocus);
@@ -652,6 +667,26 @@ export default {
        * @property {Object} this.selectedItem.value reference to selected tree item object's value
        */
       this.$emit('select', this.selectedItem.value);
+    },
+    /**
+     * Mirrors a selection made elsewhere (the 3D view) onto the list. Emits
+     * nothing: the selection already exists, and echoing it back would loop.
+     *
+     * @param {Array} ids ids of the items to mark highlighted
+     */
+    applyExternalHighlight(ids) {
+      if (this.noHighlight || !Array.isArray(ids)) return;
+      this.highlightedItems.forEach((item) => {
+        item.highlighted = false;
+      });
+      this.highlightedItems = [];
+      if (!ids.length) return;
+      this.tree.forEach((item) => {
+        if (item.value && ids.includes(item.value.id)) {
+          item.highlighted = true;
+          this.highlightedItems.push(item);
+        }
+      });
     },
     handleMultiSelection(item) {
       item.highlighted = !item.highlighted;

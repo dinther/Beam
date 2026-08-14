@@ -4,9 +4,11 @@ import dgram from 'dgram';
 /**
  * Art-Net UDP engine (main process).
  *
- * Owns a single UDP/4 socket bound to the Art-Net port and provides:
- *  - receive: parses inbound ArtDMX packets and forwards {universe, data} frames
- *  - send:    builds and emits ArtDMX packets for output
+ * Owns a single UDP/4 socket bound to the Art-Net port, parses inbound ArtDMX
+ * packets and forwards {universe, data} frames.
+ *
+ * Receive only: this is a visualizer, and MadMapper owns the wire. Transmitting
+ * from here would invite confusion about which application is driving the rig.
  *
  * Art-Net is a plain UDP protocol; browsers cannot touch it, so all socket work
  * lives here in the Electron main process and is bridged to the renderer over IPC.
@@ -19,8 +21,6 @@ const ARTNET_PORT = 6454;
 const ARTNET_ID = Buffer.from('Art-Net\0', 'latin1');
 /** OpDmx opcode, stored little-endian in the packet */
 const OP_DMX = 0x5000;
-/** Art-Net protocol version (14) */
-const PROT_VER = 14;
 /** DMX512 universe payload length */
 const DMX_LENGTH = 512;
 /** Minimum valid ArtDMX packet: 18-byte header + at least some data */
@@ -30,7 +30,6 @@ class ArtNet {
   constructor() {
     this.socket = null;
     this.onFrame = null;
-    this.seq = 0;
     this.bindAddress = '0.0.0.0';
   }
 
@@ -98,40 +97,6 @@ class ArtNet {
     }
 
     if (this.onFrame) this.onFrame({ universe, data });
-  }
-
-  /**
-   * Builds and sends an ArtDMX packet.
-   *
-   * @param {Object} packet
-   * @param {number} [packet.universe] 15-bit Art-Net port address
-   * @param {Uint8Array|number[]} packet.data up to 512 channel values
-   * @param {string} [packet.ip] destination (unicast or broadcast)
-   * @param {number} [packet.port] destination port
-   */
-  send({
-    universe = 0, data, ip = '255.255.255.255', port = ARTNET_PORT,
-  }) {
-    if (!this.socket) return;
-
-    const buf = Buffer.alloc(MIN_PACKET + DMX_LENGTH);
-    ARTNET_ID.copy(buf, 0);
-    buf.writeUInt16LE(OP_DMX, 8);
-    buf.writeUInt16BE(PROT_VER, 10);
-    this.seq = (this.seq + 1) & 0xff;
-    buf.writeUInt8(this.seq, 12); // Sequence
-    buf.writeUInt8(0, 13); // Physical
-    buf.writeUInt8(universe & 0xff, 14); // SubUni (low byte)
-    buf.writeUInt8((universe >> 8) & 0x7f, 15); // Net (high 7 bits)
-    buf.writeUInt16BE(DMX_LENGTH, 16); // Length
-
-    if (data) {
-      for (let i = 0; i < DMX_LENGTH; i += 1) {
-        buf[MIN_PACKET + i] = data[i] || 0;
-      }
-    }
-
-    this.socket.send(buf, 0, buf.length, port, ip);
   }
 
   /**

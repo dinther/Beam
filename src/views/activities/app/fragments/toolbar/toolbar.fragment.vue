@@ -79,7 +79,6 @@ export default {
       /**
        * I/O popup state
        */
-      bpmPopupState: false,
       /**
        * Toolbarmenu configuration object
        */

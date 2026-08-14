@@ -14,7 +14,7 @@ import {
 import path from 'path';
 import icon from '../assets/images/studio_standalone_logo.svg';
 import artnet from './artnet';
-import showstore from './showstore';
+import jsonstore from './jsonstore';
 
 // GPU timer queries are disabled by default because precise timing is a
 // side-channel vector. Re-enabled here so rendering cost can be measured;
@@ -120,20 +120,20 @@ function setupArtnet() {
     artnet.stop();
     return artnet.listening;
   });
-  ipcMain.on('artnet:send', (_event, packet) => artnet.send(packet));
 
   // Start listening immediately — a visualizer's whole job is to receive.
   artnet.start(forward);
 }
 
 /**
- * Show persistence, backed by a file in the application data directory.
+ * Named JSON stores in the application data directory: `show` for the working
+ * show, `preferences` for application settings.
  */
-function setupShowStore() {
-  ipcMain.handle('show:read', () => showstore.read());
-  ipcMain.handle('show:write', (_event, json) => showstore.write(json));
-  ipcMain.handle('show:clear', () => showstore.clear());
-  ipcMain.handle('show:path', () => showstore.showPath());
+function setupJsonStore() {
+  ipcMain.handle('store:read', (_event, name) => jsonstore.read(name));
+  ipcMain.handle('store:write', (_event, name, json) => jsonstore.write(name, json));
+  ipcMain.handle('store:clear', (_event, name) => jsonstore.clear(name));
+  ipcMain.handle('store:path', (_event, name) => jsonstore.storePath(name));
 }
 
 // This method will be called when Electron has finished
@@ -152,7 +152,7 @@ app.whenReady().then(() => {
 
   createWindow();
   setupArtnet();
-  setupShowStore();
+  setupJsonStore();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

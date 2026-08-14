@@ -429,11 +429,15 @@ export default {
       return this.$show.rawOFLFixtures.map((manufacturer) => ({
         name: manufacturer.name,
         icon: 'folder',
-        unfold: manufacturer.fixtures.map((fixture) => ({
-          name: fixture,
-          icon: 'wave',
+        unfold: manufacturer.fixtures.map((entry) => ({
+          // The profile's own name, rather than its filename.
+          name: entry.name,
+          // Fixtures the visualizer has no 3D model for still patch and hold
+          // addresses, but draw nothing; the icon says which is which.
+          icon: entry.supported ? 'movinghead' : 'undef',
+          more: entry.supported ? entry.category : `${entry.category} (not rendered)`,
           manufacturer,
-          fixture,
+          fixture: entry.file,
         })),
       }));
     },

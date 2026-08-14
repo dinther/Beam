@@ -62,7 +62,10 @@ class UniversePool {
    */
   addRaw(universeData = {}) {
     const universe = new Universe(universeData);
-    if (!universe.id) {
+    // `Universe`'s id setter runs the value through parseInt, so an absent id
+    // lands as NaN rather than undefined. Number.isFinite catches that and
+    // undefined/null alike, while still treating a legitimate id of 0 as set.
+    if (!Number.isFinite(universe.id)) {
       universe.id = this.genUniverseId();
     }
     this.universes.push(universe);
@@ -103,11 +106,7 @@ class UniversePool {
    */
   genUniverseId() {
     return this.universes.reduce(
-      (prev, current) => (
-        (prev && prev.id > current.id)
-          ? prev.id
-          : current.id
-      ),
+      (maxId, current) => (current.id > maxId ? current.id : maxId),
       -1,
     ) + 1;
   }

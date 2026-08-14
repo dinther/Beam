@@ -95,6 +95,47 @@
           style="width: 100px"
         />
       </uk-flex>
+      <div class="separator" />
+      <uk-flex
+        :gap="8"
+        col
+        class="title"
+      >
+        <h3>Reference</h3>
+        <p class="subtitle">
+          Scene reference objects. Turn these off for a clean render.
+        </p>
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Floor:</h4>
+          <p class="subtitle">
+            Show the checkered ground plane.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-checkbox v-model="$show.visualizerHandle.showFloor" />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Grid:</h4>
+          <p class="subtitle">
+            Show the infinite reference grid.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-checkbox v-model="$show.visualizerHandle.showGrid" />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Axes:</h4>
+          <p class="subtitle">
+            Show the origin axis indicator.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-checkbox v-model="$show.visualizerHandle.showAxes" />
+      </uk-flex>
     </uk-flex>
   </uk-popup>
 </template>
@@ -141,6 +182,9 @@ export default {
       // eslint-disable-next-line max-len
       this.$show.visualizerHandle.globalFoggingTurbulences = this.initialValues.globalFoggingTurbulences;
       this.$show.visualizerHandle.globalBrightness = this.initialValues.globalBrightness;
+      this.$show.visualizerHandle.showFloor = this.initialValues.showFloor;
+      this.$show.visualizerHandle.showGrid = this.initialValues.showGrid;
+      this.$show.visualizerHandle.showAxes = this.initialValues.showAxes;
       this.close();
     },
   },

@@ -212,8 +212,11 @@ export default {
   border-color: var(--accent-teal)!important;
   opacity: 1;
 }
+/* Same tint as .selected: a highlighted row belongs to the selection whether
+   or not the list happens to hold focus. Focused styling below still promotes
+   both states to solid accent. */
 .highlighted:not(.noSelect){
-  background: var(--secondary-darker) !important ;
+  background: rgba(28, 166, 189, 0.16) !important;
 }
 .highlighted.focused:not(.noSelect)  {
   border-color: var(--accent-teal)!important;

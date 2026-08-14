@@ -51,6 +51,12 @@ const SPOTLIGHT_PHYSICALLY_CORRECT_DISTANCE = 0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY = 100.0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_DECAY = 1.0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA = 1.2;
+/** Per-light shadow map resolution. Every casting light costs one depth pass. */
+const SPOTLIGHT_SHADOW_MAP_SIZE = 512;
+const SPOTLIGHT_SHADOW_NEAR = 0.5;
+const SPOTLIGHT_SHADOW_FAR = 60;
+const SPOTLIGHT_SHADOW_BIAS = -0.0005;
+const SPOTLIGHT_SHADOW_NORMAL_BIAS = 0.02;
 
 const DEFAULT_COLOR_TEMP = 8000;
 
@@ -578,6 +584,19 @@ class MovingHead {
       SPOTLIGHT_PHYSICALLY_CORRECT_DECAY,
     );
 
+    // The light sits ahead of the head (see the translation below), so the
+    // fixture's own body stays behind the shadow frustum and cannot black out
+    // its own beam. Shadow camera fov tracks the cone angle automatically.
+    this._spotLight.castShadow = true;
+    this._spotLight.shadow.mapSize.width = SPOTLIGHT_SHADOW_MAP_SIZE;
+    this._spotLight.shadow.mapSize.height = SPOTLIGHT_SHADOW_MAP_SIZE;
+    this._spotLight.shadow.camera.near = SPOTLIGHT_SHADOW_NEAR;
+    this._spotLight.shadow.camera.far = SPOTLIGHT_SHADOW_FAR;
+    // Depth offsets: bias kills surface acne on the floor, normalBias closes
+    // the gap it opens at grazing angles.
+    this._spotLight.shadow.bias = SPOTLIGHT_SHADOW_BIAS;
+    this._spotLight.shadow.normalBias = SPOTLIGHT_SHADOW_NORMAL_BIAS;
+
     this._spotLight.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
     this._spotLight.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, 0.9));
 
@@ -696,6 +715,15 @@ class MovingHead {
     baseMesh.frustumCulled = false;
     yokeMesh.frustumCulled = false;
     headMesh.frustumCulled = false;
+
+    // Fixture bodies block light and take shadow from each other. The beam
+    // (custom shader) and the emissive lens cap are deliberately left out.
+    baseMesh.castShadow = true;
+    yokeMesh.castShadow = true;
+    headMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    yokeMesh.receiveShadow = true;
+    headMesh.receiveShadow = true;
 
     baseMesh.count = instanceCount;
     yokeMesh.count = instanceCount;

@@ -28,20 +28,6 @@ const ANIMATION_METHODS = {
  * @constant {Number} QUANTIZATION_TOLERANCE
  */
 const QUANTIZATION_TOLERANCE = 0.1;
-/**
- * TAP BPM precision
- *
- * @constant {Number} TAP_PRECISION
- */
-const TAP_PRECISION = 5;
-/**
- * Default BPM value
- *
- * @constant {Number} DEFAULT_LIVE_BPM
- */
-const DEFAULT_LIVE_BPM = 120;
-
-const taps = [];
 
 /**
  * @class Animation
@@ -93,7 +79,6 @@ class Live {
       this.time = 0;
       this.tick = 0;
       this.pauseTimeOffset = 0;
-      this.bpm = DEFAULT_LIVE_BPM;
       this.animations = [];
       this.rafID = null;
       this.state = LIVE_STATES.PLAYING;
@@ -162,57 +147,6 @@ class Live {
 
   get animationMethod() {
     return this._animationMethod;
-  }
-
-  /**
-   * Beat duration in milliseconds
-   *
-   * @readonly
-   * @type {number}
-   */
-  get beatDuration() {
-    return 60000 / this.bpm;
-  }
-
-  /**
-   * Bar duration in milliseconds
-   *
-   * @readonly
-   * @type {number}
-   */
-  get barDuration() {
-    return this.beatDuration * 4;
-  }
-
-  /**
-   * Implementation of tap tempo. Sets Beats Per Minute
-   * by averaging time difference between two or more calls.
-   *
-   * @public
-   * @return {Number} bpm value following latest tap
-   * @todo Implement a more precise algorithm
-   */
-  tapTempo() {
-    const ticks = [];
-    taps.push(Date.now());
-    if (taps.length >= 4) {
-      for (let i = 1; i < taps.length; i++) {
-        const tickValue = ((60 / (taps[i] / 1000 - taps[i - 1] / 1000)) * 100) / 100;
-        ticks.push(Math.round(tickValue));
-      }
-    }
-    if (taps.length >= 8) {
-      taps.shift();
-    }
-    if (ticks.length >= 2) {
-      let n = 0;
-      for (let i = ticks.length - 1; i >= 0; i--) {
-        n += ticks[i];
-        if (ticks.length - i >= TAP_PRECISION) break;
-      }
-      this.bpm = n / TAP_PRECISION;
-    }
-    return this.bpm;
   }
 
   /**
