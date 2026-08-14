@@ -41,13 +41,21 @@
         <div
           v-if="treeItem.value.unfold"
           class="uikit_list_item_unfoldable"
+          @dragover.prevent
+          @dragenter.prevent="(e) => dragEnter(e, treeItem)"
+          @dragleave.prevent="dragOut"
+          @drop.prevent="(e) => drop(e, treeItem)"
         >
           <uk-list-item
             :colored="colored"
             :index="index"
             :item="treeItem"
             :tall="tall"
-            @click="unfold(treeItem)"
+            :draggable="draggable"
+            @dragstart="(e) => startDrag(e, treeItem)"
+            @dragend.prevent="stopDrag"
+            @click="(e) => selectItem(e, treeItem, filteredItems)"
+            @unfold="unfold(treeItem)"
           />
           <Transition
             name="fadeHeight"
@@ -85,6 +93,13 @@
                   :focused="hasFocus"
                   :tall="tall"
                   :no-select="noSelect"
+                  :draggable="draggable"
+                  @dragstart="(e) => startDrag(e, subTreeItem)"
+                  @dragend.prevent="stopDrag"
+                  @dragover.prevent
+                  @dragenter.prevent="(e) => dragEnter(e, subTreeItem)"
+                  @dragleave.prevent="dragOut"
+                  @drop.prevent="(e) => drop(e, subTreeItem)"
                   @click="(e) => selectItem(e, subTreeItem, treeItem.value.unfold)"
                   @toggle="toggleItem(subTreeItem)"
                 />
@@ -112,32 +127,12 @@
           :tall="tall"
           :no-select="noSelect"
           :draggable="draggable"
-          @dragstart="
-            (e) => {
-              startDrag(e, index);
-            }
-          "
-          @dragend.prevent="
-            (e) => {
-              stopDrag(e, index);
-            }
-          "
+          @dragstart="(e) => startDrag(e, treeItem)"
+          @dragend.prevent="stopDrag"
           @dragover.prevent
-          @dragenter.prevent="
-            (e) => {
-              dragEnter(e, index);
-            }
-          "
-          @dragleave.prevent="
-            (e) => {
-              dragOut(e, index);
-            }
-          "
-          @drop.prevent="
-            (e) => {
-              drop(e, index);
-            }
-          "
+          @dragenter.prevent="(e) => dragEnter(e, treeItem)"
+          @dragleave.prevent="dragOut"
+          @drop.prevent="(e) => drop(e, treeItem)"
           @click="(e) => selectItem(e, treeItem, filteredItems)"
           @toggle="toggleItem(treeItem)"
         />
@@ -283,7 +278,7 @@ export default {
      */
     accordion: Boolean,
   },
-  emits: ['unfold', 'focused', 'highlight', 'toggle', 'select', 'reorder', 'delete'],
+  emits: ['unfold', 'focused', 'highlight', 'toggle', 'select', 'reparent', 'delete'],
   data() {
     return {
       /**
@@ -327,6 +322,9 @@ export default {
        * Dragging event state
        */
       dragging: false,
+      /** Item currently being dragged, and the row it is over. */
+      draggedItem: null,
+      dropTarget: null,
     };
   },
 
@@ -759,109 +757,84 @@ export default {
       }
     },
     /**
-     * Handles dragging routine start
+     * Begins a drag.
      *
-     * @todo This whole dragging routine was made on the rush. It should be tested and improved.
-     * @param {Event} e startdrag event
-     * @param {Number} index index of the dragged list item
+     * The list reports where things were dropped and lets its owner decide what
+     * that means; it does not reorder itself. Reparenting is the owner's model
+     * to change, and a list that rearranged itself first would fight whatever
+     * the owner then did.
+     *
+     * @param {Event} e dragstart event
+     * @param {Object} treeItem item being dragged
      */
-    startDrag(e, index) {
-      this.clearHighlighted();
-      this.itms_cpy = JSON.parse(JSON.stringify(this.items));
+    startDrag(e, treeItem) {
       this.dragging = true;
-      // this.selectedIndex = this.tree.indexOf(this.selectedItem);
-      if (this.selectedIndex && this.tree[this.selectedIndex]) {
-        this.tree[this.selectedIndex].selected = false;
-        this.selectedItem = null;
-      }
-      this.originalDragItemIndex = index;
-      this.dragItemIndex = this.originalDragItemIndex;
-      this.imtsCpy = JSON.parse(JSON.stringify(this.items));
-      e.dataTransfer.effectAllowed = 'move';
-      e.target.style.setProperty('background-color', 'transparent', 'important');
+      this.draggedItem = treeItem;
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
     },
     /**
-     * Handles drag enter on droppable element.
-     * regenerates item list according to new dragged item index offset
+     * Marks the row under the pointer as the drop target.
      *
      * @param {Event} e dragenter event
-     * @param {Number} index index of the hovered element
+     * @param {Object} treeItem item being hovered
      */
-    dragEnter(e, index) {
-      e.preventDefault();
-      if (e.target.classList && this.dragging) {
-        this.items.splice(index, 0, this.items.splice(this.dragItemIndex, 1)[0]);
-        this.dragItemIndex = index;
-        const childs = e.target.children;
-        e.target.classList.add('dragged_over');
-        e.target.style.setProperty('background-color', 'var(--secondary-darker)', 'important');
-        e.dataTransfer.dropEffect = 'move';
-        for (let i = 0; i < childs.length; i++) {
-          childs[i].style.visibility = 'hidden';
-        }
-      }
+    dragEnter(e, treeItem) {
+      if (!this.dragging || treeItem === this.draggedItem) return;
+      this.dropTarget = treeItem;
+      const row = e.currentTarget;
+      if (row && row.classList) row.classList.add('dragged_over');
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     },
     /**
-     * Handles drag leave on droppable element.
-     * resets droppable hovered item styling
+     * Clears the drop marker as the pointer leaves a row.
      *
-     * @param {Event} e dragenter event
+     * @param {Event} e dragleave event
      */
     dragOut(e) {
-      if (e.target.classList) {
-        e.target.classList.remove('dragged_over');
-        e.target.style.setProperty('background-color', '', 'important');
-        const childs = e.target.children;
-        for (let i = 0; i < childs.length; i++) {
-          childs[i].style.visibility = 'visible';
-        }
-      }
+      const row = e.currentTarget;
+      if (row && row.classList) row.classList.remove('dragged_over');
     },
     /**
-     * Handles drop
+     * Reports the drop. A null target means the root of the list.
      *
      * @param {Event} e drop event
-     * @param {Number} index index of the dropped list item
+     * @param {Object|null} treeItem item dropped onto, or null for the root
      */
-    drop(e) {
-      e.preventDefault();
-      const draggedOverEls = this.$el.getElementsByClassName('dragged_over');
-      if (draggedOverEls.length) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const el of draggedOverEls) {
-          el.classList.remove('dragged_over');
-          el.style.setProperty('background-color', '', 'important');
-          const childs = el.children;
-          for (let i = 0; i < childs.length; i++) {
-            childs[i].style.visibility = 'visible';
-          }
-        }
-      }
-      e.target.style.setProperty('background-color', '', 'important');
-      this.selectItem(undefined, this.tree[this.dragItemIndex]);
+    drop(e, treeItem) {
+      this.clearDropMarkers();
+      const dragged = this.draggedItem;
+      this.dragging = false;
+      this.draggedItem = null;
+      this.dropTarget = null;
+      if (!dragged || dragged === treeItem) return;
       /**
-       * Item dragging event
+       * Reparenting event
        *
-       * @property {Number} original Original dragged item index
-       * @property {Number} final FInal item index
+       * @property {Object} item the dragged item's value
+       * @property {Object} target the value it was dropped onto, null for root
        */
-      this.$emit('reorder', {
-        original: this.originalDragItemIndex,
-        final: this.dragItemIndex,
+      this.$emit('reparent', {
+        item: dragged.value,
+        target: treeItem ? treeItem.value : null,
       });
     },
     /**
-     * Clotures dragging event following cancellation or drop event
+     * Ends a drag that finished anywhere useful or nowhere at all.
      *
-     * @param {Event} e drop event
+     * dragend fires after drop, so this only has to clean up; a drag cancelled
+     * with Escape or released off the list reaches here without a drop.
      */
-    stopDrag(e) {
-      e.preventDefault();
-      if (e.dataTransfer.dropEffect !== 'move') {
-        this.updateTree(this.itms_cpy);
-      }
+    stopDrag() {
+      this.clearDropMarkers();
       this.dragging = false;
-      e.target.style.setProperty('background-color', '', 'important');
+      this.draggedItem = null;
+      this.dropTarget = null;
+    },
+    /** Removes any leftover drop highlighting. */
+    clearDropMarkers() {
+      const marked = this.$el.getElementsByClassName('dragged_over');
+      // Live collection: removing the class shortens it as we go.
+      while (marked.length) marked[0].classList.remove('dragged_over');
     },
   },
 };

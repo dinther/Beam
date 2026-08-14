@@ -48,15 +48,11 @@
       @click="value.action.callback"
     />
     <uk-icon
-      v-if="value.unfold && !unfolded"
-      class="uikit_list_item_icon_small"
+      v-if="value.unfold"
+      class="uikit_list_item_icon_small unfold_arrow"
+      :class="{ folded: !unfolded }"
       name="arrow_down"
-    />
-    <uk-icon
-      v-if="value.unfold && unfolded"
-      class="uikit_list_item_icon_small"
-      style="opacity: .5"
-      name="arrow_up"
+      @click.stop="$emit('unfold')"
     />
     <uk-icon
       v-if="deletable"
@@ -118,7 +114,7 @@ export default {
      */
     empty: Boolean,
   },
-  emits: ['click'],
+  emits: ['unfold', 'click'],
   data() {
     return {
       /**
@@ -159,6 +155,23 @@ export default {
 </script>
 
 <style scoped>
+/*
+ * File-explorer convention: pointing right when closed, down when open. One
+ * asset rotated rather than two, so both states are drawn at the same weight --
+ * the previous pair dimmed the open arrow to half opacity, which made an open
+ * row read as having no arrow at all.
+ */
+.unfold_arrow {
+  transition: transform 120ms ease;
+  cursor: pointer;
+}
+.unfold_arrow.folded {
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .unfold_arrow { transition: none; }
+}
+
 .uikit_list_item {
   display: flex;
   flex-direction: row;

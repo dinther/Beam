@@ -2,7 +2,8 @@
   <button
     class="uikit_button"
     :style="{background: toggled && color ? color : 'var(--secondary-dark)' }"
-    :class="{ disabled, toggled, toggleable, square }"
+    :class="{ disabled, toggled, toggleable, square, icon_only: iconOnly }"
+    :title="title || label"
     @click.stop="handleClick"
   >
     <uk-icon
@@ -10,7 +11,7 @@
       class="uikit_button_icon"
       :name="icon"
     />
-    <h4>{{ label }}</h4>
+    <h4 v-if="!iconOnly">{{ label }}</h4>
   </button>
 </template>
 
@@ -49,6 +50,19 @@ export default {
      * Whether alternate "square" styling should be applied
      */
     square: Boolean,
+    /**
+     * Draws the button as a square holding only its icon. The label still has
+     * to be given: it becomes the tooltip, which is the only thing telling a
+     * user what an icon means.
+     */
+    iconOnly: Boolean,
+    /**
+     * Tooltip text, when it should differ from the label.
+     */
+    title: {
+      type: String,
+      default: '',
+    },
     /**
      * The button's current value. Either true or false.
      */
@@ -132,6 +146,20 @@ export default {
 }
 .uikit_button.square{
   border-radius: 0;
+}
+.uikit_button.icon_only {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.uikit_button.icon_only .uikit_button_icon {
+  margin-right: 0;
+  height: 18px!important;
+  width: 18px!important;
 }
 .uikit_button_label {
   display: table-cell;
