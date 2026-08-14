@@ -63,12 +63,6 @@ export default {
       highlightedFixtureIds: [],
     };
   },
-  mounted() {
-    EventBus.on('fixture_picked', this.handleFixturePicked);
-  },
-  beforeUnmount() {
-    EventBus.off('fixture_picked', this.handleFixturePicked);
-  },
   computed: {
     /**
      * The patch bay as a tree: groups first, holding their members, then
@@ -83,11 +77,11 @@ export default {
       const grouped = new Set();
       const groups = this.show.groups.map((group) => {
         group.members.forEach((member) => grouped.add(member.id));
-        // Presented exactly like a manufacturer in the fixture selector: same
-        // component, same folder affordance, so the two trees read alike.
+        // Its own icon rather than the selector's folder: a group is a thing
+        // in the show, not a place to look in.
         return {
           name: group.name,
-          icon: 'folder',
+          icon: 'group',
           id: `group:${group.id}`,
           groupId: group.id,
           isGroup: true,
@@ -99,6 +93,12 @@ export default {
         .map((fixture) => this.describeFixture(fixture));
       return [...groups, ...loose];
     },
+  },
+  mounted() {
+    EventBus.on('fixture_picked', this.handleFixturePicked);
+  },
+  beforeUnmount() {
+    EventBus.off('fixture_picked', this.handleFixturePicked);
   },
   methods: {
     /**
@@ -127,6 +127,9 @@ export default {
     selectGroup(groupId) {
       const group = this.$show.groups.find((candidate) => candidate.id === groupId);
       if (!group) return;
+      // Routed like a fixture is, so the modifier follows the selection
+      // whichever kind of thing it turns out to be.
+      this.$router.push({ path: '/patch', query: { groupId } }).catch(() => {});
       Controls.detachAll();
       Controls.clearAllHighlighting();
       group.highlightSingle(true);

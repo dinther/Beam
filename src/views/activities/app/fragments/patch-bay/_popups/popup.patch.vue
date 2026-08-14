@@ -1,9 +1,9 @@
 <template>
   <uk-popup
     v-model="state"
-    :valid="fixture.loaded && !patchError && !loading"
+    :valid="submittable"
     :header="headerData"
-    @submit="patchFixtures"
+    @submit="submit"
     @input="update()"
   >
     <uk-flex class="patch_popup">
@@ -11,17 +11,48 @@
         col
         class="fixture_list_column"
       >
+        <uk-flex class="kind_tabs">
+          <uk-button
+            v-for="kind in kinds"
+            :key="kind.id"
+            square
+            :label="kind.label"
+            :value="false"
+            toggleable
+            :model-value="activeKind === kind.id"
+            color="var(--accent-blue)"
+            @click="selectKind(kind.id)"
+          />
+        </uk-flex>
         <uk-list
           class="fixture_list"
-          :items="fixtures"
+          :items="items"
           filterable
-          @select="loadFixture"
+          @select="selectItem"
         />
-        <uk-flex class="fixture_list_actions">
+        <h4
+          v-if="!items.length"
+          class="kind_empty"
+        >
+          {{ emptyMessage }}
+        </h4>
+        <uk-flex
+          v-if="activeKind !== 'structures'"
+          class="fixture_list_actions"
+        >
+          <!-- Structures need no action here: they are made by saving a group,
+               not created in this dialog. -->
           <uk-button
+            v-if="activeKind === 'fixtures'"
             icon="new"
             label="create generic"
             @click="createPopupState = true"
+          />
+          <uk-button
+            v-if="activeKind === 'objects'"
+            icon="export"
+            label="import object"
+            disabled
           />
         </uk-flex>
       </uk-flex>
@@ -36,21 +67,28 @@
           >
             <uk-txt-input
               v-model="fixture.name"
-              :disabled="!fixture.loaded || loading"
+              :disabled="!formEnabled"
               style="flex: 1"
               label="Name"
             />
             <uk-num-input
-              v-model="universe"
-              :disabled="!fixture.loaded || loading"
+              v-model="amount"
+              :disabled="!formEnabled"
               class="field"
-              label="Universe"
-              :min="0"
-              :max="32767"
-              @input="checkPatch"
+              label="Amount"
+              :min="1"
+              :max="512"
+              @input="autoPatch"
             />
           </uk-flex>
+          <!--
+            Addressing belongs to fixtures alone. A truss has no channels, and
+            a structure patches its members as it creates them, so a start
+            address here would only carry over whatever conflicts existed
+            wherever it was saved.
+          -->
           <uk-flex
+            v-if="addressable"
             :gap="8"
             class="patch_form_section"
           >
@@ -60,6 +98,15 @@
               style="flex: 1"
               label="Fixture mode"
               :options="fixture.modeNames"
+            />
+            <uk-num-input
+              v-model="universe"
+              :disabled="!fixture.loaded || loading"
+              class="field"
+              label="Universe"
+              :min="0"
+              :max="32767"
+              @input="checkPatch"
             />
             <uk-num-input
               v-model="channel"
@@ -78,15 +125,6 @@
               @input="checkPatch"
             />
             <uk-num-input
-              v-model="amount"
-              :disabled="!fixture.loaded || loading"
-              class="field"
-              label="Amount"
-              :min="1"
-              :max="512"
-              @input="autoPatch"
-            />
-            <uk-num-input
               v-model="chStop"
               disabled
               class="field"
@@ -103,7 +141,7 @@
               :disabled="!fixture.loaded || loading"
               class="field"
               style="flex: 1"
-              label="Fixture type"
+              label="Type"
             />
           </uk-flex>
           <uk-flex
@@ -120,7 +158,7 @@
                   label="Pos X"
                   :min="-1000"
                   :max="1000"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
                 <uk-num-input
@@ -128,7 +166,7 @@
                   label="Pos Y"
                   :min="-1000"
                   :max="1000"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
                 <uk-num-input
@@ -136,7 +174,7 @@
                   label="Pos Z"
                   :min="-1000"
                   :max="1000"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
               </uk-flex>
@@ -186,21 +224,21 @@
                   v-model="fixture.rotation.x"
                   label="°Rot X"
                   :max="360"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
                 <uk-num-input
                   v-model="fixture.rotation.y"
                   label="°Rot Y"
                   :max="360"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
                 <uk-num-input
                   v-model="fixture.rotation.z"
                   label="°Rot Z"
                   :max="360"
-                  :disabled="!fixture.loaded || loading"
+                  :disabled="!formEnabled"
                   class="field"
                 />
               </uk-flex>
@@ -294,8 +332,29 @@ export default {
   },
   data() {
     return {
-      headerData: { title: 'Patch fixture' },
+      headerData: { title: 'Add to show' },
       createPopupState: false,
+      /**
+       * What kind of thing is being added. The list cannot nest three deep --
+       * fixtures already spend their one level on manufacturers -- so the
+       * kinds are tabs rather than folders above them.
+       */
+      activeKind: 'fixtures',
+      /**
+       * The list for whichever kind is showing.
+       *
+       * Held as data and rebuilt whole, never as a computed: uk-list rewrites
+       * the array it is given, wrapping each sub-item in place, so handing it
+       * one that has already been through that produces doubly wrapped entries
+       * and a row with no name.
+       */
+      items: [],
+      selectedStructure: null,
+      kinds: [
+        { id: 'fixtures', label: 'fixtures' },
+        { id: 'objects', label: 'objects' },
+        { id: 'structures', label: 'structures' },
+      ],
       fixtures: [],
       fixture: JSON.parse(JSON.stringify(DEFAULT_FIXTURE_DATA)),
       amount: DEFAULT_FIXTURE_AMOUNT,
@@ -311,6 +370,39 @@ export default {
     };
   },
   computed: {
+    /**
+     * Whether something is selected that the common fields apply to. The
+     * fixture-only fields have their own guard; these are name, amount,
+     * position and rotation, which every kind of thing needs.
+     *
+     * @type {Boolean}
+     */
+    formEnabled() {
+      return (this.fixture.loaded || !!this.selectedStructure) && !this.loading;
+    },
+    /**
+     * Whether OK can do anything with what is selected.
+     *
+     * @type {Boolean}
+     */
+    submittable() {
+      if (this.loading) return false;
+      if (this.activeKind === 'structures') return !!this.selectedStructure;
+      return this.fixture.loaded && !this.patchError;
+    },
+    /**
+     * Whether the selected thing occupies DMX channels of its own.
+     *
+     * @type {Boolean}
+     */
+    addressable() {
+      return this.activeKind === 'fixtures';
+    },
+    emptyMessage() {
+      if (this.activeKind === 'objects') return 'No objects yet';
+      if (this.activeKind === 'structures') return 'No saved structures';
+      return 'Nothing to display';
+    },
     count() {
       if (this.fixture.modes[this.fixture.mode]) {
         return this.fixture.modes[this.fixture.mode].length - 1;
@@ -373,7 +465,9 @@ export default {
      * @public
      */
     init() {
-      this.fixtures = this.prepareFixtures();
+      this.activeKind = 'fixtures';
+      this.selectedStructure = null;
+      this.items = this.buildItems(this.activeKind);
       this.fixture = JSON.parse(JSON.stringify(DEFAULT_FIXTURE_DATA));
       this.amount = DEFAULT_FIXTURE_AMOUNT;
       this.positionOffsets = { x: 0, y: 0, z: 0 };
@@ -381,6 +475,49 @@ export default {
       this.chStop = 0;
       this.patchAddress = this.startAddress || 0;
       this.patchError = false;
+    },
+    /**
+     * Adds whatever is selected, in as many copies as asked for.
+     *
+     * @public
+     * @async
+     */
+    async submit() {
+      if (this.activeKind === 'structures') {
+        await this.placeStructures();
+        return;
+      }
+      this.patchFixtures();
+    },
+    /**
+     * Places the selected structure, offsetting each copy as the fixture path
+     * does.
+     *
+     * @public
+     * @async
+     */
+    async placeStructures() {
+      this.loading = true;
+      const base = { ...this.fixture.position };
+      const spin = { ...this.fixture.rotation };
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      for (let i = 0; i < this.amount; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.$show.placeStructure(this.selectedStructure, {
+          position: {
+            x: base.x + this.positionOffsets.x * i,
+            y: base.y + this.positionOffsets.y * i,
+            z: base.z + this.positionOffsets.z * i,
+          },
+          rotation: {
+            x: toRad(spin.x + this.rotationOffsets.x * i),
+            y: toRad(spin.y + this.rotationOffsets.y * i),
+            z: toRad(spin.z + this.rotationOffsets.z * i),
+          },
+        });
+      }
+      this.loading = false;
+      this.state = false;
     },
     /**
      * Patch selected fixture using provided form parameters.
@@ -467,9 +604,58 @@ export default {
      * @param {String} key `manufacturer/model` of the new profile
      */
     async handleProfileCreated(key) {
-      this.fixtures = this.prepareFixtures();
+      this.items = this.buildItems('fixtures');
       const [manufacturer, model] = key.split('/');
       await this.loadFixture({ manufacturer: { name: manufacturer }, fixture: model });
+    },
+    /**
+     * Switches which kind of thing is being added.
+     *
+     * @public
+     * @param {String} id kind id
+     */
+    selectKind(id) {
+      this.activeKind = id;
+      this.selectedStructure = null;
+      this.items = this.buildItems(id);
+    },
+    /**
+     * Builds a fresh list for a kind.
+     *
+     * @public
+     * @param {String} id kind id
+     * @returns {Array} list entries
+     */
+    buildItems(id) {
+      if (id === 'fixtures') return this.prepareFixtures();
+      if (id === 'structures') {
+        const structures = this.$show.structures || {};
+        return Object.keys(structures).map((name) => ({
+          name,
+          icon: 'structure',
+          structure: name,
+          more: `${(structures[name].members || []).length}`,
+        }));
+      }
+      return [];
+    },
+    /**
+     * Routes a list selection to whatever the active kind expects.
+     *
+     * @public
+     * @async
+     * @param {Object} item selected list entry
+     */
+    async selectItem(item) {
+      if (this.activeKind === 'fixtures') {
+        await this.loadFixture(item);
+        return;
+      }
+      if (this.activeKind === 'structures' && item && item.structure) {
+        this.selectedStructure = item.structure;
+        this.fixture.name = item.structure;
+        this.patchError = false;
+      }
     },
     async loadFixture(item) {
       // Folders are selectable now that a row's click selects rather than
@@ -566,6 +752,15 @@ export default {
 </script>
 
 <style scoped>
+.kind_tabs {
+  padding: 6px 6px 0;
+  gap: 4px;
+}
+.kind_empty {
+  padding: 12px;
+  color: var(--secondary-light-alt);
+  text-align: center;
+}
 .fixture_list_column {
   /* The list keeps whatever width it had; the actions row sits under it. */
   min-height: 0;

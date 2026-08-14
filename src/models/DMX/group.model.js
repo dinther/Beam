@@ -65,6 +65,7 @@ class Group extends Proxify {
    * @readonly
    * @type {Boolean}
    */
+  // eslint-disable-next-line class-methods-use-this
   get isGroup() {
     return true;
   }

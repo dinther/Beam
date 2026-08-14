@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import axios from 'axios';
 import { merge } from 'lodash';
 import {
@@ -50,6 +51,8 @@ class Show extends EventEmitter {
     this.fixturePool = new FixturePool();
     /** Groups, in list order. Membership is exclusive. */
     this.groups = [];
+    /** Saved arrangements, keyed by name, for placing again. */
+    this.structures = {};
     /** Showfile fixture id to instance, for the duration of a load. */
     this.loadedFixturesById = new Map();
     this.running = false;
@@ -341,6 +344,7 @@ class Show extends EventEmitter {
     this.loading.message = 'Preloading fixture library';
     this.loading.percentage = 40;
     await this.preloadGeneratedProfiles();
+    await this.preloadStructures();
     await this.preloadFixtureList();
     await this.preloadFixtureOverrides();
 
@@ -519,6 +523,181 @@ class Show extends EventEmitter {
   }
 
   /**
+   * The nearest free group name to the one asked for.
+   *
+   * Groups are told apart by name in the patch bay, so two sharing one makes
+   * the list ambiguous. A taken name gains a number rather than being refused.
+   *
+   * @public
+   * @param {String} desired name the user asked for
+   * @param {Number} [ignoreId] id of the group allowed to keep this name
+   * @returns {String} a name no other group is using
+   */
+  uniqueGroupName(desired, ignoreId = null) {
+    const wanted = (desired || '').trim() || 'Group';
+    const taken = new Set(
+      this.groups.filter((group) => group.id !== ignoreId).map((group) => group.name),
+    );
+    if (!taken.has(wanted)) return wanted;
+    let n = 2;
+    while (taken.has(`${wanted} ${n}`)) n += 1;
+    return `${wanted} ${n}`;
+  }
+
+  /**
+   * Loads the user's saved structures.
+   *
+   * @public
+   * @async
+   */
+  async preloadStructures() {
+    if (typeof window === 'undefined' || !window.jsonStore) return;
+    this.structures = (await window.jsonStore.read('structures')) || {};
+  }
+
+  /**
+   * Saves a group's arrangement as a structure.
+   *
+   * What is kept is the shape, not these fixtures: each member's profile and
+   * where it sits relative to the group's origin. Placing it again builds new
+   * fixtures, which is why no address is recorded -- they are patched as they
+   * are created, exactly as adding one by hand would be.
+   *
+   * @public
+   * @async
+   * @param {Object} group group to save
+   * @returns {String} the structure's name
+   */
+  async saveStructure(group) {
+    const matrix = group.matrix.clone();
+    const inverse = matrix.clone().invert();
+    const structure = {
+      name: group.name,
+      members: group.members.map((member) => {
+        const local = member.localTransform
+          ? member.localTransform.clone()
+          : inverse.clone();
+        return {
+          manufacturer: member.manufacturer,
+          model: member.model,
+          mode: member.mode ? member.mode.name : undefined,
+          universeAligned: !!member.universeAligned,
+          transform: local.elements.slice(),
+        };
+      }),
+    };
+    this.structures[group.name] = structure;
+    if (typeof window !== 'undefined' && window.jsonStore) {
+      await window.jsonStore.write('structures', JSON.stringify(this.structures, null, 2));
+    }
+    return group.name;
+  }
+
+  /**
+   * Places a saved structure as a new group of new fixtures.
+   *
+   * Each member is created and patched exactly as adding it by hand would be,
+   * which is why the structure carries no addresses: they are found free at
+   * the moment of placing, so the same structure can be put down repeatedly.
+   *
+   * @public
+   * @async
+   * @param {String} name structure to place
+   * @param {Object} placement world position and rotation, in metres and radians
+   * @returns {Object|null} the group created, or null when the structure is
+   *   unknown or none of its members could be resolved
+   */
+  async placeStructure(name, placement = {}) {
+    const structure = this.structures[name];
+    if (!structure) return null;
+
+    const origin = new THREE.Matrix4().compose(
+      new THREE.Vector3(
+        (placement.position || {}).x || 0,
+        (placement.position || {}).y || 0,
+        (placement.position || {}).z || 0,
+      ),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        (placement.rotation || {}).x || 0,
+        (placement.rotation || {}).y || 0,
+        (placement.rotation || {}).z || 0,
+      )),
+      new THREE.Vector3(1, 1, 1),
+    );
+
+    const world = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const euler = new THREE.Euler();
+    const members = [];
+
+    for (let i = 0; i < structure.members.length; i += 1) {
+      const member = structure.members[i];
+      // eslint-disable-next-line no-await-in-loop
+      const OFLData = await this.resolveProfile(member.manufacturer, member.model);
+      if (OFLData) {
+        world.multiplyMatrices(origin, new THREE.Matrix4().fromArray(member.transform));
+        world.decompose(position, quaternion, scale);
+        euler.setFromQuaternion(quaternion);
+
+        const fixture = this.fixturePool.addRaw({
+          OFLData,
+          manufacturer: member.manufacturer,
+          model: member.model,
+          category: OFLData.categories[0],
+          name: this.fixturePool.numberedName(OFLData.name),
+          mode: member.mode,
+          universeAligned: !!member.universeAligned,
+          position: { x: position.x, y: position.y, z: position.z },
+          rotation: {
+            x: THREE.MathUtils.radToDeg(euler.x),
+            y: THREE.MathUtils.radToDeg(euler.y),
+            z: THREE.MathUtils.radToDeg(euler.z),
+          },
+        });
+
+        const address = PatchSingleton.findFreeAddress(
+          fixture.channels.length,
+          1,
+          0,
+          !!member.universeAligned,
+        );
+        if (address > -1) {
+          fixture.address = address;
+          PatchSingleton.patchFixture(fixture);
+        }
+        members.push(fixture);
+      }
+    }
+
+    if (!members.length) return null;
+    return this.createGroup(members, this.uniqueGroupName(structure.name));
+  }
+
+  /**
+   * The profile behind a manufacturer and model, generated or from the library.
+   *
+   * @public
+   * @async
+   * @param {String} manufacturer
+   * @param {String} model
+   * @returns {Object|null} profile data
+   */
+  async resolveProfile(manufacturer, model) {
+    const key = `${manufacturer}/${model}`;
+    if (this.generatedProfiles[key]) {
+      return JSON.parse(JSON.stringify(this.generatedProfiles[key]));
+    }
+    try {
+      const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${key}.json`);
+      return res.data;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  /**
    * Creates a group, optionally taking members straight away.
    *
    * A group with members sits at their centre; an empty one sits at the scene
@@ -558,20 +737,13 @@ class Show extends EventEmitter {
    * @param {Object} member object to move
    * @param {Object|null} group destination, or null for the root
    */
+  // eslint-disable-next-line class-methods-use-this
   moveToGroup(member, group) {
     if (!member) return;
     if (member.group) member.group.remove(member);
     if (group) group.add(member);
   }
 
-  /**
-   * Preloads fixture library from provided fixture list configuration
-   *
-   * @public
-   * @async
-   * @see ./fixtures/fixture_list.json
-   * @see https://open-fixture-library.org/
-   */
   /**
    * Loads the user's own generic fixtures.
    *

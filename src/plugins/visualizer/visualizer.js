@@ -14,7 +14,6 @@ import MovingHead from './moving_head';
 import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
 import DMXStore from './dmx_store';
-import Dodecahedron from './dodecahedron';
 
 /** Room reserved for patched LED fixtures, on top of the scene's own bars. */
 const LED_FIXTURE_BAR_CAPACITY = 256;
@@ -572,24 +571,21 @@ class Visualizer {
     // spanning 36 universes.
     DMXStore.attachArtNet();
 
-    // A dodecahedron built from 30 one-metre LED bars, transcribed from the
-    // wiring diagram; see dodecahedron.js. 1,800 pixels, 5,400 channels,
-    // spanning 11 universes.
-    // Plus headroom for patched LED fixtures. The instanced meshes are sized
-    // once, so this is a hard ceiling rather than a hint: past it, a bar
-    // patches and addresses correctly but does not draw.
+    // Capacity for patched LED fixtures. The instanced meshes are sized once,
+    // so this is a hard ceiling rather than a hint: past it, a bar patches and
+    // addresses correctly but does not draw.
     LEDField.init({
       scene: SceneManager,
-      maxBars: Dodecahedron.barCount + LED_FIXTURE_BAR_CAPACITY,
-      maxLeds: Dodecahedron.pixelCount + LED_FIXTURE_LED_CAPACITY,
+      maxBars: LED_FIXTURE_BAR_CAPACITY,
+      maxLeds: LED_FIXTURE_LED_CAPACITY,
     });
 
-    Dodecahedron.build(LEDField);
-    // Scene furniture is built once; fixtures rebuild on every move.
+    // Nothing is built into the field up front any more, so the watermark that
+    // protects scene furniture from a fixture rebuild sits at zero.
     LEDField.mark();
 
-    // Debug panel for the LED proof of concept. Writes straight into shader
-    // uniforms so values can be found by eye rather than by rebuild.
+    // Emitter and glow tuning. Writes straight into shader uniforms so values
+    // can be found by eye rather than by rebuild.
     createLEDDebugPanel(this, this.domElement.parentElement);
   }
 

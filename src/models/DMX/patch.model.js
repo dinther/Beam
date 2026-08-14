@@ -210,7 +210,20 @@ class PatchMap {
       const occupant = this._addressMap.get(i);
       if (occupant !== undefined) {
         const blocker = this._patch.get(occupant);
-        if (blocker) i = occupant + blocker.channels.length - 1;
+        if (blocker) {
+          // Where the blocker really ends, not where counting its channels
+          // from its start would put it: an aligned fixture stepping over
+          // 511-512 reaches further than its channel count suggests. Taking
+          // the shorter figure lands back inside the blocker, and since the
+          // jump may then be backwards from here, the search sits on the same
+          // address forever. Only ever move forwards.
+          const last = channelAddress(
+            occupant,
+            blocker.channels.length - 1,
+            !!blocker.universeAligned,
+          );
+          if (last > i) i = last;
+        }
       }
     }
     return -1;
