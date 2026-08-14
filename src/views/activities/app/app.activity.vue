@@ -4,10 +4,7 @@
     class="app_activity"
   >
     <toolbar />
-    <uk-flex
-      class="top_fragments"
-      :style="{ height: `${topHeight}px` }"
-    >
+    <uk-flex class="top_fragments">
       <uk-flex
         class="top_fragment_left"
         :style="{ width: `${leftWidth}px` }"
@@ -22,9 +19,14 @@
     </uk-flex>
     <div
       class="splitter splitter_horizontal"
-      @pointerdown="startDrag($event, 'top')"
+      @pointerdown="startDrag($event, 'bottom')"
     />
-    <modifier />
+    <div
+      class="bottom_fragment"
+      :style="{ height: `${bottomHeight}px` }"
+    >
+      <modifier />
+    </div>
     <popup-splash
       v-model="loader.state"
       :loader="loader"
@@ -51,11 +53,9 @@ import ErrorPopup from './_popups/popup.error.vue';
 const DEFAULT_LEFT_WIDTH = 200;
 const MIN_LEFT_WIDTH = 120;
 const MAX_LEFT_WIDTH = 600;
-const MIN_TOP_HEIGHT = 200;
+const DEFAULT_BOTTOM_HEIGHT = 260;
 const MIN_BOTTOM_HEIGHT = 120;
-
-/** Leaves room for the modifier row without assuming a window size. */
-const defaultTopHeight = () => Math.max(MIN_TOP_HEIGHT, window.innerHeight - 260);
+const MIN_TOP_HEIGHT = 200;
 
 export default {
   name: 'AppActivity',
@@ -78,7 +78,7 @@ export default {
        * runs. Read once here so a fresh install still gets sane defaults.
        */
       leftWidth: Number(localStorage.getItem('layout.leftWidth')) || DEFAULT_LEFT_WIDTH,
-      topHeight: Number(localStorage.getItem('layout.topHeight')) || defaultTopHeight(),
+      bottomHeight: Number(localStorage.getItem('layout.bottomHeight')) || DEFAULT_BOTTOM_HEIGHT,
       drag: null,
       /**
        * Error popup description object
@@ -112,19 +112,36 @@ export default {
   async mounted() {
     this.$router._appReayState = false;
     EventBus.on('visualizer_loaded', this.setup);
-    EventBus.on('app_error', (err) => {
+    EventBus.on('app_error', this.handleAppError);
+  },
+  /**
+   * Drops the bus subscriptions. Without this a remount — a hot reload during
+   * development, or any re-entry to this route — leaves the dead instance
+   * subscribed, so the next 'visualizer_loaded' runs setup() once per stale
+   * listener and the show is loaded several times over.
+   */
+  beforeUnmount() {
+    EventBus.off('visualizer_loaded', this.setup);
+    EventBus.off('app_error', this.handleAppError);
+  },
+  methods: {
+    /**
+     * Surfaces a load error in the popup.
+     *
+     * @public
+     * @param {Error} err the error to display
+     */
+    handleAppError(err) {
       this.loader.message = 'An error occured while loading the app...';
       this.errPopup.error = err;
       this.errPopup.state = true;
-    });
-  },
-  methods: {
+    },
     /**
      * Begins a splitter drag.
      *
      * @public
      * @param {Object} e pointerdown event on the splitter
-     * @param {String} axis 'left' for the patch bay, 'top' for the modifier
+     * @param {String} axis 'left' for the patch bay, 'bottom' for the modifier
      */
     startDrag(e, axis) {
       this.drag = {
@@ -132,7 +149,7 @@ export default {
         startX: e.clientX,
         startY: e.clientY,
         startLeft: this.leftWidth,
-        startTop: this.topHeight,
+        startBottom: this.bottomHeight,
       };
       e.currentTarget.setPointerCapture(e.pointerId);
       window.addEventListener('pointermove', this.onDrag);
@@ -150,9 +167,9 @@ export default {
         const width = this.drag.startLeft + (e.clientX - this.drag.startX);
         this.leftWidth = Math.min(Math.max(width, MIN_LEFT_WIDTH), MAX_LEFT_WIDTH);
       } else {
-        const height = this.drag.startTop + (e.clientY - this.drag.startY);
-        const max = window.innerHeight - MIN_BOTTOM_HEIGHT;
-        this.topHeight = Math.min(Math.max(height, MIN_TOP_HEIGHT), max);
+        const height = this.drag.startBottom - (e.clientY - this.drag.startY);
+        const max = window.innerHeight - MIN_TOP_HEIGHT;
+        this.bottomHeight = Math.min(Math.max(height, MIN_BOTTOM_HEIGHT), max);
       }
     },
     /**
@@ -165,7 +182,7 @@ export default {
       window.removeEventListener('pointermove', this.onDrag);
       window.removeEventListener('pointerup', this.endDrag);
       localStorage.setItem('layout.leftWidth', this.leftWidth);
-      localStorage.setItem('layout.topHeight', this.topHeight);
+      localStorage.setItem('layout.bottomHeight', this.bottomHeight);
     },
     /**
      * Setup App. Loads show from local storage or creates new
@@ -227,7 +244,14 @@ export default {
 .top_fragments {
   z-index: 10;
   overflow: hidden;
+  /* Absorbs the leftover height; the modifier row below keeps its dragged size. */
+  flex: 1;
+  min-height: 0;
+}
+.bottom_fragment {
+  display: flex;
   flex: none;
+  overflow: hidden;
 }
 .top_fragment_left{
   flex: none;

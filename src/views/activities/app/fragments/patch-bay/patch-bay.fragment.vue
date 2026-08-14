@@ -126,6 +126,10 @@ export default {
 
 <style scoped>
 .patch_bay{
+  /* Fills the column width the splitter sets, rather than the list's content width. */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   background: var(--primary-light);
 }
 .patch_bay_header {

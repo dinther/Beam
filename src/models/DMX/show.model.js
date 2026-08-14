@@ -45,6 +45,8 @@ class Show extends EventEmitter {
       percentage: 10,
     };
     this.ready = false;
+    /** Tail of the load queue, so two loads can never interleave. */
+    this.loadChain = Promise.resolve();
     this.artnetServerUrl = import.meta.env.VITE_APP_DMX2WS_SERVER_URL;
     this.visualizerHandle = null;
     ProxifySingleton.on('changed', () => {
@@ -293,7 +295,27 @@ class Show extends EventEmitter {
    * @public
    * @async
    */
-  async loadFromData(rawShowData, { persist = true } = {}) {
+  async loadFromData(rawShowData, options = {}) {
+    // A load clears the show and then rebuilds it across several awaits. Two
+    // overlapping calls would both clear first and then both append, leaving
+    // one copy of every fixture per caller, so run them strictly in sequence.
+    // A failed load must not stall the queue, hence the same handler twice.
+    const run = () => this.loadShowData(rawShowData, options);
+    this.loadChain = this.loadChain.then(run, run);
+    return this.loadChain;
+  }
+
+  /**
+   * Performs a single show load. Callers go through loadFromData, which
+   * serialises these.
+   *
+   * @param {Object} rawShowData raw show configuration data to be parsed/loaded
+   * @param {Object} options load options
+   * @param {Boolean} options.persist whether to write the result to disk
+   * @private
+   * @async
+   */
+  async loadShowData(rawShowData, { persist = true } = {}) {
     const showData = migrateShowData(rawShowData);
     this.loading.state = true;
     this.loading.message = 'Clearing Show Data';
