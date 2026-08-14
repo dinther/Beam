@@ -26,3 +26,24 @@ contextBridge.exposeInMainWorld('artnet', {
   /** Close the receive socket. */
   stop: () => ipcRenderer.invoke('artnet:stop'),
 });
+
+/**
+ * Show persistence.
+ *
+ * The working show lives in a file in the application data directory rather
+ * than in browser storage: this is a desktop application, and its state should
+ * be inspectable and backup-able like any other program's.
+ */
+contextBridge.exposeInMainWorld('showStore', {
+  /** @returns {Promise<Object|null>} the persisted show, or null if none */
+  read: () => ipcRenderer.invoke('show:read'),
+  /**
+   * @param {String} json serialised show data
+   * @returns {Promise<Boolean>} whether the write succeeded
+   */
+  write: (json) => ipcRenderer.invoke('show:write', json),
+  /** @returns {Promise<Boolean>} whether anything was removed */
+  clear: () => ipcRenderer.invoke('show:clear'),
+  /** @returns {Promise<String>} absolute path of the show file */
+  path: () => ipcRenderer.invoke('show:path'),
+});

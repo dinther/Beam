@@ -85,7 +85,20 @@ const boundingBoxEdges = new THREE.LineSegments(boundingBoxEdgesGeometry, boundi
  *
  * @constant {Object} DEFAULT_ZOOM_OUT_ENDPOS
  */
-const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(0, 30, 5);
+// Low and off to one side, looking up into the array: the view an audience
+// standing under a flown rig actually gets.
+const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(2.0, 6.0, 0.4);
+
+/**
+ * Where the camera looks when nothing is selected.
+ *
+ * Previously implicit at the world origin, which is floor level -- fine for a
+ * rig standing on the ground, wrong for anything flown, which ended up in the
+ * top of the frame.
+ *
+ * @constant {Object} DEFAULT_ZOOM_OUT_TARGET
+ */
+const DEFAULT_ZOOM_OUT_TARGET = new THREE.Vector3(0, 0, 2.0);
 
 /**
  * @class Controls
@@ -240,9 +253,10 @@ class Controls {
       const dY = state ? 0 : (endPos.y - startPos.y);
       const dZ = state ? ((endPos.z - startPos.z) - 0) : (endPos.z - startPos.z);
 
-      const dTX = state ? (endPos.x - startTPos.x) : -startTPos.x;
-      const dTY = state ? (endPos.y - startTPos.y) : -startTPos.y;
-      const dTZ = state ? (endPos.z - startTPos.z) : -startTPos.z;
+      const endTarget = state ? endPos : DEFAULT_ZOOM_OUT_TARGET;
+      const dTX = endTarget.x - startTPos.x;
+      const dTY = endTarget.y - startTPos.y;
+      const dTZ = endTarget.z - startTPos.z;
 
       const animationFunction = () => {
         const time = performance.now() - startTime;

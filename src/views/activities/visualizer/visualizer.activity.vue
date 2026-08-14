@@ -14,7 +14,7 @@ export default {
   async mounted() {
     this.$show.slave = true;
     EventBus.on('visualizer_loaded', async () => {
-      await this.$show.loadFromLocalStorage();
+      await this.$show.loadPersisted();
     });
   },
 };

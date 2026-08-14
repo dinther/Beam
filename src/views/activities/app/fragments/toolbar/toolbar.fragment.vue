@@ -105,11 +105,11 @@ export default {
               },
             },
             {
-              name: 'Save Showfile Locally',
+              name: 'Save Showfile',
               shortcut: 'Ctrl+S',
               icon: 'save',
               callback: () => {
-                this.saveLocal();
+                this.saveShow();
               },
             },
             {
@@ -240,11 +240,11 @@ export default {
       el.click();
     },
     /**
-     * Persists showfile locally
+     * Saves the show to the application's show file.
      *
      * @public
      */
-    saveLocal() {
+    saveShow() {
       this.$show.persistLocally();
     },
     /**

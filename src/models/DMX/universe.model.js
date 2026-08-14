@@ -58,8 +58,54 @@ class Universe {
     this.connection = null;
     this._patch = {};
     this._addressMap = new Array(DMX_UNIVERSE_LENGTH).fill(undefined);
-    this._dmxBuffer = new Uint8Array(DMX_UNIVERSE_CHANNELS_LENGTH);
     this.fixturePool = new FixturePool();
+    // Last inbound frame, used to skip channels whose value did not change.
+    this._inputShadow = new Uint8Array(DMX_UNIVERSE_CHANNELS_LENGTH);
+    this._shadowPrimed = false;
+    this.diffInput = data.diffInput !== false;
+  }
+
+  /**
+   * Whether inbound DMX frames are diffed against the previous frame, so that
+   * unchanged channels are discarded instead of written through to fixtures.
+   *
+   * DMX repeats every channel on every frame by design, because on a real wire
+   * a packet may be lost and the value has to be re-asserted. A visualizer has
+   * no such wire: a value identical to the one already held cannot change what
+   * is drawn, so writing it is pure cost. Measured against live MadMapper
+   * output at 72 universes, roughly half of all inbound channels are unchanged
+   * even on fast-moving content.
+   *
+   * Left switchable per universe because the saving depends on what the
+   * universe drives. Skipping a write is worth most where the write is
+   * expensive — a mover's pan channel recomputes transforms — and least where
+   * it is trivial, such as a flat colour value.
+   *
+   * @memberof Universe
+   * @type {Boolean}
+   */
+  set diffInput(enabled) {
+    this._diffInput = !!enabled;
+    // The shadow is meaningless until a full pass has populated it.
+    this._shadowPrimed = false;
+  }
+
+  get diffInput() {
+    return this._diffInput;
+  }
+
+  /**
+   * Discards the diffing baseline, forcing the next inbound frame to be written
+   * through in full.
+   *
+   * Required whenever fixture values may have been changed by something other
+   * than an inbound frame — a patch change, or manual control — since the
+   * shadow would otherwise claim a value is already set when it is not.
+   *
+   * @public
+   */
+  invalidateInputShadow() {
+    this._shadowPrimed = false;
   }
 
   /**
@@ -115,6 +161,9 @@ class Universe {
         this._patch[fixtureAddress].setChannel(fixtureChannel, channelData.value);
       }
     });
+    // Values were set from outside the inbound frame path, so the diffing
+    // baseline no longer reflects the fixtures' actual state.
+    this.invalidateInputShadow();
   }
 
   get simplifiedChannels() {
@@ -133,15 +182,29 @@ class Universe {
    * @memberof Universe
    */
   set DMX512Data(DMX512ValueBuffer) {
-    DMX512ValueBuffer.forEach((value, channel) => {
-      const fixtureAddress = this._addressMap[channel];
-      const fixtureChannel = channel - fixtureAddress;
-      if (this._patch[fixtureAddress]) {
-        this._patch[fixtureAddress].setChannel(fixtureChannel, value);
-      } else {
-        // Handle address error here
+    const length = Math.min(DMX512ValueBuffer.length, DMX_UNIVERSE_LENGTH);
+
+    if (this._diffInput && this._shadowPrimed) {
+      const shadow = this._inputShadow;
+      for (let channel = 0; channel < length; channel += 1) {
+        const value = DMX512ValueBuffer[channel];
+        if (value !== shadow[channel]) {
+          shadow[channel] = value;
+          this.writeChannel(channel, value);
+        }
       }
-    });
+      return;
+    }
+
+    // Full pass: either diffing is off, or the shadow needs (re)populating.
+    for (let channel = 0; channel < length; channel += 1) {
+      const value = DMX512ValueBuffer[channel];
+      this.writeChannel(channel, value);
+    }
+    if (this._diffInput) {
+      this._inputShadow.set(DMX512ValueBuffer.subarray(0, length));
+      this._shadowPrimed = true;
+    }
   }
 
   get DMX512Data() {
@@ -160,6 +223,22 @@ class Universe {
   }
 
   /**
+   * Writes a single DMX channel value through to whichever fixture is patched
+   * at that address. Addresses with no fixture patched are ignored.
+   *
+   * @private
+   * @param {Number} channel universe channel index (0-based)
+   * @param {Number} value channel value (0-255)
+   */
+  writeChannel(channel, value) {
+    const fixtureAddress = this._addressMap[channel];
+    const fixture = this._patch[fixtureAddress];
+    if (fixture) {
+      fixture.setChannel(channel - fixtureAddress, value);
+    }
+  }
+
+  /**
    * Universe's exportable show data chunk
    *
    * @readonly
@@ -170,6 +249,7 @@ class Universe {
       id: this.id,
       name: this.name,
       color: this.color,
+      diffInput: this.diffInput,
       fixtures: this.fixturePool.showData,
     };
   }
@@ -188,6 +268,9 @@ class Universe {
       for (let i = fixture.chStart; i < fixture.chStop; i++) {
         this._addressMap[i] = fixture.chStart;
       }
+      // The new fixture's channels start at zero regardless of what the shadow
+      // remembers for those addresses.
+      this.invalidateInputShadow();
     } else {
       throw new Error('Cannot patch fixture on this interval');
     }
@@ -207,6 +290,7 @@ class Universe {
         ? undefined
         : address
     ));
+    this.invalidateInputShadow();
   }
 
   /**

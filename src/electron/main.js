@@ -14,6 +14,12 @@ import {
 import path from 'path';
 import icon from '../assets/images/studio_standalone_logo.svg';
 import artnet from './artnet';
+import showstore from './showstore';
+
+// GPU timer queries are disabled by default because precise timing is a
+// side-channel vector. Re-enabled here so rendering cost can be measured;
+// remove once the LED work stops needing it.
+app.commandLine.appendSwitch('enable-webgl-draft-extensions');
 
 console.log('MAIN PROCESS STARTED');
 
@@ -120,6 +126,16 @@ function setupArtnet() {
   artnet.start(forward);
 }
 
+/**
+ * Show persistence, backed by a file in the application data directory.
+ */
+function setupShowStore() {
+  ipcMain.handle('show:read', () => showstore.read());
+  ipcMain.handle('show:write', (_event, json) => showstore.write(json));
+  ipcMain.handle('show:clear', () => showstore.clear());
+  ipcMain.handle('show:path', () => showstore.showPath());
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -136,6 +152,7 @@ app.whenReady().then(() => {
 
   createWindow();
   setupArtnet();
+  setupShowStore();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

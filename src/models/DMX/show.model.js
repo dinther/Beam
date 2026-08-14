@@ -10,7 +10,6 @@ import UniversePool from './universe.pool.model';
 import FixturePool from './fixture.pool.model';
 import Live from './live.model';
 
-const LOCALSTORAGE_SHOWFILE_KEY = 'ASLS_STUDIO_SHOWFILE';
 const DEFAULT_PROJECT_NAME = 'new_project.asls';
 const DEFAULT_BPM_VALUE = 120;
 
@@ -161,12 +160,20 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Persist show data in localstorage
+   * Persists the show to disk.
+   *
+   * Fire-and-forget: the save state is reported optimistically so the UI stays
+   * responsive, and a failure is logged by the main process rather than
+   * interrupting the user mid-edit.
    *
    * @public
    */
   persistLocally() {
-    localStorage.setItem(LOCALSTORAGE_SHOWFILE_KEY, JSON.stringify(this.showData));
+    if (typeof window !== 'undefined' && window.showStore) {
+      // Serialised here: show data is wrapped in reactive proxies, which
+      // structured clone cannot carry across the IPC boundary.
+      window.showStore.write(JSON.stringify(this.showData, null, 2));
+    }
     this.isSaved = true;
     this.emit('saveState', this.isSaved);
   }
@@ -251,18 +258,18 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Loads showfile from local storage
+   * Loads the persisted show from disk, if there is one.
    *
    * @async
    * @public
+   * @returns {Boolean} whether a stored show was found and loaded
    */
-  async loadFromLocalStorage() {
-    const ls_showdata = localStorage.getItem(LOCALSTORAGE_SHOWFILE_KEY);
-    if (ls_showdata != null) {
-      await this.loadFromData(JSON.parse(ls_showdata));
-      return true;
-    }
-    return false;
+  async loadPersisted() {
+    if (typeof window === 'undefined' || !window.showStore) return false;
+    const showData = await window.showStore.read();
+    if (!showData) return false;
+    await this.loadFromData(showData);
+    return true;
   }
 
   /**

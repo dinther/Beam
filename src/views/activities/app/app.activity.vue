@@ -96,7 +96,7 @@ export default {
      * @public
      */
     async setup() {
-      const localLoadingSucceeded = await this.$show.loadFromLocalStorage();
+      const localLoadingSucceeded = await this.$show.loadPersisted();
 
       if (!localLoadingSucceeded) {
         const res = await fetch(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/demo.showfile.json`);
