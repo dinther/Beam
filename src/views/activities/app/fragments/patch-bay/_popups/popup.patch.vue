@@ -58,6 +58,13 @@
               :max="512"
               @input="checkPatch"
             />
+            <uk-checkbox
+              v-show="canSpan"
+              v-model="fixture.universeAligned"
+              label="Skip ch 511-512"
+              style="align-self: center"
+              @input="checkPatch"
+            />
             <uk-num-input
               v-model="amount"
               :disabled="!fixture.loaded || loading"
@@ -236,6 +243,7 @@ import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
 const NO_FIXTURE_STR = 'No fixture model selected';
 const DEFAULT_FIXTURE_AMOUNT = 1;
 const DEFAULT_FIXTURE_DATA = {
+  universeAligned: false,
   name: NO_FIXTURE_STR,
   modeNames: [NO_FIXTURE_STR],
   category: NO_FIXTURE_STR,
@@ -290,6 +298,14 @@ export default {
     /**
      * 1-based DMX address shown to the user, mapped to the 0-based internal chStart.
      */
+    /**
+     * The skip changes nothing for a run too short to reach a boundary.
+     */
+    canSpan() {
+      if (!this.fixture.loaded || !this.fixture.modes[this.fixture.mode]) return false;
+      const chCount = this.fixture.modes[this.fixture.mode].channels.length * this.amount;
+      return (this.patchAddress % DMX_UNIVERSE_LENGTH) + chCount > DMX_UNIVERSE_LENGTH;
+    },
     /**
      * Universe the run starts in. Universe and channel are edited separately,
      * the way MadMapper and consoles express an address; internally they are
@@ -423,7 +439,12 @@ export default {
      */
     checkPatch() {
       const chCount = this.fixture.modes[this.fixture.mode].channels.length;
-      if (this.$show.patch.canPatchMany(this.patchAddress, chCount, this.amount)) {
+      if (this.$show.patch.canPatchMany(
+        this.patchAddress,
+        chCount,
+        this.amount,
+        this.fixture.universeAligned,
+      )) {
         this.patchError = false;
         this.chStop = chCount * this.amount + this.patchAddress;
         return true;
@@ -443,6 +464,7 @@ export default {
         chCount,
         this.amount,
         this.startAddress || 0,
+        this.fixture.universeAligned,
       );
       this.chStop = chCount * this.amount + address;
       if (address > -1) {

@@ -8,6 +8,70 @@
 const DMX_UNIVERSE_LENGTH = 512;
 
 /**
+ * Channels per universe in universe-aligned mode.
+ *
+ * 510 divides by 3, so RGB pixels tile a universe exactly and none is ever
+ * split across a boundary. The last two channels of every universe are left
+ * unused. MadMapper and most LED controllers offer this as an option; it is a
+ * property of how a fixture lays its channels out, not of the wire.
+ *
+ * @constant {Number} ALIGNED_CHANNELS_PER_UNIVERSE
+ */
+const ALIGNED_CHANNELS_PER_UNIVERSE = 510;
+
+/**
+ * Position of an absolute address counted in usable (aligned) channels only.
+ *
+ * @param {Number} address absolute address
+ * @return {Number} index into the aligned address space
+ */
+function alignedIndexOf(address) {
+  return Math.floor(address / DMX_UNIVERSE_LENGTH) * ALIGNED_CHANNELS_PER_UNIVERSE
+    + (address % DMX_UNIVERSE_LENGTH);
+}
+
+/**
+ * Inverse of alignedIndexOf: the absolute address of the nth usable channel.
+ *
+ * @param {Number} index index into the aligned address space
+ * @return {Number} absolute address
+ */
+function addressFromAlignedIndex(index) {
+  return Math.floor(index / ALIGNED_CHANNELS_PER_UNIVERSE) * DMX_UNIVERSE_LENGTH
+    + (index % ALIGNED_CHANNELS_PER_UNIVERSE);
+}
+
+/**
+ * Absolute address of a fixture's nth channel.
+ *
+ * Continuous addressing simply counts on, so a channel may land on 511 or 512
+ * and a run crosses a boundary mid-pixel. Aligned addressing walks only the
+ * usable channels, stepping over the last two of each universe.
+ *
+ * @param {Number} start fixture's absolute start address
+ * @param {Number} index channel index within the fixture
+ * @param {Boolean} aligned whether the fixture skips the last two channels
+ * @return {Number} absolute address of that channel
+ */
+function channelAddress(start, index, aligned) {
+  if (!aligned) return start + index;
+  return addressFromAlignedIndex(alignedIndexOf(start) + index);
+}
+
+/**
+ * Which channel of a fixture an absolute address corresponds to.
+ *
+ * @param {Number} start fixture's absolute start address
+ * @param {Number} address absolute address
+ * @param {Boolean} aligned whether the fixture skips the last two channels
+ * @return {Number} channel index within the fixture
+ */
+function channelIndexAt(start, address, aligned) {
+  if (!aligned) return address - start;
+  return alignedIndexOf(address) - alignedIndexOf(start);
+}
+
+/**
  * @class PatchMap
  * @classdesc The show's DMX address space, as one continuous run of channels
  * rather than a set of 512-channel islands.
@@ -94,11 +158,16 @@ class PatchMap {
    *                          occupied, for re-addressing an existing fixture
    * @return {Boolean} whether the run can be patched
    */
-  canPatch(address, chCount, ignore = null) {
+  canPatch(address, chCount, ignore = null, aligned = false) {
     if (address < 0 || chCount <= 0) return false;
+    // An aligned fixture may not start on a skipped channel: there is no
+    // usable slot there for its first channel to occupy.
+    if (aligned && (address % DMX_UNIVERSE_LENGTH) >= ALIGNED_CHANNELS_PER_UNIVERSE) {
+      return false;
+    }
     const ignoreAddress = ignore ? ignore.address : null;
-    for (let i = address; i < address + chCount; i++) {
-      const occupant = this._addressMap.get(i);
+    for (let i = 0; i < chCount; i++) {
+      const occupant = this._addressMap.get(channelAddress(address, i, aligned));
       if (occupant !== undefined && occupant !== ignoreAddress) return false;
     }
     return true;
@@ -113,8 +182,8 @@ class PatchMap {
    * @param {Number} amount how many instances
    * @return {Boolean} whether the whole run can be patched
    */
-  canPatchMany(address, chCount, amount) {
-    return this.canPatch(address, chCount * amount);
+  canPatchMany(address, chCount, amount, aligned = false) {
+    return this.canPatch(address, chCount * amount, null, aligned);
   }
 
   /**
@@ -129,12 +198,12 @@ class PatchMap {
    * @param {Number} [from] absolute address to start searching from
    * @return {Number} absolute address, or -1 when nothing fits
    */
-  findFreeAddress(chCount, amount = 1, from = 0) {
+  findFreeAddress(chCount, amount = 1, from = 0, aligned = false) {
     const total = chCount * amount;
     if (total <= 0) return -1;
     const limit = this.addressSpaceLength - total;
     for (let i = from; i <= limit; i++) {
-      if (this.canPatch(i, total)) return i;
+      if (this.canPatch(i, total, null, aligned)) return i;
       // Skip past whatever blocked us rather than retesting its every channel.
       const occupant = this._addressMap.get(i);
       if (occupant !== undefined) {
@@ -164,13 +233,14 @@ class PatchMap {
    */
   patchFixture(fixture) {
     const chCount = fixture.channels.length;
-    if (!this.canPatch(fixture.address, chCount, fixture)) {
+    const aligned = !!fixture.universeAligned;
+    if (!this.canPatch(fixture.address, chCount, fixture, aligned)) {
       throw new Error('Cannot patch fixture on this interval');
     }
     this.unpatchFixture(fixture);
     this._patch.set(fixture.address, fixture);
-    for (let i = fixture.address; i < fixture.address + chCount; i++) {
-      this._addressMap.set(i, fixture.address);
+    for (let i = 0; i < chCount; i++) {
+      this._addressMap.set(channelAddress(fixture.address, i, aligned), fixture.address);
     }
     // The new fixture's channels start at zero regardless of what a shadow
     // remembers for those addresses.
@@ -188,8 +258,10 @@ class PatchMap {
     if (existing !== fixture) return;
     this._patch.delete(fixture.address);
     const chCount = fixture.channels.length;
-    for (let i = fixture.address; i < fixture.address + chCount; i++) {
-      if (this._addressMap.get(i) === fixture.address) this._addressMap.delete(i);
+    const aligned = !!fixture.universeAligned;
+    for (let i = 0; i < chCount; i++) {
+      const address = channelAddress(fixture.address, i, aligned);
+      if (this._addressMap.get(address) === fixture.address) this._addressMap.delete(address);
     }
     this.invalidateInputShadow();
   }
@@ -240,7 +312,8 @@ class PatchMap {
     const start = this._addressMap.get(channel);
     if (start === undefined) return;
     const fixture = this._patch.get(start);
-    if (fixture) fixture.setChannel(channel - start, value);
+    if (!fixture) return;
+    fixture.setChannel(channelIndexAt(start, channel, !!fixture.universeAligned), value);
   }
 
   /**
@@ -296,4 +369,10 @@ class PatchMap {
 const PatchSingleton = new PatchMap();
 
 export default PatchSingleton;
-export { PatchMap, DMX_UNIVERSE_LENGTH };
+export {
+  PatchMap,
+  DMX_UNIVERSE_LENGTH,
+  ALIGNED_CHANNELS_PER_UNIVERSE,
+  channelAddress,
+  channelIndexAt,
+};

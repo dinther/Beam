@@ -2,7 +2,7 @@ import {
   Proxify,
 } from '../utils/proxify.utils';
 import Channel from './channel.model';
-import PatchSingleton, { DMX_UNIVERSE_LENGTH } from './patch.model';
+import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.model';
 import MovingHead from '../../plugins/visualizer/moving_head';
 import Controls from '../../plugins/visualizer/controls';
 
@@ -177,6 +177,9 @@ class Fixture extends Proxify {
     if (!data.isStub) {
       this.OFLData = data.OFLData;
       this.id = parseInt(data.id, 10);
+      // Read before the address: patching lays the channels out according to
+      // this, so it has to be known by the time the address is claimed.
+      this._universeAligned = !!data.universeAligned;
       // One absolute address is the truth; universe and chStart are views of
       // it. Older shows carry the pair instead, so accept either.
       if (data.address !== undefined) {
@@ -259,6 +262,7 @@ class Fixture extends Proxify {
       manufacturer: this.manufacturer,
       name: this.name,
       address: this.address,
+      universeAligned: this.universeAligned,
       universe: this.universe,
       chStart: this.chStart,
       mode: this.modeNam,
@@ -672,13 +676,56 @@ class Fixture extends Proxify {
   }
 
   /**
+   * Whether the fixture skips the last two channels of every universe, so that
+   * its channels tile 510 to a universe.
+   *
+   * Only meaningful for a fixture long enough to cross a boundary. Changing it
+   * re-lays the channels, so a patched fixture has to be re-patched.
+   *
+   * @type {Boolean}
+   */
+  set universeAligned(value) {
+    const next = !!value;
+    if (this._universeAligned === next) return;
+    if (!PatchSingleton.isPatched(this)) {
+      this._universeAligned = next;
+      return;
+    }
+    PatchSingleton.unpatchFixture(this);
+    this._universeAligned = next;
+    try {
+      PatchSingleton.patchFixture(this);
+    } catch (err) {
+      // The new layout collides with something: keep the old one.
+      this._universeAligned = !next;
+      PatchSingleton.patchFixture(this);
+    }
+  }
+
+  get universeAligned() {
+    return !!this._universeAligned;
+  }
+
+  /**
+   * Absolute address of one of the fixture's channels.
+   *
+   * @public
+   * @param {Number} index channel index within the fixture
+   * @return {Number} absolute address
+   */
+  addressOf(index) {
+    return channelAddress(this.address, index, this._universeAligned);
+  }
+
+  /**
    * Absolute address one past the fixture's last channel.
    *
    * @readonly
    * @type {Number}
    */
   get addressStop() {
-    return this.address + this.channels.length;
+    if (!this.channels.length) return this.address;
+    return this.addressOf(this.channels.length - 1) + 1;
   }
 
   /**

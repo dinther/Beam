@@ -297,7 +297,7 @@ export default {
 .header {
   display: flex;
   flex-direction: row;
-  min-height: 40px;
+  min-height: 28px;
   width: 100%;
   padding: 0 8px;
   align-items: center;

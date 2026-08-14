@@ -123,18 +123,18 @@ export default {
 .header {
   display: flex;
   flex-direction: row;
-  min-height: 30px;
+  min-height: 24px;
   width: 100%;
-  padding: 0 10px;
+  padding: 0 6px;
   align-items: center;
   border-bottom: 1px solid var(--primary-dark);
   user-select: none;
 }
 .header_icon {
   fill: var(--secondary-lighter) !important;
-  margin-right: 8px;
-  height: 14px !important;
-  width: 14px !important;
+  margin-right: 6px;
+  height: 12px !important;
+  width: 12px !important;
 }
 .widget.docked {
   min-width: 30px !important;

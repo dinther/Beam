@@ -115,14 +115,17 @@ export default {
   width: auto;
 }
 .uikit_checkbox_tickbox {
-  background: var(--secondary-darker);
+  /* Same shell as a text field: dark fill, light border. The tick alone
+     carries the state, so the box does not change colour when ticked. */
+  background: var(--primary-dark);
+  border: 1px solid var(--secondary-dark);
+  box-sizing: border-box;
   height: 16px;
   width: 16px;
   display: flex;
   align-items: center;
   flex-direction: row;
   cursor: pointer;
-  opacity: 0.8;
   border-radius: 2px;
 }
 .uikit_checkbox_tickbox_tick {
@@ -130,24 +133,29 @@ export default {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  stroke: var(--primary-light);
+  stroke: var(--secondary-lighter);
+  /* Hidden rather than removed, so ticking cannot shift the layout. An
+     unticked box must not show a tick at all: only its colour used to change,
+     which read as a checked-but-disabled control. */
+  visibility: hidden;
 }
 .uikit_checkbox_label {
   font-size: 12px;
   padding-left: 8px;
-  color: var(--secondary-light);
-}
-.uikit_checkbox_tickbox.active {
-  background: var(--accent-blue);
-}
-.uikit_checkbox_label.active {
+  /* Same tone as every other field label. It used to sit at --secondary-light
+     (20% white) until checked, which is the disabled tone, so an unchecked
+     option looked unavailable rather than simply off. */
   color: var(--secondary-lighter);
 }
+
 .uikit_checkbox_tickbox.active .uikit_checkbox_tickbox_tick {
-  stroke: var(--secondary-lighter);
+  visibility: visible;
 }
-.uikit_checkbox_tickbox:disabled {
+/* The tickbox is a span, so :disabled never matched it; the state comes from
+   the disabled class on the wrapper. */
+.disabled .uikit_checkbox_tickbox {
   background: var(--secondary-dark);
+  opacity: 0.5;
 }
 .disabled .uikit_checkbox_tickbox {
   cursor: unset !important;

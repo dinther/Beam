@@ -131,7 +131,7 @@ export default {
 .patch_bay_header {
   display: flex;
   flex-direction: row;
-  min-height: 40px;
+  min-height: 28px;
   width: 100%;
   padding: 0 8px;
   align-items: center;
@@ -139,7 +139,7 @@ export default {
 }
 .patch_bay_fixture_list {
   display: flex;
-  width: 200px;
-  height: calc(100% - 39px);
+  width: 100%;
+  height: calc(100% - 29px);
 }
 </style>

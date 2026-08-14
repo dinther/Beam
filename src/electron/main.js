@@ -9,6 +9,7 @@ import {
 } from 'electron';
 import {
   electronApp,
+  is,
   optimizer,
 } from '@electron-toolkit/utils';
 import path from 'path';
@@ -17,9 +18,12 @@ import artnet from './artnet';
 import jsonstore from './jsonstore';
 
 // GPU timer queries are disabled by default because precise timing is a
-// side-channel vector. Re-enabled here so rendering cost can be measured;
-// remove once the LED work stops needing it.
-app.commandLine.appendSwitch('enable-webgl-draft-extensions');
+// side-channel and fingerprinting vector. Enabled in development only, so the
+// perf overlay can report real GPU milliseconds, and never in a build that
+// ships to anyone.
+if (is.dev) {
+  app.commandLine.appendSwitch('enable-webgl-draft-extensions');
+}
 
 console.log('MAIN PROCESS STARTED');
 

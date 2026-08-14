@@ -39,10 +39,10 @@ function migrateShowData(showData) {
         : (parseInt(fixture.universe, 10) || 0) * DMX_UNIVERSE_LENGTH
           + (parseInt(fixture.chStart, 10) || 0),
     })),
-    // Version 1 repeated every fixture inside its universe. Addresses are the
-    // only record of where a fixture lives now, so the nested lists are
-    // dropped rather than migrated.
-    universes: (data.universes || []).map(({ id, name, color }) => ({ id, name, color })),
+    // Version 1 grouped fixtures under the universe that owned them, and gave
+    // each a name and colour. Addresses are the only record of where a fixture
+    // lives now, and nothing presents universes, so the records are dropped.
+    universes: undefined,
   };
 }
 

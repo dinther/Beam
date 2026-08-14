@@ -6,7 +6,6 @@ import {
   ProxifySingleton,
 } from '../utils/proxify.utils';
 
-import UniversePool from './universe.pool.model';
 import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
@@ -38,7 +37,6 @@ class Show extends EventEmitter {
     this.isSaved = true;
     this.rawOFLFixtures = [];
     this.fixturePool = new FixturePool();
-    this.universePool = new UniversePool();
     this.running = false;
     this.slave = false;
     this.loading = {
@@ -53,7 +51,6 @@ class Show extends EventEmitter {
       this.isSaved = false;
       this.emit('saveState', this.isSaved);
     });
-    this.universePool.addRaw();
     this.preloadFixtureList();
   }
 
@@ -97,7 +94,6 @@ class Show extends EventEmitter {
       // Addressing lives entirely on the fixtures now. Universe records are
       // kept only for the name and colour the patch bay displays.
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
-      universes: this.universePool.universes.map((u) => u.showData),
     };
   }
 
@@ -176,45 +172,23 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Prepares universes from show data.
+   * Claims every loaded fixture's channels in the show's address space.
    *
-   * @param {Object} showData hande toa show configuration object
+   * @public
    */
-  async prepareUniverses(showData) {
-    // Universe records no longer own fixtures; they only carry the name and
-    // colour to show. Build them first so declared metadata wins, then patch
-    // each fixture into whichever universe its address falls in, creating any
-    // universe the fixtures reach but the file did not mention.
-    (showData.universes || []).forEach((universeData) => {
-      this.universePool.addRaw(universeData);
-    });
-
+  async patchFixtures() {
     this.fixturePool.fixtures.forEach((fixture) => this.patchFixture(fixture));
-
-    // A show with no fixtures still needs somewhere to patch the first one.
-    if (!this.universePool.universes.length) {
-      this.universePool.addRaw();
-    }
   }
 
   /**
-   * Patches a fixture into the show's address space, and files it under the
-   * universe its address falls in.
-   *
-   * Universes are derived: the UI no longer presents them, but the pools are
-   * still what the models group fixtures by, so one is created on demand.
+   * Claims a fixture's channels.
    *
    * @public
    * @param {Object} fixture Fixture instance carrying an absolute address
    */
+  // eslint-disable-next-line class-methods-use-this
   patchFixture(fixture) {
-    let universe;
-    try {
-      universe = this.universePool.getFromId(fixture.universe);
-    } catch (err) {
-      universe = this.universePool.addRaw({ id: fixture.universe });
-    }
-    universe.patchFixture(fixture);
+    PatchSingleton.patchFixture(fixture);
   }
 
   /**
@@ -225,13 +199,7 @@ class Show extends EventEmitter {
   deleteFixture(fixture) {
     const fixtureHandle = this.fixturePool.getFromId(fixture.id);
     if (fixtureHandle) {
-      try {
-        this.universePool.getFromId(fixtureHandle.universe).unpatchFixture(fixtureHandle);
-      } catch (err) {
-        // No universe record for that address; the address space is the only
-        // claim that has to be released.
-        PatchSingleton.unpatchFixture(fixtureHandle);
-      }
+      PatchSingleton.unpatchFixture(fixtureHandle);
       this.fixturePool.delete(fixtureHandle, true);
     }
   }
@@ -244,7 +212,6 @@ class Show extends EventEmitter {
   clearShowData() {
     // The address space outlives no show: drop every claim before loading.
     PatchSingleton.clearAll();
-    this.universePool.clearAll();
     this.fixturePool.clearAll(true);
     this.name = '';
     this.isSaved = true;
@@ -326,7 +293,7 @@ class Show extends EventEmitter {
    * @public
    * @async
    */
-  async loadFromData(rawShowData) {
+  async loadFromData(rawShowData, { persist = true } = {}) {
     const showData = migrateShowData(rawShowData);
     this.loading.state = true;
     this.loading.message = 'Clearing Show Data';
@@ -341,13 +308,13 @@ class Show extends EventEmitter {
     this.loading.percentage = 60;
     await this.prepareFixtures(showData);
 
-    this.loading.message = 'Setting up universes';
+    this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
     this.name = showData.name;
     if (showData.diffInput !== undefined) {
       PatchSingleton.diffInput = showData.diffInput;
     }
-    await this.prepareUniverses(showData);
+    await this.patchFixtures();
 
     this.loading.message = 'Finalizing';
     this.loading.percentage = 95;
@@ -355,7 +322,12 @@ class Show extends EventEmitter {
     this.ready = true;
     this.isSaved = true;
 
-    this.persistLocally();
+    // A fallback load must not overwrite the stored show: whatever could not
+    // be loaded is still the user's work, and persisting over it destroys the
+    // only copy.
+    if (persist) {
+      this.persistLocally();
+    }
   }
 
   /**

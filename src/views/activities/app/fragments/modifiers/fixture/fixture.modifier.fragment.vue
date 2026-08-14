@@ -97,8 +97,8 @@ export default {
 .fixture_modifier {
   height: 100%;
   width: 100%;
-  gap: 8px;
-  padding: 8px;
+  gap: 6px;
+  padding: 6px;
 }
 .empty_text {
   display: flex;

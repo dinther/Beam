@@ -4,12 +4,26 @@
     class="app_activity"
   >
     <toolbar />
-    <uk-flex class="top_fragments">
-      <uk-flex class="top_fragment_left">
+    <uk-flex
+      class="top_fragments"
+      :style="{ height: `${topHeight}px` }"
+    >
+      <uk-flex
+        class="top_fragment_left"
+        :style="{ width: `${leftWidth}px` }"
+      >
         <patch-bay />
       </uk-flex>
+      <div
+        class="splitter splitter_vertical"
+        @pointerdown="startDrag($event, 'left')"
+      />
       <visualizer />
     </uk-flex>
+    <div
+      class="splitter splitter_horizontal"
+      @pointerdown="startDrag($event, 'top')"
+    />
     <modifier />
     <popup-splash
       v-model="loader.state"
@@ -33,6 +47,15 @@ import Modifier from './fragments/modifiers/modifier.fragment.vue';
 
 import PopupSplash from './_popups/popup.splash.vue';
 import ErrorPopup from './_popups/popup.error.vue';
+/** Splitter limits, in px. */
+const DEFAULT_LEFT_WIDTH = 200;
+const MIN_LEFT_WIDTH = 120;
+const MAX_LEFT_WIDTH = 600;
+const MIN_TOP_HEIGHT = 200;
+const MIN_BOTTOM_HEIGHT = 120;
+
+/** Leaves room for the modifier row without assuming a window size. */
+const defaultTopHeight = () => Math.max(MIN_TOP_HEIGHT, window.innerHeight - 260);
 
 export default {
   name: 'AppActivity',
@@ -50,6 +73,13 @@ export default {
   },
   data() {
     return {
+      /**
+       * Panel sizes in px, dragged by the splitters and remembered between
+       * runs. Read once here so a fresh install still gets sane defaults.
+       */
+      leftWidth: Number(localStorage.getItem('layout.leftWidth')) || DEFAULT_LEFT_WIDTH,
+      topHeight: Number(localStorage.getItem('layout.topHeight')) || defaultTopHeight(),
+      drag: null,
       /**
        * Error popup description object
        */
@@ -90,18 +120,74 @@ export default {
   },
   methods: {
     /**
+     * Begins a splitter drag.
+     *
+     * @public
+     * @param {Object} e pointerdown event on the splitter
+     * @param {String} axis 'left' for the patch bay, 'top' for the modifier
+     */
+    startDrag(e, axis) {
+      this.drag = {
+        axis,
+        startX: e.clientX,
+        startY: e.clientY,
+        startLeft: this.leftWidth,
+        startTop: this.topHeight,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      window.addEventListener('pointermove', this.onDrag);
+      window.addEventListener('pointerup', this.endDrag);
+    },
+    /**
+     * Resizes while the pointer is held.
+     *
+     * @public
+     * @param {Object} e pointermove event
+     */
+    onDrag(e) {
+      if (!this.drag) return;
+      if (this.drag.axis === 'left') {
+        const width = this.drag.startLeft + (e.clientX - this.drag.startX);
+        this.leftWidth = Math.min(Math.max(width, MIN_LEFT_WIDTH), MAX_LEFT_WIDTH);
+      } else {
+        const height = this.drag.startTop + (e.clientY - this.drag.startY);
+        const max = window.innerHeight - MIN_BOTTOM_HEIGHT;
+        this.topHeight = Math.min(Math.max(height, MIN_TOP_HEIGHT), max);
+      }
+    },
+    /**
+     * Ends the drag and remembers the size.
+     *
+     * @public
+     */
+    endDrag() {
+      this.drag = null;
+      window.removeEventListener('pointermove', this.onDrag);
+      window.removeEventListener('pointerup', this.endDrag);
+      localStorage.setItem('layout.leftWidth', this.leftWidth);
+      localStorage.setItem('layout.topHeight', this.topHeight);
+    },
+    /**
      * Setup App. Loads show from local storage or creates new
      * show project if no local data is available
      *
      * @public
      */
     async setup() {
-      const localLoadingSucceeded = await this.$show.loadPersisted();
+      let localLoadingSucceeded = false;
+      try {
+        localLoadingSucceeded = await this.$show.loadPersisted();
+      } catch (err) {
+        // A stored show that will not load is still the user's work. Fall
+        // through to the demo so the app comes up, but leave the file alone.
+        EventBus.emit('app_error', err);
+      }
 
       if (!localLoadingSucceeded) {
         const res = await fetch(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/demo.showfile.json`);
         const showData = await res.json();
-        await this.$show.loadFromData(showData);
+        // persist: false — the demo must never be written over a stored show.
+        await this.$show.loadFromData(showData, { persist: false });
       }
 
       await this.$router.push('/patch');
@@ -141,13 +227,29 @@ export default {
 .top_fragments {
   z-index: 10;
   overflow: hidden;
-  resize: vertical;
-  min-height: calc(100% - 500px);
-  max-height: calc(100% - 280px);
-  height: calc(100% - 280px);
+  flex: none;
 }
 .top_fragment_left{
-  flex: 1;
+  flex: none;
+  overflow: hidden;
+}
+.splitter {
+  flex: none;
+  background: var(--primary-dark);
+  z-index: 30;
+}
+.splitter:hover,
+.splitter:active {
+  background: var(--accent-teal);
+}
+.splitter_vertical {
+  width: 4px;
+  cursor: col-resize;
+}
+.splitter_horizontal {
+  height: 4px;
+  width: 100%;
+  cursor: row-resize;
 }
 .visualizer {
   height: 100% !important;

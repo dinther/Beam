@@ -42,6 +42,11 @@
           label="Spans"
         />
       </uk-flex>
+      <uk-checkbox
+        v-show="canSpan"
+        v-model="universeAligned"
+        label="Skip ch 511-512 of each universe"
+      />
       <uk-txt-input
         v-model="fixture.model"
         readonly
@@ -124,21 +129,44 @@ export default {
       const endUniverse = Math.floor((this.fixture.addressStop - 1) / DMX_UNIVERSE_LENGTH);
       return endUniverse > this.fixture.universe ? `→ U${endUniverse}` : '';
     },
+    /**
+     * Whether the fixture skips the last two channels of each universe, so its
+     * channels tile 510 to a universe rather than running over the boundary.
+     */
+    universeAligned: {
+      get() {
+        return this.fixture ? this.fixture.universeAligned : false;
+      },
+      set(value) {
+        if (this.fixture) {
+          this.fixture.universeAligned = !!value;
+        }
+      },
+    },
+    /**
+     * The skip changes nothing for a fixture too short to reach a boundary, so
+     * the option stays hidden for the rest.
+     */
+    canSpan() {
+      if (!this.fixture) return false;
+      return this.fixture.chStart + this.fixture.channels.length > DMX_UNIVERSE_LENGTH;
+    },
   },
 };
 </script>
 
 <style scoped>
 .fixture_settings {
-  max-width: 200px;
-  min-width: 200px;
+  max-width: 230px;
+  min-width: 230px;
 }
 .fixture_settings_body {
   height: 100%;
   width: 100%;
-  padding: 10px;
-  max-width: 200px;
-  min-width: 200px;
+  overflow-y: auto;
+  padding: 6px;
+  max-width: 230px;
+  min-width: 230px;
 }
 .empty_text {
   display: flex;
