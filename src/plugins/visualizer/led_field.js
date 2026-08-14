@@ -334,6 +334,12 @@ function buildProfiles(maxBars) {
   const mesh = new THREE.InstancedMesh(geometry, material, maxBars);
   mesh.count = 0;
   mesh.frustumCulled = false;
+  // Bodies are solid objects in the rig and take part in lighting like any
+  // other. Only the bodies: the emitters and their glow are additive quads
+  // with no thickness, and shadowing from those would be wrong as well as
+  // expensive.
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   return mesh;
 }
 

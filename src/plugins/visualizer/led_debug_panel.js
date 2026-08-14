@@ -34,14 +34,24 @@ function setUniform(group, name, value) {
  * @param {Object} visualizer Visualizer instance, for the haze controls
  * @returns {Object|null} the GUI instance
  */
-export default function createLEDDebugPanel(visualizer) {
+export default function createLEDDebugPanel(visualizer, host) {
   const uniforms = LEDField.tunables();
   if (!uniforms) return null;
 
-  const gui = new GUI({ title: 'LED bar (debug)' });
+  // Anchored inside the 3D viewport rather than the window, so it stays clear
+  // of the panels beside it. Absolute positioning needs a positioned
+  // ancestor, and without one it would fall back to the document.
+  const container = host || document.body;
+  if (container !== document.body && getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
+  }
+
+  const gui = new GUI({ title: 'LED bar (debug)', container });
   gui.domElement.style.position = 'absolute';
-  gui.domElement.style.top = '8px';
+  // Bottom right: the navigation cube owns the opposite corner.
+  gui.domElement.style.bottom = '8px';
   gui.domElement.style.right = '8px';
+  gui.domElement.style.top = '';
   gui.domElement.style.zIndex = '100';
 
   const { emitter, glow } = uniforms;

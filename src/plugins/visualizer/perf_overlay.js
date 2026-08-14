@@ -45,11 +45,15 @@ function push(samples, value) {
   if (samples.length > WINDOW) samples.shift();
 }
 
-function buildElement() {
+/**
+ * @param {Object} host element the overlay is positioned within
+ * @returns {Object} the overlay element
+ */
+function buildElement(host) {
   const el = document.createElement('div');
   el.style.cssText = [
     'position:absolute',
-    'top:8px',
+    'top:58px',
     'left:8px',
     'z-index:100',
     'padding:8px 10px',
@@ -61,7 +65,14 @@ function buildElement() {
     'white-space:pre',
     'pointer-events:none',
   ].join(';');
-  document.body.appendChild(el);
+  // Anchored to the canvas's own container rather than the document, so it
+  // sits inside the 3D viewport instead of over the panels beside it.
+  const parent = host || document.body;
+  if (parent !== document.body && getComputedStyle(parent).position === 'static') {
+    // Absolute positioning needs a positioned ancestor to measure against.
+    parent.style.position = 'relative';
+  }
+  parent.appendChild(el);
   return el;
 }
 
@@ -74,7 +85,7 @@ function init(renderer) {
   // chain leaves only its final fullscreen pass behind. Reset once per frame
   // instead, and the totals cover every pass.
   renderer.info.autoReset = false;
-  state.element = buildElement();
+  state.element = buildElement(renderer.domElement.parentElement);
   state.gl = renderer.getContext();
   // Often unavailable: browsers gate it because precise GPU timing is a
   // fingerprinting and side-channel vector. CPU time and draw counts still work.

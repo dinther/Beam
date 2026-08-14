@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { toRaw } from 'vue';
 import {
   TransformControls,
 } from 'three/examples/jsm/controls/TransformControls.js';
@@ -6,6 +7,7 @@ import EventBus from '@/plugins/eventbus';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 import LedBar from './led_bar';
+import GroupHandle from './group_handle';
 
 /**
  * Global position vector handle
@@ -79,6 +81,10 @@ const pickOrigin = new THREE.Vector3();
 
 /** Scratch world position, for the floor test during a drag. */
 const floorProbe = new THREE.Vector3();
+
+/** Scratch position, and the box size assumed for an unrendered fixture. */
+const boundsFallback = new THREE.Vector3();
+const FALLBACK_HALF_EXTENT = 0.51;
 /**
  * @constant {Object} projScreenMatrix
  */
@@ -108,7 +114,10 @@ const CONTROL_MODES = {
 const boundingBoxMaterial = new THREE.MeshBasicMaterial({
   color: 'rgb(162, 45, 88)',
   transparent: true,
-  opacity: 0.15,
+  // Invisible: the corner brackets carry the selection now. The mesh itself is
+  // kept because the gizmo and the transform maths attach to it.
+  opacity: 0,
+  depthWrite: false,
   side: THREE.DoubleSide,
 });
 /**
@@ -117,9 +126,13 @@ const boundingBoxMaterial = new THREE.MeshBasicMaterial({
  * @constant {Object} boundingBoxEdgesMaterial
  */
 const boundingBoxEdgesMaterial = new THREE.LineBasicMaterial({
-  color: 'rgb(162, 45, 88)',
+  color: 0xffffff,
+  // WebGL ignores linewidth, so a line is one pixel whatever this says. Thin
+  // is what was wanted here anyway.
   linewidth: 1,
   transparent: true,
+  opacity: 0.85,
+  depthTest: false,
   side: THREE.DoubleSide,
 });
 /**
@@ -128,12 +141,49 @@ const boundingBoxEdgesMaterial = new THREE.LineBasicMaterial({
  * @constant {Object} boundingBoxGeometry
  */
 const boundingBoxGeometry = new THREE.BoxGeometry();
+
+/**
+ * How far along each edge a corner bracket runs, as a fraction of that edge.
+ *
+ * @constant {Number}
+ */
+const CORNER_BRACKET = 0.18;
+
+/**
+ * Corner brackets for a unit cube: three short segments meeting at each of the
+ * eight corners, rather than twelve full edges.
+ *
+ * Marking only the corners says where the selection reaches without drawing a
+ * cage around what is inside it.
+ *
+ * @returns {Object} THREE.BufferGeometry of line segments
+ */
+function buildCornerBrackets() {
+  const half = 0.5;
+  const run = CORNER_BRACKET;
+  const points = [];
+
+  [-half, half].forEach((x) => {
+    [-half, half].forEach((y) => {
+      [-half, half].forEach((z) => {
+        // Each arm heads back towards the middle of its own axis.
+        points.push(x, y, z, x - Math.sign(x) * run, y, z);
+        points.push(x, y, z, x, y - Math.sign(y) * run, z);
+        points.push(x, y, z, x, y, z - Math.sign(z) * run);
+      });
+    });
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+  return geometry;
+}
 /**
  * Bounding box edges geometry
  *
  * @constant {Object} boundingBoxEdgesGeometry
  */
-const boundingBoxEdgesGeometry = new THREE.EdgesGeometry(boundingBoxGeometry);
+const boundingBoxEdgesGeometry = buildCornerBrackets();
 /**
  * Bounding box edges 3D instance
  *
@@ -148,6 +198,91 @@ const boundingBoxEdges = new THREE.LineSegments(boundingBoxEdgesGeometry, boundi
 // Low and off to one side, looking up into the array: the view an audience
 // standing under a flown rig actually gets.
 const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(4.6, 4.6, 1.5);
+
+/**
+ * How much of the viewport a framed selection should span.
+ *
+ * Half leaves the surroundings visible, which is the point of framing a
+ * fixture rather than flying to it.
+ *
+ * @constant {Number}
+ */
+const FRAME_FILL = 0.5;
+
+/**
+ * How much of the viewport a fitted scene should span.
+ *
+ * Tighter than a selection's: framing one fixture wants its surroundings for
+ * context, whereas fitting the whole rig has no outside left to show. Measured
+ * against the bounding sphere -- the box's diagonal -- so the rig itself still
+ * sits comfortably inside the frame at this figure.
+ *
+ * @constant {Number}
+ */
+const FIT_FILL = 0.92;
+
+/**
+ * Smallest radius framing will consider, in metres.
+ *
+ * Without it a single small fixture would pull the camera in until it filled
+ * the screen, which reads as being inside the rig.
+ *
+ * @constant {Number}
+ */
+const MIN_FRAME_RADIUS = 0.6;
+
+/**
+ * Axis-aligned viewing directions, as the vector from the subject towards the
+ * camera. Z is up in this scene.
+ *
+ * Top and bottom are nudged a hair off vertical: orbit controls express the
+ * camera in spherical coordinates, and looking exactly along the up axis is the
+ * degenerate case where azimuth stops meaning anything and the view can flip.
+ *
+ * @constant {Object}
+ */
+const VIEW_DIRECTIONS = {
+  top: [0, -1e-3, 1],
+  bottom: [0, 1e-3, -1],
+  front: [0, -1, 0],
+  back: [0, 1, 0],
+  left: [-1, 0, 0],
+  right: [1, 0, 0],
+};
+
+/**
+ * Gizmo scale and resting opacity.
+ *
+ * Smaller and softer than stock: at full size and near-opaque it covered the
+ * fixture it was moving, which rather defeats placing it by eye.
+ *
+ * @constant {Number}
+ */
+const GIZMO_SIZE = 0.65;
+const GIZMO_OPACITY = 0.6;
+
+/**
+ * The screen-space handle at the gizmo's centre, which is removed.
+ *
+ * Dragging in the camera's plane is the one motion with no relation to the
+ * rig's own axes, and it sits directly over whatever is selected. The two-axis
+ * planes stay: those are useful for sliding along a truss or a wall.
+ *
+ * @constant {Array}
+ */
+const CENTRE_HANDLES = ['XYZ'];
+
+/** Default gizmo snap, in metres, and rotation snap, in degrees. */
+const DEFAULT_TRANSLATION_SNAP = 0.5;
+const DEFAULT_ROTATION_SNAP = 15;
+
+/** Scratch box and direction for framing the whole scene. */
+const sceneBox = new THREE.Box3();
+const viewDirection = new THREE.Vector3();
+
+/** Scratch sphere and offset, reused while working out where to sit. */
+const framingSphere = new THREE.Sphere();
+const framingOffset = new THREE.Vector3();
 
 /**
  * Where the camera looks when nothing is selected.
@@ -183,10 +318,9 @@ class Controls {
       // Initilising instance pool
       this.pooledInstances = [];
       // Preparing bounding box object
-      this.boundingBox = {
-        min: new THREE.Vector3(),
-        max: new THREE.Vector3(),
-      };
+      // A real Box3 rather than a bare {min,max}: renderers grow it through
+      // expandByPoint/union, and its min/max are the same Vector3s as before.
+      this.boundingBox = new THREE.Box3();
       // Instanciating bounding box mesh
       this.boundingBoxMesh = new THREE.Mesh(boundingBoxGeometry, boundingBoxMaterial);
       // Adding bounding box edges to bounding box mesh
@@ -204,7 +338,9 @@ class Controls {
   set autoFocus(value) {
     this._autoFocus = value;
     if (this.cameraHandle) {
-      this.setFocus(value);
+      // Toggling it is itself the request, so it applies immediately even
+      // though switching off would otherwise refuse to move the camera.
+      this.setFocus(value, { force: true });
     }
   }
 
@@ -222,9 +358,9 @@ class Controls {
   init(camera, el, orbitcontrolsControlsHandle) {
     this.groupedInstances = new THREE.Group(); // Creating new group instance
     this.handle = new TransformControls(camera, el); // Loding transformcontrol instance into handle
-    this.handle.size = 1; // Setting default handle size
-    this.handle.translationSnap = 0.5; // Setting default handle translation snap
-    // this.handle.rotationSnap = 0.0872665 //Setting default handle rotation snap
+    this.handle.size = GIZMO_SIZE;
+    this.stripCentreHandle();
+    this.applySnap();
     this.handle.setMode('translate'); // Setting default handle mode
     this.controlHandle = orbitcontrolsControlsHandle;
     this.cameraHandle = camera;
@@ -235,22 +371,25 @@ class Controls {
       if (child.material) {
         // X axis
         if (child.name.includes('X')) {
-          child.material.color.set('#ff4d4d');
+          child.material.color.set('#ff0000');
         }
 
         // Y axis
         if (child.name.includes('Y')) {
-          child.material.color.set('#4dff88');
+          child.material.color.set('#00ff00');
         }
 
         // Z axis
         if (child.name.includes('Z')) {
-          child.material.color.set('#4da6ff');
+          child.material.color.set('#0000ff');
         }
 
-        // Transparency
+        // Transparency. _opacity is where TransformControls caches the
+        // resting value on its first update and restores it from every frame
+        // after, so setting only `opacity` would be overwritten immediately.
         child.material.transparent = true;
-        child.material.opacity = 0.9;
+        child.material.opacity = GIZMO_OPACITY;
+        child.material._opacity = GIZMO_OPACITY;
 
         // Prevent depth clipping
         child.material.depthTest = false;
@@ -272,6 +411,7 @@ class Controls {
     // should not push one through the floor by accident.
     this.handle.addEventListener('objectChange', () => {
       this.clampToFloor();
+      this.syncGroupsFromGizmo();
     });
     this.handle.addEventListener('mouseUp', () => { // Listening for mouseup events on control helpers
       this.controlHandle.enabled = true; // Enabling camera control
@@ -299,9 +439,10 @@ class Controls {
       this.showHelpers();
       this.handle.setMode('translate');
       this.detachAll();
-      this.setFocus(false);
-      MovingHead.clearHiglighting();
-      LedBar.clearHighlighting();
+      // Escape is an explicit request to reset the view, not a side effect of
+      // selecting, so it stands whatever auto-focus is set to.
+      this.setFocus(false, { force: true });
+      this.clearAllHighlighting();
     } else if (e.key.toLowerCase() === 't') {
       this.mode = CONTROL_MODES.NORMAL;
       this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
@@ -434,31 +575,21 @@ class Controls {
       }
     }
 
-    LedBar.eachSelectable((fixture, position) => {
-      if (inBand(position)) picked.push(fixture);
+    LedBar.eachSelectable((fixture, worldPosition) => {
+      if (inBand(worldPosition)) picked.push(fixture);
     });
 
     if (!picked.length) {
       if (!additive) this.deselectAll();
       return;
     }
-    // A band is drawn over what the user can already see, so framing the
-    // result fights the gesture: the camera would chase the selection as it
-    // grows. Selection still rebuilds the gizmo and bounding box, it just
-    // does not move the view.
-    this._focusSuppressed = true;
-    try {
-      if (!additive) {
-        this.detachAll();
-        MovingHead.clearHiglighting();
-        LedBar.clearHighlighting();
-      }
-      picked.forEach((fixture) => {
-        if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
-      });
-    } finally {
-      this._focusSuppressed = false;
+    if (!additive) {
+      this.detachAll();
+      this.clearAllHighlighting();
     }
+    picked.forEach((fixture) => {
+      if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
+    });
     // Only a single-fixture selection names a primary. Naming one of many
     // routes the pool list to it, and the list answers by calling
     // highlightSingle(), which starts with detachAll() - that would collapse
@@ -476,6 +607,13 @@ class Controls {
   handlePointerUp(e) {
     const down = this.pointerDownAt;
     this.pointerDownAt = null;
+    // The navigation gizmo sits over the canvas and handles its own clicks; a
+    // press consumed by it must not also pick or clear the scene selection.
+    if (this.ignoreNextPointerUp) {
+      this.ignoreNextPointerUp = false;
+      this.hideSelectionBand();
+      return;
+    }
     // Whatever else this release turns out to be, the band is finished.
     this.hideSelectionBand();
     if (e.currentTarget.releasePointerCapture && e.currentTarget.hasPointerCapture
@@ -569,8 +707,12 @@ class Controls {
     });
   }
 
-  selectFixture(fixture, additive = false) {
+  selectFixture(fixtureHandle, additive = false) {
+    const fixture = toRaw(fixtureHandle);
     if (!additive) {
+      // Whatever was highlighted before is no longer selected, whichever
+      // renderer it belonged to.
+      this.clearAllHighlighting();
       fixture.highlightSingle(true, true);
       // Only a plain click drives the UI selection; extending the 3D selection
       // must not re-route the fixture list to the fixture just added.
@@ -615,8 +757,7 @@ class Controls {
     this.mode = CONTROL_MODES.DISCRETE;
     this.detachAll();
     this.hideHelpers();
-    MovingHead.clearHiglighting();
-    LedBar.clearHighlighting();
+    this.clearAllHighlighting();
     EventBus.emit('fixture_picked', null);
   }
 
@@ -651,43 +792,299 @@ class Controls {
     return true;
   }
 
-  setFocus(state) {
-    if (state && this._focusSuppressed) return;
-    if (!state || this.autoFocus) {
-      // Selecting a fixture that is already framed should not yank the camera
-      // around; only move when the selection is off-screen or clipped.
-      if (state && this.isSelectionInView()) return;
-      this.cameraHandle.updateMatrixWorld();
-      const startPos = new THREE.Vector3();
-      startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
-      const startTPos = this.controlHandle.target.clone();
-      const endPos = state ? this.groupedInstances.position.clone() : DEFAULT_ZOOM_OUT_ENDPOS;
-      const startTime = performance.now();
+  /**
+   * How far the camera has to sit from the selection for its bounding box to
+   * span FRAME_FILL of the viewport.
+   *
+   * Fitted both ways and the larger taken, so a bar that is wide but shallow
+   * is framed by whichever axis actually runs out of room first.
+   *
+   * @public
+   * @returns {Number} distance in metres
+   */
+  framingDistance(box = this.boundingBox, fill = FRAME_FILL) {
+    box.getBoundingSphere(framingSphere);
+    const radius = Math.max(framingSphere.radius, MIN_FRAME_RADIUS);
+    const halfFov = THREE.MathUtils.degToRad(this.cameraHandle.fov || 50) / 2;
+    const spread = Math.tan(halfFov) * fill;
+    const aspect = this.cameraHandle.aspect || 1;
+    return Math.max(radius / spread, radius / (spread * aspect));
+  }
 
-      const dX = (endPos.x - startPos.x);
-      const dY = state ? 0 : (endPos.y - startPos.y);
-      const dZ = state ? ((endPos.z - startPos.z) - 0) : (endPos.z - startPos.z);
+  /**
+   * Moves the camera to a position and target over the focus duration.
+   *
+   * Pulled out of setFocus so the view buttons and zoom-extents animate the
+   * same way rather than each inventing their own.
+   *
+   * @public
+   * @param {Object} endPos where the camera should end up
+   * @param {Object} endTarget what it should be looking at
+   */
+  flyTo(endPos, endTarget) {
+    if (!this.cameraHandle) return;
+    cancelAnimationFrame(this.rafID);
+    this.cameraHandle.updateMatrixWorld();
+    const startPos = new THREE.Vector3();
+    startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
+    const startTPos = this.controlHandle.target.clone();
+    const startTime = performance.now();
 
-      const endTarget = state ? endPos : DEFAULT_ZOOM_OUT_TARGET;
-      const dTX = endTarget.x - startTPos.x;
-      const dTY = endTarget.y - startTPos.y;
-      const dTZ = endTarget.z - startTPos.z;
+    const dX = endPos.x - startPos.x;
+    const dY = endPos.y - startPos.y;
+    const dZ = endPos.z - startPos.z;
+    const dTX = endTarget.x - startTPos.x;
+    const dTY = endTarget.y - startTPos.y;
+    const dTZ = endTarget.z - startTPos.z;
 
-      const animationFunction = () => {
-        const time = performance.now() - startTime;
-        const animationPercentage = Math.sin(((time / this.focusTransitionDuration) * Math.PI) / 2);
-        if (time < this.focusTransitionDuration && animationPercentage <= 1.0) {
-          this.cameraHandle.position.setX(startPos.x + dX * animationPercentage);
-          this.cameraHandle.position.setY(startPos.y + dY * animationPercentage);
-          this.cameraHandle.position.setZ(startPos.z + dZ * animationPercentage);
-          this.controlHandle.target.setX(startTPos.x + dTX * animationPercentage);
-          this.controlHandle.target.setY(startTPos.y + dTY * animationPercentage);
-          this.controlHandle.target.setZ(startTPos.z + dTZ * animationPercentage);
-          this.rafID = requestAnimationFrame(animationFunction.bind(this));
-        }
-      };
-      this.rafID = requestAnimationFrame(animationFunction.bind(this));
+    const animationFunction = () => {
+      const time = performance.now() - startTime;
+      const progress = Math.sin(((time / this.focusTransitionDuration) * Math.PI) / 2);
+      if (time < this.focusTransitionDuration && progress <= 1.0) {
+        this.cameraHandle.position.set(
+          startPos.x + dX * progress,
+          startPos.y + dY * progress,
+          startPos.z + dZ * progress,
+        );
+        this.controlHandle.target.set(
+          startTPos.x + dTX * progress,
+          startTPos.y + dTY * progress,
+          startTPos.z + dTZ * progress,
+        );
+        this.rafID = requestAnimationFrame(animationFunction);
+      }
+    };
+    this.rafID = requestAnimationFrame(animationFunction);
+  }
+
+  /**
+   * Bounding box of everything drawn, whether selected or not.
+   *
+   * Each renderer reports its own extent, the same way it does for a selection.
+   *
+   * @public
+   * @param {Object} box THREE.Box3 to fill
+   * @returns {Object} the box, empty when the scene holds nothing
+   */
+  // eslint-disable-next-line class-methods-use-this
+  sceneBounds(box) {
+    box.makeEmpty();
+    const mesh = MovingHead.instancedMesh;
+    if (mesh) {
+      for (let i = 0; i < mesh.count; i += 1) {
+        const instance = MovingHead.getInstance(i);
+        if (instance && instance.expandBounds) instance.expandBounds(box);
+      }
     }
+    LedBar.eachSelectable((fixture) => {
+      const model = fixture._3DModel;
+      if (model && model.expandBounds) model.expandBounds(box);
+    });
+    return box;
+  }
+
+  /**
+   * Frames everything in the scene, keeping the direction currently looked from.
+   *
+   * @public
+   */
+  frameAll() {
+    if (!this.cameraHandle) return;
+    this.sceneBounds(sceneBox);
+    if (sceneBox.isEmpty()) return;
+    const centre = sceneBox.getCenter(new THREE.Vector3());
+    this.cameraHandle.updateMatrixWorld();
+    const from = new THREE.Vector3().setFromMatrixPosition(this.cameraHandle.matrixWorld);
+    const direction = this.framingDirection(from, this.controlHandle.target).clone();
+    this.flyTo(
+      centre.clone().addScaledVector(direction, this.framingDistance(sceneBox, FIT_FILL)),
+      centre,
+    );
+  }
+
+  /**
+   * Looks at the scene down one of the six axes, framed to fit.
+   *
+   * @public
+   * @param {String} name one of VIEW_DIRECTIONS
+   */
+  setView(name) {
+    const axis = VIEW_DIRECTIONS[name];
+    if (!axis) return;
+    this.setViewDirection(viewDirection.set(axis[0], axis[1], axis[2]));
+  }
+
+  /**
+   * Looks at the scene from an arbitrary direction, framed to fit.
+   *
+   * The corners of the navigation cube are isometric views, which are not one
+   * of the six named axes, so direction is the general form and setView is a
+   * convenience over it.
+   *
+   * @public
+   * @param {Object} direction vector from the subject towards the camera
+   */
+  setViewDirection(direction) {
+    if (!this.cameraHandle) return;
+    this.sceneBounds(sceneBox);
+    // An empty scene still deserves a sensible viewpoint, so fall back to a
+    // unit box at the origin rather than refusing to move.
+    if (sceneBox.isEmpty()) {
+      sceneBox.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+    }
+    const centre = sceneBox.getCenter(new THREE.Vector3());
+    const unit = direction.clone().normalize();
+    this.flyTo(
+      centre.clone().addScaledVector(unit, this.framingDistance(sceneBox, FIT_FILL)),
+      centre,
+    );
+  }
+
+  /**
+   * Whether gizmo drags snap, and by how much.
+   *
+   * Snapping is the sort of thing that gets toggled mid-layout, so it is a
+   * button; the spacing is set once and lives in preferences.
+   *
+   * @type {Boolean}
+   */
+  set snapEnabled(enabled) {
+    this._snapEnabled = !!enabled;
+    this.applySnap();
+  }
+
+  get snapEnabled() {
+    return this._snapEnabled !== false;
+  }
+
+  set snapSpacing(metres) {
+    this._snapSpacing = Number(metres) || DEFAULT_TRANSLATION_SNAP;
+    this.applySnap();
+  }
+
+  get snapSpacing() {
+    return this._snapSpacing || DEFAULT_TRANSLATION_SNAP;
+  }
+
+  set snapDegrees(degrees) {
+    this._snapDegrees = Number(degrees) || DEFAULT_ROTATION_SNAP;
+    this.applySnap();
+  }
+
+  get snapDegrees() {
+    return this._snapDegrees || DEFAULT_ROTATION_SNAP;
+  }
+
+  /**
+   * Pushes the snap settings onto the transform handle. Null is how
+   * TransformControls is told not to snap at all.
+   *
+   * @public
+   */
+  applySnap() {
+    if (!this.handle) return;
+    this.handle.translationSnap = this.snapEnabled ? this.snapSpacing : null;
+    this.handle.rotationSnap = this.snapEnabled
+      ? THREE.MathUtils.degToRad(this.snapDegrees)
+      : null;
+  }
+
+  /**
+   * Unit vector from the selection back towards the camera.
+   *
+   * Framing pulls straight back along the direction already being looked from,
+   * rather than swinging round to an angle the user did not ask for.
+   *
+   * @public
+   * @param {Object} from current camera position
+   * @param {Object} target current orbit target
+   * @returns {Object} normalised direction
+   */
+  // eslint-disable-next-line class-methods-use-this
+  framingDirection(from, target) {
+    framingOffset.subVectors(from, target);
+    if (framingOffset.lengthSq() < 1e-6) framingOffset.copy(DEFAULT_ZOOM_OUT_ENDPOS);
+    return framingOffset.normalize();
+  }
+
+  /**
+   * Removes the screen-space handle from the centre of the gizmo.
+   *
+   * Removed rather than hidden: the gizmo sets every handle visible again on
+   * each update, so a hidden one comes straight back. Taken from the picker
+   * too, or the invisible handle would still swallow clicks meant for the
+   * fixture behind it.
+   *
+   * @public
+   */
+  stripCentreHandle() {
+    if (!this.handle || !this.handle._gizmo) return;
+    const { gizmo, picker } = this.handle._gizmo;
+    [gizmo, picker].forEach((set) => {
+      if (!set) return;
+      Object.keys(set).forEach((mode) => {
+        const root = set[mode];
+        if (!root) return;
+        [...root.children]
+          .filter((child) => CENTRE_HANDLES.includes(child.name))
+          .forEach((child) => root.remove(child));
+      });
+    });
+  }
+
+  /**
+   * Drops every renderer's highlight.
+   *
+   * Selection state lives per renderer rather than in the pool -- removing a
+   * fixture from pooledInstances does not unhighlight it -- so clearing has to
+   * name each of them. Missing one shows up as an outline that never goes away.
+   *
+   * Deliberately not folded into detachAll(): highlightSingle() marks its new
+   * selection before detaching the old one, so clearing there would wipe the
+   * highlight that was just set.
+   *
+   * @public
+   */
+  // eslint-disable-next-line class-methods-use-this
+  clearAllHighlighting() {
+    MovingHead.clearHiglighting();
+    LedBar.clearHighlighting();
+    GroupHandle.clearHighlighting();
+  }
+
+  setFocus(state, { force = false } = {}) {
+    // Zooming back out used to be exempt from the auto-focus setting, so
+    // turning auto-focus off stopped the camera framing a selection but not
+    // resetting the view when one was dropped.
+    if (!force && !this.autoFocus) return;
+    // An empty group has nothing to frame, and an empty box carries infinite
+    // bounds -- which would send the camera somewhere unreachable rather than
+    // simply leaving it alone.
+    if (state && this.boundingBox.isEmpty()) return;
+    // Selecting a fixture that is already framed should not yank the camera
+    // around; only move when the selection is off-screen or clipped.
+    if (state && this.isSelectionInView()) return;
+    this.cameraHandle.updateMatrixWorld();
+    const startPos = new THREE.Vector3();
+    startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
+    const startTPos = this.controlHandle.target.clone();
+    // Framing used to fly the camera to the selection's own position and look
+    // at that same point, which put the eye inside the box. It now stops at
+    // the distance that makes the box span half the viewport, along the
+    // direction already being looked from.
+    let endPos;
+    let endTarget;
+    if (state) {
+      endTarget = this.boundingBox.getCenter(new THREE.Vector3());
+      endPos = endTarget.clone().addScaledVector(
+        this.framingDirection(startPos, startTPos),
+        this.framingDistance(),
+      );
+    } else {
+      endPos = DEFAULT_ZOOM_OUT_ENDPOS;
+      endTarget = DEFAULT_ZOOM_OUT_TARGET;
+    }
+    this.flyTo(endPos, endTarget);
   }
 
   /**
@@ -695,6 +1092,33 @@ class Controls {
    *
    * @public
    */
+  /**
+   * Feeds the gizmo's live transform into any group being dragged.
+   *
+   * A group's members are not themselves in the selection, so nothing would
+   * move until the drag ended. Parenting their nodes under the gizmo would fix
+   * the movers and not the bars -- an LED bar's emitters live in a shared
+   * instanced field, not under its node -- so instead the group's transform is
+   * written continuously and the members move through their own setters, which
+   * is what rebuilds that field.
+   *
+   * @public
+   */
+  syncGroupsFromGizmo() {
+    this.pooledInstances.forEach((instance) => {
+      if (!instance.isGroup || !instance._3DModel) return;
+      const dummy = instance._3DModel._dummy;
+      dummy.updateMatrixWorld(true);
+      dummy.getWorldPosition(position);
+      dummy.getWorldQuaternion(quaternion);
+      euler.setFromQuaternion(quaternion);
+      instance.position = { x: position.x, y: position.y, z: position.z };
+      instance.rotationRad = { x: euler.x, y: euler.y, z: euler.z };
+      // The outline is its own object in the scene, so it does not ride along.
+      instance._3DModel.fitOutline();
+    });
+  }
+
   /**
    * Lifts the dragged selection until nothing sits below the floor.
    *
@@ -732,7 +1156,10 @@ class Controls {
       SceneManager.add(child);
       const instanceHandle = this.pooledInstances.find((h) => h._3DModel._dummy === child);
       if (instanceHandle) {
-        instanceHandle.position = position.round(2);
+        // Vector3.round() takes no precision argument and snaps to whole
+        // numbers, so this was quantising every dropped fixture to the nearest
+        // metre. Two decimal places is what was meant: millimetre-ish.
+        instanceHandle.position = position.multiplyScalar(100).round().divideScalar(100);
         euler.setFromQuaternion(quaternion);
         instanceHandle.rotation = {
           x: Math.round(THREE.MathUtils.radToDeg(euler.x)),
@@ -775,12 +1202,22 @@ class Controls {
         this.groupedInstances.add(i._3DModel._dummy);
       });
 
-      this.boundingBox.min.x = Math.min(...this.pooledInstances.map((i) => i.position.x - 0.51));
-      this.boundingBox.min.y = Math.min(...this.pooledInstances.map((i) => i.position.y - 0.51));
-      this.boundingBox.min.z = Math.min(...this.pooledInstances.map((i) => i.position.z - 0.51));
-      this.boundingBox.max.x = Math.max(...this.pooledInstances.map((i) => i.position.x + 0.51));
-      this.boundingBox.max.y = Math.max(...this.pooledInstances.map((i) => i.position.y + 0.51));
-      this.boundingBox.max.z = Math.max(...this.pooledInstances.map((i) => i.position.z + 0.51));
+      // Each renderer reports the space it occupies: a head is a nominal cube,
+      // a bar is its actual body. A fixed half-metre around the origin drew a
+      // box far smaller than a metre-long bar, and made the already-framed test
+      // in setFocus() ask about the wrong volume.
+      this.boundingBox.makeEmpty();
+      this.pooledInstances.forEach((i) => {
+        const model = i._3DModel;
+        if (model && model.expandBounds) {
+          model.expandBounds(this.boundingBox);
+          return;
+        }
+        // A fixture the renderer has no model for still gets a handle to grab.
+        boundsFallback.set(i.position.x, i.position.y, i.position.z);
+        this.boundingBox.expandByPoint(boundsFallback.clone().subScalar(FALLBACK_HALF_EXTENT));
+        this.boundingBox.expandByPoint(boundsFallback.clone().addScalar(FALLBACK_HALF_EXTENT));
+      });
 
       const bbW = (this.boundingBox.max.x - this.boundingBox.min.x);
       const bbH = (this.boundingBox.max.y - this.boundingBox.min.y);
@@ -792,7 +1229,8 @@ class Controls {
       this.boundingBoxMesh.position.set(
         this.boundingBox.min.x + bbW / 2,
         this.boundingBox.min.y + bbH / 2,
-        Math.max(this.boundingBox.min.z + bbD / 2, 0.51),
+        // Never centred below the floor, whatever the fixture's own depth.
+        Math.max(this.boundingBox.min.z + bbD / 2, bbD / 2),
       );
 
       this.boundingBoxMesh.updateMatrixWorld();
@@ -850,7 +1288,12 @@ class Controls {
    */
   attach(instance) {
     this.applyTransformation();
-    this.pooledInstances.push(instance);
+    // $show is reactive, so a fixture that arrives from a component is a Vue
+    // proxy. Its _dummy would be proxied too, and three.js reads properties
+    // off an Object3D that a proxy cannot hand back unchanged -- notably
+    // modelViewMatrix, which throws and takes the renderer down with it. The
+    // pool holds raw fixtures only; unwrapping here covers every entry point.
+    this.pooledInstances.push(toRaw(instance));
     // Selecting a fixture brings the gizmo back in whichever mode was last
     // used, rather than leaving the user to press T/R every time.
     if (this.handle) {

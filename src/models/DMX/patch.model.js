@@ -1,3 +1,5 @@
+import { toRaw } from 'vue';
+
 /**
  * DMX512 universe length. Universes remain the unit the wire is addressed in —
  * an ArtDMX packet carries at most this many channels for one port address —
@@ -231,7 +233,13 @@ class PatchMap {
    * @public
    * @param {Object} fixture Fixture instance carrying an absolute address
    */
-  patchFixture(fixture) {
+  patchFixture(handle) {
+    // The show is reactive, so a fixture arriving from the UI is a Vue proxy
+    // while the one stored here is raw. The map is keyed on identity, and a
+    // proxy never equals its target -- which silently turned re-addressing
+    // into a no-op that left the old channels claimed. Normalised on entry so
+    // everything in the map is raw.
+    const fixture = toRaw(handle);
     const chCount = fixture.channels.length;
     const aligned = !!fixture.universeAligned;
     if (!this.canPatch(fixture.address, chCount, fixture, aligned)) {
@@ -253,7 +261,8 @@ class PatchMap {
    * @public
    * @param {Object} fixture Fixture instance to unpatch
    */
-  unpatchFixture(fixture) {
+  unpatchFixture(handle) {
+    const fixture = toRaw(handle);
     const existing = this._patch.get(fixture.address);
     if (existing !== fixture) return;
     this._patch.delete(fixture.address);
@@ -285,7 +294,8 @@ class PatchMap {
    * @param {Object} fixture Fixture instance
    * @return {Boolean} whether it is patched
    */
-  isPatched(fixture) {
+  isPatched(handle) {
+    const fixture = toRaw(handle);
     return this._patch.get(fixture.address) === fixture;
   }
 

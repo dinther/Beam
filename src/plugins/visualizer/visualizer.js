@@ -1,6 +1,7 @@
 /* eslint-disable */
 // TODO: find a way for the linter to accept node_module nested libs
 import * as THREE from 'three';
+import { markRaw } from 'vue';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js';
@@ -8,6 +9,7 @@ import ModelInstancer from './model_instancer';
 import SceneManager from './scene_manager';
 import AnimationManager from './animation_manager';
 import Controls from './controls';
+import ViewCube from './view_cube';
 import MovingHead from './moving_head';
 import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
@@ -17,6 +19,9 @@ import Dodecahedron from './dodecahedron';
 /** Room reserved for patched LED fixtures, on top of the scene's own bars. */
 const LED_FIXTURE_BAR_CAPACITY = 256;
 const LED_FIXTURE_LED_CAPACITY = 20000;
+
+/** How far a press may travel and still count as a click on the gizmo. */
+const VIEW_CUBE_CLICK_SLOP_PX = 4;
 import SceneEnv from './scene_env';
 import Perf from './perf_overlay';
 import Preferences from './preferences';
@@ -178,6 +183,7 @@ class Visualizer {
     this.prepareControls();
     this.resize();
     Controls.init(this.camera, this.domElement, this.controls);
+    this.prepareViewCube();
     this.startRender();
     this.main();
     this.resize();
@@ -337,6 +343,76 @@ class Visualizer {
    *
    * @type {Number}
    */
+  /**
+   * Whether gizmo drags snap to a spacing. The toggle is a toolbar button; the
+   * spacing itself is a preference, since it is set once and then left.
+   *
+   * @type {Boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set snapEnabled(value) {
+    Controls.snapEnabled = value;
+    Preferences.set('snapEnabled', Controls.snapEnabled);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get snapEnabled() {
+    return Controls.snapEnabled;
+  }
+
+  /**
+   * Snap spacing, in metres.
+   *
+   * @type {Number}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set snapSpacing(value) {
+    Controls.snapSpacing = value;
+    Preferences.set('snapSpacing', Controls.snapSpacing);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get snapSpacing() {
+    return Controls.snapSpacing;
+  }
+
+  /**
+   * Rotation snap, in degrees.
+   *
+   * @type {Number}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set snapDegrees(value) {
+    Controls.snapDegrees = value;
+    Preferences.set('snapDegrees', Controls.snapDegrees);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get snapDegrees() {
+    return Controls.snapDegrees;
+  }
+
+  /**
+   * Looks down one of the six axes, framed to fit.
+   *
+   * @public
+   * @param {String} name top, bottom, front, back, left or right
+   */
+  // eslint-disable-next-line class-methods-use-this
+  setView(name) {
+    Controls.setView(name);
+  }
+
+  /**
+   * Frames everything in the scene from where the camera already is.
+   *
+   * @public
+   */
+  // eslint-disable-next-line class-methods-use-this
+  frameAll() {
+    Controls.frameAll();
+  }
+
     set autoFocus(value) {
       Controls.autoFocus = value;
     }
@@ -514,7 +590,7 @@ class Visualizer {
 
     // Debug panel for the LED proof of concept. Writes straight into shader
     // uniforms so values can be found by eye rather than by rebuild.
-    createLEDDebugPanel(this);
+    createLEDDebugPanel(this, this.domElement.parentElement);
   }
 
   /**
@@ -618,6 +694,52 @@ class Visualizer {
   }
 
   /**
+   * Builds the corner navigation cube and wires it to the canvas.
+   *
+   * Its listeners run before the scene's own picking and stop the event when
+   * the pointer is over the gizmo, so clicking a face never also selects
+   * whatever fixture happens to be behind it.
+   *
+   * @public
+   */
+  prepareViewCube() {
+    // Never proxied: the visualizer handle hangs off the reactive show, so
+    // anything assigned to it is wrapped, and three reads Object3D internals
+    // that a proxy cannot hand back unchanged.
+    this.viewCube = markRaw(new ViewCube(this.camera, this.domElement));
+    this.domElement.addEventListener('pointermove', (event) => {
+      const over = this.viewCube.handlePointerMove(event);
+      this.domElement.style.cursor = over ? 'pointer' : '';
+    });
+    this.domElement.addEventListener('pointerleave', () => this.viewCube.clearHover());
+    // A press on the gizmo is left to travel: OrbitControls orbits on any drag
+    // over the canvas, and the cube mirrors the camera, so dragging it round
+    // needs no code of its own. Only a press that goes nowhere is a face
+    // click, which is decided on release.
+    this.domElement.addEventListener('pointerdown', (event) => {
+      this.viewCubeDownAt = this.viewCube.handleClick(event)
+        ? { x: event.clientX, y: event.clientY }
+        : null;
+    }, true);
+
+    this.domElement.addEventListener('pointerup', (event) => {
+      const down = this.viewCubeDownAt;
+      this.viewCubeDownAt = null;
+      if (!down) return;
+      const travelled = Math.hypot(event.clientX - down.x, event.clientY - down.y);
+      if (travelled > VIEW_CUBE_CLICK_SLOP_PX) return;
+      const hit = this.viewCube.handleClick(event);
+      if (!hit) return;
+      // The event still has to reach OrbitControls so it can end its drag
+      // cleanly; the scene's own picking is told to sit this one out instead,
+      // otherwise clicking the gizmo would also clear the selection behind it.
+      Controls.ignoreNextPointerUp = true;
+      if (hit.view) Controls.setView(hit.view);
+      else Controls.setViewDirection(hit.direction);
+    }, true);
+  }
+
+  /**
    * Prepares Visualizer's camera controls
    *
    * @public
@@ -684,6 +806,10 @@ class Visualizer {
       }
     }
     Perf.end();
+
+    // Over the finished image, and after Perf.end() so the gizmo's own cost is
+    // not counted against the scene it is reporting on.
+    if (this.viewCube) this.viewCube.render(this.renderer);
   }
 }
 

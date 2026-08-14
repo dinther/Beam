@@ -30,7 +30,7 @@ MODEL_MATERIAL.onBeforeCompile = (shader) => {
   );
   shader.fragmentShader = shader.fragmentShader.replace(
     'totalEmissiveRadiance = emissive;\n',
-    'totalEmissiveRadiance = vHighlight == 0.0 ? emissive : vec3(.658,.176,.345);\n',
+    'totalEmissiveRadiance = vHighlight == 0.0 ? emissive : vec3(.42,.42,.44);\n',
   );
   MODEL_MATERIAL.userData.shader = shader;
 };
@@ -197,6 +197,12 @@ const TILT_SPEED_DEG_PER_SEC = 210;
  * @constant {Number}
  */
 const MAX_STEP_SECONDS = 0.1;
+
+/** Half-extent of a head's selection box, in metres. */
+const SELECTION_HALF_EXTENT = 0.51;
+
+/** Scratch corner, reused while growing a selection box. */
+const boundsCorner = new THREE.Vector3();
 
 class MovingHead {
   /**
@@ -839,6 +845,30 @@ class MovingHead {
 
   get tiltSpeed() {
     return this._tiltSpeed;
+  }
+
+  /**
+   * Grows a box to contain this head.
+   *
+   * A nominal cube rather than measured geometry: every head is drawn from the
+   * same low-poly model, and the selection box only has to read as "this one".
+   *
+   * @public
+   * @param {Object} box THREE.Box3 to expand, in world space
+   */
+  expandBounds(box) {
+    boundsCorner.set(
+      this._position.x - SELECTION_HALF_EXTENT,
+      this._position.y - SELECTION_HALF_EXTENT,
+      this._position.z - SELECTION_HALF_EXTENT,
+    );
+    box.expandByPoint(boundsCorner);
+    boundsCorner.set(
+      this._position.x + SELECTION_HALF_EXTENT,
+      this._position.y + SELECTION_HALF_EXTENT,
+      this._position.z + SELECTION_HALF_EXTENT,
+    );
+    box.expandByPoint(boundsCorner);
   }
 
   /**

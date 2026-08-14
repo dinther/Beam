@@ -1,3 +1,4 @@
+import { markRaw } from 'vue';
 import {
   Proxify,
 } from '../utils/proxify.utils';
@@ -213,6 +214,10 @@ class Fixture extends Proxify {
       this.channels = [];
       this.quickChannelsAccessors = {};
       this._3DModel = null;
+      /** Owning group, or null when the fixture sits at the root. */
+      this.group = null;
+      /** Transform relative to that group, held by the group itself. */
+      this.localTransform = null;
       this._rotation = {
         x: 0,
         y: 0,
@@ -284,6 +289,7 @@ class Fixture extends Proxify {
       mode: this.modeNam,
       position: this.position,
       rotation: this.rotation,
+      groupId: this.group ? this.group.id : undefined,
     };
   }
 
@@ -445,6 +451,16 @@ class Fixture extends Proxify {
       y: Fixture.radToDeg(this._rotation.y),
       z: Fixture.radToDeg(this._rotation.z),
     };
+  }
+
+  /**
+   * Rotation in radians, as the renderers and matrix maths want it. The plain
+   * `rotation` accessor is in degrees, for the UI.
+   *
+   * @type {Object}
+   */
+  get rotationRad() {
+    return { ...this._rotation };
   }
 
   set rotationRad(rotationData) {
@@ -975,11 +991,14 @@ class Fixture extends Proxify {
     // is what identifies the fixture, rather than a category string, because
     // 'Matrix' says nothing about where the emitters actually are.
     if (this.OFLData.asls && this.OFLData.asls.bar) {
-      this._3DModel = new LedBar({
+      // Never proxied: the show is reactive, and a renderer reached through a
+      // reactive fixture would be handed to three.js as a proxy, which cannot
+      // return Object3D internals like modelViewMatrix unchanged.
+      this._3DModel = markRaw(new LedBar({
         params: this.OFLData.asls.bar,
         components: this.OFLData.asls.components,
         texelAt: this.pixelTexels.bind(this),
-      });
+      }));
       this._3DModel.fixtureHandle = this;
       this._3DModel.position = this._position;
       this._3DModel.rotation = this._rotation;
@@ -1016,14 +1035,15 @@ class Fixture extends Proxify {
         });
         movingHead.position = this._position; // Setting moving head's position in 3D space
         movingHead.rotation = this._rotation; // Setting moving head's rotation in 3D space
-        this._3DModel = movingHead; // Binding moving head instance to this fixture instance
+        // Kept out of Vue's reactivity, as above.
+        this._3DModel = markRaw(movingHead); // Binding moving head instance to this fixture instance
         // Reverse link, so a ray hitting the 3D model can name its fixture.
         movingHead.fixtureHandle = this;
         break;
       }
       default: {
         // No renderer for this type yet: patch it, address it, draw nothing.
-        this._3DModel = unsupportedModel();
+        this._3DModel = markRaw(unsupportedModel());
         break;
       }
     }

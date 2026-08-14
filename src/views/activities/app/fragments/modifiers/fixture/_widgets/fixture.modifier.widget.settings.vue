@@ -12,7 +12,7 @@
     >
       <uk-flex :gap="8">
         <uk-txt-input
-          v-model.lazy="fixture.name"
+          v-model.lazy="name"
           style="flex: 1"
           label="Name"
         />
@@ -96,6 +96,21 @@ export default {
      * Universe the fixture starts in. Setting it slides the fixture by whole
      * universes, keeping its channel.
      */
+    /**
+     * Fixture name, kept unique across the show. Typing a name already in use
+     * gains a number rather than being refused, so renaming never fails.
+     *
+     * @type {String}
+     */
+    name: {
+      get() {
+        return this.fixture ? this.fixture.name : '';
+      },
+      set(value) {
+        if (!this.fixture) return;
+        this.fixture.name = this.$show.fixturePool.uniqueName(value, this.fixture.id);
+      },
+    },
     universe: {
       get() {
         return this.fixture ? this.fixture.universe : 0;

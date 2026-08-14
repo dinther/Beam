@@ -9,6 +9,26 @@
       gap="12"
     >
       <h3>Visualizer</h3>
+      <uk-button
+        v-show="!hidden"
+        v-model="snapEnabled"
+        square
+        icon-only
+        label="Snap to grid"
+        :value="false"
+        toggleable
+        icon="snap"
+        color="var(--accent-sea-green)"
+        @click="toggleSnap"
+      />
+      <uk-button
+        v-show="!hidden"
+        square
+        icon-only
+        label="Fit to view"
+        icon="fit"
+        @click="$show.visualizerHandle.frameAll()"
+      />
       <uk-spacer />
       <uk-button
         v-show="!hidden"
@@ -120,6 +140,7 @@ export default {
        * Autofocus state
        */
       autoFocus: false,
+      snapEnabled: true,
       /**
        * Auto rotation state
        */
@@ -137,6 +158,7 @@ export default {
     ).observe(this.$refs.visualizer);
     EventBus.emit('visualizer_loaded', true);
     this.autoFocus = this.$show.visualizerHandle.autoFocus;
+    this.snapEnabled = this.$show.visualizerHandle.snapEnabled;
     this.autoRotate = this.$show.visualizerHandle.autoRotate;
   },
   methods: {
@@ -206,6 +228,17 @@ export default {
      * @param {Boolean} value
      * @public
      */
+    /**
+     * Turns gizmo snapping on or off. The spacing lives in the visualizer
+     * preferences; this is the part worth reaching for mid-layout.
+     *
+     * @public
+     * @param {Boolean} value new state
+     */
+    toggleSnap(value) {
+      this.snapEnabled = value;
+      this.$show.visualizerHandle.snapEnabled = value;
+    },
     toggleAutoFocus(value) {
       this.$show.visualizerHandle.autoFocus = value;
     },
@@ -297,12 +330,18 @@ export default {
 .header {
   display: flex;
   flex-direction: row;
-  min-height: 28px;
+  min-height: 40px;
   width: 100%;
   padding: 0 8px;
   align-items: center;
   border-bottom: 1px solid var(--primary-dark);
   background: var(--primary-light);
+}
+.tool_divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 4px;
+  background: var(--primary-dark);
 }
 .visualizer.hidden .header {
   height: 100%;

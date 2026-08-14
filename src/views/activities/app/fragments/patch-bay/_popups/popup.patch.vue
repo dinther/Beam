@@ -397,6 +397,10 @@ export default {
             const position_tmp = {};
             const rotation_tmp = {};
             const chCount = this.fixture.modes[this.fixture.mode].channels.length;
+            // Left as the profile's own name means the user did not name it,
+            // so number it instead. Named fixtures are left exactly as typed.
+            const profileName = this.fixture.OFLData.name;
+            const autoName = this.fixture.name === profileName;
             Object.assign(position_tmp, this.fixture.position);
             Object.assign(rotation_tmp, this.fixture.rotation);
             for (let i = 0; i < this.amount; i++) {
@@ -411,6 +415,11 @@ export default {
                 y: rotation_tmp.y + this.rotationOffsets.y * i,
                 z: rotation_tmp.z + this.rotationOffsets.z * i,
               };
+              // Recomputed per fixture: each one added raises the highest
+              // number, so a batch numbers itself as it goes.
+              this.fixture.name = autoName
+                ? this.$show.fixturePool.numberedName(profileName)
+                : this.$show.fixturePool.uniqueName(this.fixture.name);
               const fixture = this.$show.fixturePool.addRaw(
                 JSON.parse(
                   JSON.stringify(this.fixture),
@@ -463,6 +472,10 @@ export default {
       await this.loadFixture({ manufacturer: { name: manufacturer }, fixture: model });
     },
     async loadFixture(item) {
+      // Folders are selectable now that a row's click selects rather than
+      // folds, so a manufacturer arrives here as well as a profile. It carries
+      // no fixture to load.
+      if (!item || !item.manufacturer || !item.fixture) return;
       const { manufacturer } = item;
       const { fixture } = item;
       // Generated profiles are built in the app, not served: there is no file

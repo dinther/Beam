@@ -10,6 +10,7 @@ import {
 import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
+import Group from './group.model';
 import Live from './live.model';
 import { buildLedBarProfile } from './generic/led_bar';
 
@@ -47,6 +48,10 @@ class Show extends EventEmitter {
      */
     this.generatedProfiles = {};
     this.fixturePool = new FixturePool();
+    /** Groups, in list order. Membership is exclusive. */
+    this.groups = [];
+    /** Showfile fixture id to instance, for the duration of a load. */
+    this.loadedFixturesById = new Map();
     this.running = false;
     this.slave = false;
     this.loading = {
@@ -105,6 +110,7 @@ class Show extends EventEmitter {
       diffInput: PatchSingleton.diffInput,
       // Addressing lives entirely on the fixtures now. Universe records are
       // kept only for the name and colour the patch bay displays.
+      groups: this.groups.map((group) => group.showData),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
     };
   }
@@ -342,6 +348,9 @@ class Show extends EventEmitter {
     this.loading.percentage = 60;
     await this.prepareFixtures(showData);
 
+    this.loading.message = 'Restoring groups';
+    this.prepareGroups(showData);
+
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
     this.name = showData.name;
@@ -372,6 +381,12 @@ class Show extends EventEmitter {
    * @async
    */
   async prepareFixtures(showData) {
+    /**
+     * Showfile fixture id to the instance created for it. Ids are reassigned
+     * on the way in, so anything referring to a fixture by its saved id needs
+     * this to find it again.
+     */
+    this.loadedFixturesById = new Map();
     for (let i = 0; i < showData.fixtures.length; i++) {
       const fixtureData = showData.fixtures[i];
       const profileKey = `${fixtureData.manufacturer}/${fixtureData.model}`;
@@ -388,7 +403,8 @@ class Show extends EventEmitter {
       if (this.fixtureOverrides[profileKey]) {
         merge(fixtureData.OFLData, this.fixtureOverrides[profileKey]);
       }
-      this.fixturePool.addRaw(fixtureData);
+      const created = this.fixturePool.addRaw(fixtureData);
+      if (fixtureData.id !== undefined) this.loadedFixturesById.set(fixtureData.id, created);
     }
   }
 
@@ -476,6 +492,76 @@ class Show extends EventEmitter {
       fixture.OFLData[key] = value;
       fixture[key] = value;
     });
+  }
+
+  /**
+   * Rebuilds groups and their membership from a showfile.
+   *
+   * Runs after the fixtures exist, since a group holds its members rather than
+   * their ids. A showfile without groups is simply one where nothing is
+   * grouped, so this is safe on older files.
+   *
+   * @public
+   * @param {Object} showData raw showfile contents
+   */
+  prepareGroups(showData) {
+    this.groups = (showData.groups || []).map((groupData) => {
+      const group = new Group(groupData);
+      (groupData.members || []).forEach((id) => {
+        // Resolved through the load index rather than the pool: addRaw hands
+        // out fresh ids, so a saved member id means nothing once a fixture has
+        // been deleted and the rest have shuffled down.
+        const fixture = this.loadedFixturesById.get(id);
+        if (fixture) group.add(fixture);
+      });
+      return group;
+    });
+  }
+
+  /**
+   * Creates a group, optionally taking members straight away.
+   *
+   * A group with members sits at their centre; an empty one sits at the scene
+   * origin, and will re-centre itself once it has something in it.
+   *
+   * @public
+   * @param {Array} [members] objects to take ownership of
+   * @param {String} [name] display name
+   * @returns {Object} the new group
+   */
+  createGroup(members = [], name = undefined) {
+    const group = new Group({ name });
+    members.forEach((member) => group.add(member));
+    if (members.length) group.centreOnMembers();
+    this.groups.push(group);
+    return group;
+  }
+
+  /**
+   * Dissolves a group, leaving its members where they are at the root.
+   *
+   * @public
+   * @param {Object} group group to remove
+   */
+  deleteGroup(group) {
+    const index = this.groups.indexOf(group);
+    if (index === -1) return;
+    [...group.members].forEach((member) => group.remove(member));
+    group.dispose();
+    this.groups.splice(index, 1);
+  }
+
+  /**
+   * Moves an object into a group, or out to the root when group is null.
+   *
+   * @public
+   * @param {Object} member object to move
+   * @param {Object|null} group destination, or null for the root
+   */
+  moveToGroup(member, group) {
+    if (!member) return;
+    if (member.group) member.group.remove(member);
+    if (group) group.add(member);
   }
 
   /**

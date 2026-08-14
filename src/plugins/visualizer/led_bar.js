@@ -42,6 +42,9 @@ const PICK_MATERIAL = new THREE.MeshBasicMaterial({
   depthWrite: false,
 });
 
+/** Scratch box, reused while growing a selection box. */
+const bodyBounds = new THREE.Box3();
+
 /** Outline shown while a bar is selected. */
 const HIGHLIGHT_MATERIAL = new THREE.LineBasicMaterial({ color: 0x1ca6bd });
 
@@ -137,6 +140,26 @@ class LedBar {
    */
   repatch() {
     if (instances.has(this)) LedBar.rebuild();
+  }
+
+  /**
+   * Grows a box to contain this bar.
+   *
+   * Built from the body's real dimensions and then run through the bar's world
+   * matrix, so a rotated bar reports the space it actually occupies rather than
+   * an axis-aligned guess.
+   *
+   * @public
+   * @param {Object} box THREE.Box3 to expand, in world space
+   */
+  expandBounds(box) {
+    const params = this._params;
+    if (!params) return;
+    this._dummy.updateMatrixWorld();
+    bodyBounds.min.set(-params.length / 2, -params.width / 2, -params.height / 2);
+    bodyBounds.max.set(params.length / 2, params.width / 2, params.height / 2);
+    bodyBounds.applyMatrix4(this._dummy.matrixWorld);
+    box.union(bodyBounds);
   }
 
   /**
