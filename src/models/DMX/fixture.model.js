@@ -2,6 +2,7 @@ import {
   Proxify,
 } from '../utils/proxify.utils';
 import Channel from './channel.model';
+import PatchSingleton, { DMX_UNIVERSE_LENGTH } from './patch.model';
 import MovingHead from '../../plugins/visualizer/moving_head';
 import Controls from '../../plugins/visualizer/controls';
 
@@ -176,14 +177,20 @@ class Fixture extends Proxify {
     if (!data.isStub) {
       this.OFLData = data.OFLData;
       this.id = parseInt(data.id, 10);
-      this.universe = parseInt(data.universe, 10);
+      // One absolute address is the truth; universe and chStart are views of
+      // it. Older shows carry the pair instead, so accept either.
+      if (data.address !== undefined) {
+        this.address = parseInt(data.address, 10);
+      } else {
+        this.address = (parseInt(data.universe, 10) || 0) * DMX_UNIVERSE_LENGTH
+          + (parseInt(data.chStart, 10) || 0);
+      }
       this.manufacturer = data.manufacturer;
       this.model = data.model;
       this.modeName = data.mode;
       this.wheels = {};
       this.name = data.name || DEFAULT_FIXTURE_NAME;
       this.category = data.category;
-      this.chStart = parseInt(data.chStart, 10);
       this.channels = [];
       this.quickChannelsAccessors = {};
       this._3DModel = null;
@@ -251,6 +258,7 @@ class Fixture extends Proxify {
       category: this.category,
       manufacturer: this.manufacturer,
       name: this.name,
+      address: this.address,
       universe: this.universe,
       chStart: this.chStart,
       mode: this.modeNam,
@@ -629,6 +637,81 @@ class Fixture extends Proxify {
    * @type {Number}
    * @readonly
    */
+  /**
+   * The fixture's absolute DMX address: a single channel offset into the
+   * show's whole address space, not a channel within a universe.
+   *
+   * @type {Number}
+   */
+  set address(value) {
+    const parsed = parseInt(value, 10);
+    const next = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    if (this._address === next) return;
+
+    // A patched fixture's claim on the address space is keyed by its address,
+    // so moving one without re-patching leaves inbound frames feeding the
+    // channels it used to occupy.
+    if (!PatchSingleton.isPatched(this)) {
+      this._address = next;
+      return;
+    }
+    const previous = this._address;
+    PatchSingleton.unpatchFixture(this);
+    this._address = next;
+    try {
+      PatchSingleton.patchFixture(this);
+    } catch (err) {
+      // Something already holds the requested range: stay put.
+      this._address = previous;
+      PatchSingleton.patchFixture(this);
+    }
+  }
+
+  get address() {
+    return this._address || 0;
+  }
+
+  /**
+   * Absolute address one past the fixture's last channel.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get addressStop() {
+    return this.address + this.channels.length;
+  }
+
+  /**
+   * Which universe the fixture's first channel falls in. Derived: a fixture is
+   * not owned by a universe, and its channels may run on into the next one.
+   *
+   * @type {Number}
+   */
+  set universe(value) {
+    const parsed = parseInt(value, 10);
+    const universe = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    this.address = universe * DMX_UNIVERSE_LENGTH + this.chStart;
+  }
+
+  get universe() {
+    return Math.floor(this.address / DMX_UNIVERSE_LENGTH);
+  }
+
+  /**
+   * The fixture's start channel within its first universe.
+   *
+   * @type {Number}
+   */
+  set chStart(value) {
+    const parsed = parseInt(value, 10);
+    const chStart = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    this.address = this.universe * DMX_UNIVERSE_LENGTH + chStart;
+  }
+
+  get chStart() {
+    return this.address % DMX_UNIVERSE_LENGTH;
+  }
+
   get chStop() {
     return this.chStart + this.channels.length;
   }

@@ -7,6 +7,8 @@ import {
 } from '../utils/proxify.utils';
 
 import UniversePool from './universe.pool.model';
+import PatchSingleton from './patch.model';
+import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
 import Live from './live.model';
 
@@ -76,9 +78,24 @@ class Show extends EventEmitter {
     return Live.tick;
   }
 
+  /**
+   * The show's DMX address space.
+   *
+   * @readonly
+   * @type {Object}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  get patch() {
+    return PatchSingleton;
+  }
+
   get showData() {
     return {
+      version: SHOWFILE_VERSION,
       name: this.name,
+      diffInput: PatchSingleton.diffInput,
+      // Addressing lives entirely on the fixtures now. Universe records are
+      // kept only for the name and colour the patch bay displays.
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
       universes: this.universePool.universes.map((u) => u.showData),
     };
@@ -164,13 +181,40 @@ class Show extends EventEmitter {
    * @param {Object} showData hande toa show configuration object
    */
   async prepareUniverses(showData) {
-    showData.universes.forEach((universeData) => {
-      const universe = this.universePool.addRaw(universeData);
-      universeData.fixtures.forEach((fixtureData) => {
-        const fixture = this.fixturePool.getFromId(fixtureData.id);
-        universe.patchFixture(fixture);
-      });
+    // Universe records no longer own fixtures; they only carry the name and
+    // colour to show. Build them first so declared metadata wins, then patch
+    // each fixture into whichever universe its address falls in, creating any
+    // universe the fixtures reach but the file did not mention.
+    (showData.universes || []).forEach((universeData) => {
+      this.universePool.addRaw(universeData);
     });
+
+    this.fixturePool.fixtures.forEach((fixture) => this.patchFixture(fixture));
+
+    // A show with no fixtures still needs somewhere to patch the first one.
+    if (!this.universePool.universes.length) {
+      this.universePool.addRaw();
+    }
+  }
+
+  /**
+   * Patches a fixture into the show's address space, and files it under the
+   * universe its address falls in.
+   *
+   * Universes are derived: the UI no longer presents them, but the pools are
+   * still what the models group fixtures by, so one is created on demand.
+   *
+   * @public
+   * @param {Object} fixture Fixture instance carrying an absolute address
+   */
+  patchFixture(fixture) {
+    let universe;
+    try {
+      universe = this.universePool.getFromId(fixture.universe);
+    } catch (err) {
+      universe = this.universePool.addRaw({ id: fixture.universe });
+    }
+    universe.patchFixture(fixture);
   }
 
   /**
@@ -181,8 +225,13 @@ class Show extends EventEmitter {
   deleteFixture(fixture) {
     const fixtureHandle = this.fixturePool.getFromId(fixture.id);
     if (fixtureHandle) {
-      const universe = this.universePool.getFromId(fixtureHandle.universe);
-      universe.unpatchFixture(fixtureHandle);
+      try {
+        this.universePool.getFromId(fixtureHandle.universe).unpatchFixture(fixtureHandle);
+      } catch (err) {
+        // No universe record for that address; the address space is the only
+        // claim that has to be released.
+        PatchSingleton.unpatchFixture(fixtureHandle);
+      }
       this.fixturePool.delete(fixtureHandle, true);
     }
   }
@@ -193,6 +242,8 @@ class Show extends EventEmitter {
    * @public
    */
   clearShowData() {
+    // The address space outlives no show: drop every claim before loading.
+    PatchSingleton.clearAll();
     this.universePool.clearAll();
     this.fixturePool.clearAll(true);
     this.name = '';
@@ -275,7 +326,8 @@ class Show extends EventEmitter {
    * @public
    * @async
    */
-  async loadFromData(showData) {
+  async loadFromData(rawShowData) {
+    const showData = migrateShowData(rawShowData);
     this.loading.state = true;
     this.loading.message = 'Clearing Show Data';
     this.loading.percentage = 20;
@@ -292,6 +344,9 @@ class Show extends EventEmitter {
     this.loading.message = 'Setting up universes';
     this.loading.percentage = 80;
     this.name = showData.name;
+    if (showData.diffInput !== undefined) {
+      PatchSingleton.diffInput = showData.diffInput;
+    }
     await this.prepareUniverses(showData);
 
     this.loading.message = 'Finalizing';

@@ -1,11 +1,11 @@
-import ShowSingleton from '@/singletons/show.singleton';
+import PatchSingleton from '@/models/DMX/patch.model';
 
 /**
  * Renderer-side Art-Net connection manager.
  *
  * Bridges the main-process Art-Net socket (exposed as `window.artnet`) to the
  * DMX model layer:
- *  - input:  inbound frames are written straight into `universe.DMX512Data`,
+ *  - input:  inbound frames are written straight into the show's address space,
  *            which fans the 512-byte buffer out to patched fixtures — the same
  *            path that drives the 3D visualizer from manual faders.
  *
@@ -32,12 +32,11 @@ class ArtNetConnection {
     if (!this.available || this.inputEnabled) return;
     window.artnet.start({});
     this.unsubscribe = window.artnet.onFrame(({ universe, data }) => {
-      try {
-        const target = ShowSingleton.universePool.getFromId(universe);
-        if (target) target.DMX512Data = data;
-      } catch (err) {
-        // No universe patched at this Art-Net address — ignore the frame.
-      }
+      // The universe number is an offset into the show's address space, not a
+      // lookup key: a frame is delivered whether or not a Universe object
+      // exists for it, and a fixture straddling the boundary is filled by the
+      // two frames that cover its channels.
+      PatchSingleton.writeUniverse(universe, data);
     });
     this.inputEnabled = true;
   }

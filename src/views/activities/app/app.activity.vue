@@ -104,7 +104,7 @@ export default {
         await this.$show.loadFromData(showData);
       }
 
-      await this.$router.push('/universe/0');
+      await this.$router.push('/patch');
       this.loader = {
         message: 'Waiting for views to settle',
         percentage: 90,

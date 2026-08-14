@@ -29,11 +29,13 @@
               label="Name"
             />
             <uk-num-input
-              v-model="fixture.universe"
-              disabled
+              v-model="universe"
+              :disabled="!fixture.loaded || loading"
               class="field"
               label="Universe"
-              @input="autoPatch"
+              :min="0"
+              :max="32767"
+              @input="checkPatch"
             />
           </uk-flex>
           <uk-flex
@@ -48,10 +50,10 @@
               :options="fixture.modeNames"
             />
             <uk-num-input
-              v-model="address"
+              v-model="channel"
               :disabled="!fixture.loaded || loading"
               class="field"
-              label="Address"
+              label="Channel"
               :min="1"
               :max="512"
               @input="checkPatch"
@@ -218,7 +220,7 @@
             v-show="patchError"
             class="patch_error"
           >
-            Patch error: The provided fixture settings are out of universe's range
+            Patch error: those channels are already taken or out of range
           </p>
         </div>
         <uk-spacer />
@@ -229,6 +231,7 @@
 
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
+import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
 
 const NO_FIXTURE_STR = 'No fixture model selected';
 const DEFAULT_FIXTURE_AMOUNT = 1;
@@ -237,8 +240,7 @@ const DEFAULT_FIXTURE_DATA = {
   modeNames: [NO_FIXTURE_STR],
   category: NO_FIXTURE_STR,
   modes: [{}],
-  chStart: 0,
-  universe: 0,
+  address: 0,
   position: { x: 0, y: 0, z: 0 },
   rotation: { x: 0, y: 0, z: 0 },
   mode: 0,
@@ -253,8 +255,11 @@ export default {
     MODE: 3,
   },
   props: {
-    universe: {
-      type: Object,
+    /**
+     * Absolute address the popup opens on, when patching into a known gap.
+     */
+    startAddress: {
+      type: Number,
       default: null,
     },
   },
@@ -267,7 +272,10 @@ export default {
       positionOffsets: { x: 0, y: 0, z: 0 },
       rotationOffsets: { x: 0, y: 0, z: 0 },
       chStop: 0,
-      chStart: 0,
+      /**
+       * Absolute start address of the run being patched (0-based).
+       */
+      patchAddress: 0,
       patchError: false,
       loading: false,
     };
@@ -282,12 +290,31 @@ export default {
     /**
      * 1-based DMX address shown to the user, mapped to the 0-based internal chStart.
      */
-    address: {
+    /**
+     * Universe the run starts in. Universe and channel are edited separately,
+     * the way MadMapper and consoles express an address; internally they are
+     * one absolute offset, which is what lets a run cross a boundary.
+     */
+    universe: {
       get() {
-        return this.chStart + 1;
+        return Math.floor(this.patchAddress / DMX_UNIVERSE_LENGTH);
       },
       set(value) {
-        this.chStart = Math.max(0, Number(value) - 1);
+        const universe = Math.max(0, Number(value));
+        this.patchAddress = universe * DMX_UNIVERSE_LENGTH
+          + (this.patchAddress % DMX_UNIVERSE_LENGTH);
+      },
+    },
+    /**
+     * 1-based start channel within that universe.
+     */
+    channel: {
+      get() {
+        return (this.patchAddress % DMX_UNIVERSE_LENGTH) + 1;
+      },
+      set(value) {
+        const channel = Math.max(0, Number(value) - 1);
+        this.patchAddress = this.universe * DMX_UNIVERSE_LENGTH + channel;
       },
     },
   },
@@ -314,6 +341,7 @@ export default {
       this.positionOffsets = { x: 0, y: 0, z: 0 };
       this.rotationOffsets = { x: 0, y: 0, z: 0 };
       this.chStop = 0;
+      this.patchAddress = this.startAddress || 0;
       this.patchError = false;
     },
     /**
@@ -334,7 +362,7 @@ export default {
             Object.assign(position_tmp, this.fixture.position);
             Object.assign(rotation_tmp, this.fixture.rotation);
             for (let i = 0; i < this.amount; i++) {
-              this.fixture.chStart = i * chCount + this.chStart;
+              this.fixture.address = i * chCount + this.patchAddress;
               this.fixture.position = {
                 x: position_tmp.x + this.positionOffsets.x * i,
                 y: position_tmp.y + this.positionOffsets.y * i,
@@ -350,7 +378,7 @@ export default {
                   JSON.stringify(this.fixture),
                 ),
               );
-              this.universe.patchFixture(fixture);
+              this.$show.patchFixture(fixture);
             }
             this.loading = false;
             this.close();
@@ -361,7 +389,7 @@ export default {
           }
         } else {
           this.loading = false;
-          throw new Error('Out of universe bounds');
+          throw new Error('Those channels are already taken');
         }
       }
     },
@@ -395,26 +423,31 @@ export default {
      */
     checkPatch() {
       const chCount = this.fixture.modes[this.fixture.mode].channels.length;
-      if (this.universe.canPatchMany(this.chStart, chCount, this.amount)) {
+      if (this.$show.patch.canPatchMany(this.patchAddress, chCount, this.amount)) {
         this.patchError = false;
-        this.chStop = chCount * this.amount + this.chStart;
+        this.chStop = chCount * this.amount + this.patchAddress;
         return true;
       }
       this.patchError = true;
       return false;
     },
     /**
-     * Automatically patches fixture within available universe address space.
+     * Finds the first free run in the show's address space. A run that crosses
+     * a universe boundary is fine; only a full space is a failure.
      *
      * @public
      */
     autoPatch() {
       const chCount = this.fixture.modes[this.fixture.mode].channels.length;
-      const chStart = this.universe.findChStartAutoPatch(chCount, this.amount);
-      this.chStop = chCount * this.amount + chStart;
-      if (chStart > -1) {
+      const address = this.$show.patch.findFreeAddress(
+        chCount,
+        this.amount,
+        this.startAddress || 0,
+      );
+      this.chStop = chCount * this.amount + address;
+      if (address > -1) {
         this.patchError = false;
-        this.chStart = chStart;
+        this.patchAddress = address;
       } else {
         this.patchError = true;
       }

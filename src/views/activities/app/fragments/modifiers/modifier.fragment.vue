@@ -1,16 +1,16 @@
 <template>
   <uk-flex class="modifier">
-    <universe-modifier />
+    <fixture-modifier />
   </uk-flex>
 </template>
 
 <script>
-import UniverseModifier from '@/views/activities/app/fragments/modifiers/universe/universe.modifier.fragment.vue';
+import FixtureModifier from '@/views/activities/app/fragments/modifiers/fixture/fixture.modifier.fragment.vue';
 
 export default {
   name: 'ModifierFragment',
   components: {
-    UniverseModifier,
+    FixtureModifier,
   },
 };
 </script>

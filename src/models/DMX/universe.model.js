@@ -1,5 +1,6 @@
 import ukColors from '@/views/components/uikit/colors/uikit.colors';
 import FixturePool from './fixture.pool.model';
+import PatchSingleton from './patch.model';
 
 /**
  * DMX512 universe length
@@ -19,12 +20,6 @@ const MIN_UNIVERSE_ID = 0;
  * @constant {Number} DMX_UNIVERSE_LENGTH
  */
 const MAX_UNIVERSE_ID = 65535;
-/**
- * Universe channels lengh
- *
- * @constant {Number} DMX_UNIVERSE_CHANNELS_LENGTH
- */
-const DMX_UNIVERSE_CHANNELS_LENGTH = 512;
 
 /**
  * Default universe data
@@ -56,12 +51,9 @@ class Universe {
     this.name = data.name;
     this.color = data.color;
     this.connection = null;
-    this._patch = {};
-    this._addressMap = new Array(DMX_UNIVERSE_LENGTH).fill(undefined);
     this.fixturePool = new FixturePool();
-    // Last inbound frame, used to skip channels whose value did not change.
-    this._inputShadow = new Uint8Array(DMX_UNIVERSE_CHANNELS_LENGTH);
-    this._shadowPrimed = false;
+    // The patch, address map and diffing shadow live in the show-wide address
+    // space now; a universe is a 512-channel window onto it.
     this.diffInput = data.diffInput !== false;
   }
 
@@ -84,14 +76,14 @@ class Universe {
    * @memberof Universe
    * @type {Boolean}
    */
+  // eslint-disable-next-line class-methods-use-this
   set diffInput(enabled) {
-    this._diffInput = !!enabled;
-    // The shadow is meaningless until a full pass has populated it.
-    this._shadowPrimed = false;
+    PatchSingleton.diffInput = !!enabled;
   }
 
+  // eslint-disable-next-line class-methods-use-this
   get diffInput() {
-    return this._diffInput;
+    return PatchSingleton.diffInput;
   }
 
   /**
@@ -104,8 +96,9 @@ class Universe {
    *
    * @public
    */
+  // eslint-disable-next-line class-methods-use-this
   invalidateInputShadow() {
-    this._shadowPrimed = false;
+    PatchSingleton.invalidateInputShadow();
   }
 
   /**
@@ -155,10 +148,10 @@ class Universe {
    */
   set simplifiedChannels(channels) {
     channels.forEach((channelData) => {
-      const fixtureAddress = this._addressMap[channelData.id - 1];
-      const fixtureChannel = channelData.id - fixtureAddress - 1;
-      if (this._patch[fixtureAddress]) {
-        this._patch[fixtureAddress].setChannel(fixtureChannel, channelData.value);
+      const absolute = this.absolute(channelData.id - 1);
+      const fixture = PatchSingleton.fixtureAt(absolute);
+      if (fixture) {
+        fixture.setChannel(absolute - fixture.address, channelData.value);
       }
     });
     // Values were set from outside the inbound frame path, so the diffing
@@ -167,13 +160,7 @@ class Universe {
   }
 
   get simplifiedChannels() {
-    if (this._patch) {
-      return Object.keys(this._patch).map((fixtureAddress) => {
-        const fixture = this._patch[fixtureAddress];
-        return fixture.simplifiedChannels;
-      }).flat() || [];
-    }
-    return [];
+    return this.fixturePool.fixtures.map((fixture) => fixture.simplifiedChannels).flat();
   }
 
   /**
@@ -182,43 +169,19 @@ class Universe {
    * @memberof Universe
    */
   set DMX512Data(DMX512ValueBuffer) {
-    const length = Math.min(DMX512ValueBuffer.length, DMX_UNIVERSE_LENGTH);
-
-    if (this._diffInput && this._shadowPrimed) {
-      const shadow = this._inputShadow;
-      for (let channel = 0; channel < length; channel += 1) {
-        const value = DMX512ValueBuffer[channel];
-        if (value !== shadow[channel]) {
-          shadow[channel] = value;
-          this.writeChannel(channel, value);
-        }
-      }
-      return;
-    }
-
-    // Full pass: either diffing is off, or the shadow needs (re)populating.
-    for (let channel = 0; channel < length; channel += 1) {
-      const value = DMX512ValueBuffer[channel];
-      this.writeChannel(channel, value);
-    }
-    if (this._diffInput) {
-      this._inputShadow.set(DMX512ValueBuffer.subarray(0, length));
-      this._shadowPrimed = true;
-    }
+    PatchSingleton.writeUniverse(this.id, DMX512ValueBuffer);
   }
 
   get DMX512Data() {
-    const DMX_PACKET_LENGTH = 512;
-    const DMX_BUFF = new Uint8Array(DMX_PACKET_LENGTH);
-    this._addressMap.forEach((address, index) => {
-      const fixture = this._patch[address];
+    const DMX_BUFF = new Uint8Array(DMX_UNIVERSE_LENGTH);
+    for (let channel = 0; channel < DMX_UNIVERSE_LENGTH; channel += 1) {
+      const absolute = this.absolute(channel);
+      const fixture = PatchSingleton.fixtureAt(absolute);
       if (fixture) {
-        const fixtureChannelIndex = index - fixture.chStart;
-        DMX_BUFF[index] = fixture.channels[fixtureChannelIndex].value.DMX || 0;
-      } else {
-        DMX_BUFF[index] = 0;
+        const fixtureChannel = fixture.channels[absolute - fixture.address];
+        DMX_BUFF[channel] = (fixtureChannel && fixtureChannel.value.DMX) || 0;
       }
-    });
+    }
     return DMX_BUFF;
   }
 
@@ -231,11 +194,7 @@ class Universe {
    * @param {Number} value channel value (0-255)
    */
   writeChannel(channel, value) {
-    const fixtureAddress = this._addressMap[channel];
-    const fixture = this._patch[fixtureAddress];
-    if (fixture) {
-      fixture.setChannel(channel - fixtureAddress, value);
-    }
+    PatchSingleton.writeChannel(this.absolute(channel), value);
   }
 
   /**
@@ -245,12 +204,12 @@ class Universe {
    * @type {Object}
    */
   get showData() {
+    // Display metadata only: which fixtures live here is derived from their
+    // addresses, and diffing is a property of the whole address space.
     return {
       id: this.id,
       name: this.name,
       color: this.color,
-      diffInput: this.diffInput,
-      fixtures: this.fixturePool.showData,
     };
   }
 
@@ -261,19 +220,13 @@ class Universe {
    * @param {Object} fixture Fixture instance
    */
   patchFixture(fixture) {
-    if (this.checkPatchCapability(fixture.chStart, fixture.chCount)) {
+    // The address space is global; a universe is one 512-channel window onto
+    // it. Setting universe here only moves the fixture's absolute address.
+    if (fixture.universe !== this.id) {
       fixture.universe = this.id;
-      this._patch[fixture.chStart] = fixture;
-      this.fixturePool.addExisting(fixture);
-      for (let i = fixture.chStart; i < fixture.chStop; i++) {
-        this._addressMap[i] = fixture.chStart;
-      }
-      // The new fixture's channels start at zero regardless of what the shadow
-      // remembers for those addresses.
-      this.invalidateInputShadow();
-    } else {
-      throw new Error('Cannot patch fixture on this interval');
     }
+    PatchSingleton.patchFixture(fixture);
+    this.fixturePool.addExisting(fixture);
   }
 
   /**
@@ -284,13 +237,7 @@ class Universe {
    */
   unpatchFixture(fixture) {
     this.fixturePool.delete(fixture);
-    delete this._patch[fixture.chStart];
-    this._addressMap = this._addressMap.map((address) => (
-      address === fixture.chStart
-        ? undefined
-        : address
-    ));
-    this.invalidateInputShadow();
+    PatchSingleton.unpatchFixture(fixture);
   }
 
   /**
@@ -302,15 +249,18 @@ class Universe {
    * @return {Boolean} patching capability
    */
   checkPatchCapability(chStart, chCount) {
-    const chStop = chStart + chCount;
-    // eslint-disable-next-line consistent-return
-    Object.keys(this._patch).forEach((fixtureAddress) => {
-      const fixture = this._patch[fixtureAddress];
-      if (chStart <= fixture.chStop && fixture.chStart <= chStop) {
-        return false;
-      }
-    });
-    return true;
+    return PatchSingleton.canPatch(this.absolute(chStart), chCount);
+  }
+
+  /**
+   * Absolute address of a channel within this universe.
+   *
+   * @public
+   * @param {Number} chStart universe-relative channel
+   * @return {Number} absolute address
+   */
+  absolute(chStart) {
+    return this.id * DMX_UNIVERSE_LENGTH + chStart;
   }
 
   /**
@@ -323,13 +273,7 @@ class Universe {
    * @return {Boolean} patching capability
    */
   canPatchMany(chStart, chCount, amount) {
-    const total = chCount * amount;
-    for (let i = chStart; i < chStart + total; i++) {
-      if (this._addressMap[i]) {
-        return false;
-      }
-    }
-    return true;
+    return PatchSingleton.canPatchMany(this.absolute(chStart), chCount, amount);
   }
 
   /**
@@ -341,20 +285,10 @@ class Universe {
    * @return {Number} Available address
    */
   findChStartAutoPatch(chCount, amount) {
-    const total = chCount * amount;
-    for (let i = 0; i < DMX_UNIVERSE_LENGTH; i++) {
-      let canPatch = true;
-      for (let j = 0; j < total; j++) {
-        if (j + i >= DMX_UNIVERSE_LENGTH || this._addressMap[j + i] != null) {
-          canPatch = false;
-          break;
-        }
-      }
-      if (canPatch) {
-        return i;
-      }
-    }
-    return -1;
+    // Search from this universe's start, but no longer stop at its end: a run
+    // that crosses the boundary is legal now.
+    const address = PatchSingleton.findFreeAddress(chCount, amount, this.absolute(0));
+    return address === -1 ? -1 : address - this.absolute(0);
   }
 
   /**

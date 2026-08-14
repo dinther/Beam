@@ -9,7 +9,7 @@ import {
 
 import AppActivity from '@/views/activities/app/app.activity.vue';
 import VisualizerActivity from '@/views/activities/visualizer/visualizer.activity.vue';
-import UniverseModifier from '@/views/activities/app/fragments/modifiers/universe/universe.modifier.fragment.vue';
+import FixtureModifier from '@/views/activities/app/fragments/modifiers/fixture/fixture.modifier.fragment.vue';
 
 const routes = [{
   path: '/',
@@ -21,11 +21,13 @@ const routes = [{
   children: [{
     path: '',
     name: 'Default',
-    component: UniverseModifier,
+    component: FixtureModifier,
   }, {
-    path: '/universe/:universeId',
-    name: 'Universe',
-    component: UniverseModifier,
+    // Fixtures are addressed globally, so the route names a fixture rather
+    // than a universe to look inside.
+    path: '/patch',
+    name: 'Patch',
+    component: FixtureModifier,
   }],
 }, {
   path: '/visualizer',

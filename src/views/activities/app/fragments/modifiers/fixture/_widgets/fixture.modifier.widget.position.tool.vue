@@ -70,7 +70,7 @@
 
 <script>
 export default {
-  name: 'UniverseModifierWidgetPositionTool',
+  name: 'FixtureModifierWidgetPositionTool',
   compatConfig: {
     // or, for full vue 3 compat in this component:
     MODE: 3,

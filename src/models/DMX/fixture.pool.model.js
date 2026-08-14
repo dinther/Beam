@@ -29,6 +29,7 @@ class FixturePool extends Proxify {
       icon: 'movinghead',
       id: fixture.id,
       universe: fixture.universe,
+      address: fixture.address,
       more: `U${fixture.universe} - CH${fixture.chStart + 1}`,
     }));
   }
