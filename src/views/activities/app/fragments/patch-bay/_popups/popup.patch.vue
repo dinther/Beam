@@ -818,6 +818,11 @@ export default {
      * @public
      */
     autoPatch() {
+      // Amount is shared by every kind, so this fires for a structure too,
+      // which has no channels to find room for. The default fixture carries
+      // an empty mode rather than none, so there is nothing to measure before
+      // a profile is loaded either.
+      if (!this.addressable || !this.fixture.loaded) return;
       const chCount = this.fixture.modes[this.fixture.mode].channels.length;
       const address = this.$show.patch.findFreeAddress(
         chCount,

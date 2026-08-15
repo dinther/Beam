@@ -23,6 +23,10 @@ module.exports = {
     'no-param-reassign': 'off',
     'no-await-in-loop': 'off',
     camelcase: 'off',
+    // electron-vite resolves `?asset` imports at build time, emitting the file
+    // and handing back its path. The eslint resolver has no idea what the
+    // query means and reports the module as missing.
+    'import/no-unresolved': ['error', { ignore: ['\\?asset$'] }],
   },
   settings: {
     'import/resolver': {

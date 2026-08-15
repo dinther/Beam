@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#121829" />
+      <stop offset="100%" stop-color="#05070c" />
+    </radialGradient>
+
+    <!-- Center Prism Gradients -->
+    <linearGradient id="prismLeft" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1a6e7c" />
+      <stop offset="60%" stop-color="#55edd6" />
+      <stop offset="100%" stop-color="#ffffff" />
+    </linearGradient>
+
+    <linearGradient id="prismRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2a2968" />
+      <stop offset="50%" stop-color="#5d2675" />
+      <stop offset="100%" stop-color="#bd1b68" />
+    </linearGradient>
+
+    <!-- Gem Gradients -->
+    <linearGradient id="gemIridescent1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7df9ff" />
+      <stop offset="50%" stop-color="#5b3cc4" />
+      <stop offset="100%" stop-color="#f72585" />
+    </linearGradient>
+
+    <linearGradient id="gemIridescent2" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4cc9f0" />
+      <stop offset="50%" stop-color="#4361ee" />
+      <stop offset="100%" stop-color="#f72585" />
+    </linearGradient>
+
+    <linearGradient id="gemWarm" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#b5e2fa" />
+      <stop offset="50%" stop-color="#ed9777" />
+      <stop offset="100%" stop-color="#e63946" />
+    </linearGradient>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="800" height="800" fill="#000000" />
+  <circle cx="400" cy="400" r="380" fill="url(#bgGlow)" />
+
+  <!-- Outer Ring Elements (Sample Gem Positions) -->
+  <g id="outer-gems">
+    <!-- Top Gem -->
+    <g transform="translate(400, 140)">
+      <polygon points="0,-70 -40,0 0,60" fill="url(#gemIridescent1)" opacity="0.9" />
+      <polygon points="0,-70 40,0 0,60" fill="url(#gemIridescent2)" opacity="0.9" />
+      <polygon points="-40,0 0,60 40,0" fill="#ffffff" opacity="0.15" />
+    </g>
+
+    <!-- Top Right Gem -->
+    <g transform="translate(520, 180) rotate(30)">
+      <polygon points="0,-60 -35,0 0,50" fill="url(#gemWarm)" />
+      <polygon points="0,-60 35,0 0,50" fill="url(#gemIridescent1)" />
+    </g>
+
+    <!-- Top Left Gem -->
+    <g transform="translate(280, 180) rotate(-30)">
+      <polygon points="0,-60 -35,0 0,50" fill="url(#gemIridescent2)" />
+      <polygon points="0,-60 35,0 0,50" fill="url(#gemIridescent1)" />
+    </g>
+
+    <!-- Left Gem -->
+    <g transform="translate(140, 400) rotate(-90)">
+      <polygon points="0,-65 -35,0 0,55" fill="url(#gemIridescent1)" />
+      <polygon points="0,-65 35,0 0,55" fill="url(#gemIridescent2)" />
+    </g>
+
+    <!-- Bottom Gem -->
+    <g transform="translate(400, 660) rotate(180)">
+      <polygon points="0,-70 -40,0 0,60" fill="url(#gemIridescent2)" />
+      <polygon points="0,-70 40,0 0,60" fill="url(#gemIridescent1)" />
+    </g>
+  </g>
+
+  <!-- Incoming Light Ray -->
+  <polygon points="60,490 395,385 395,392 60,495" fill="#ffffff" opacity="0.8" />
+
+  <!-- Rainbow Spectrum (Right side) -->
+  <g id="rainbow-beam">
+    <polygon points="405,390 760,280 760,320 405,390" fill="#ff2a5f" /> <!-- Red -->
+    <polygon points="405,390 760,320 760,360 405,390" fill="#ff7e00" /> <!-- Orange -->
+    <polygon points="405,390 760,360 760,410 405,390" fill="#ffd000" /> <!-- Yellow -->
+    <polygon points="405,390 760,410 760,470 405,390" fill="#00e676" /> <!-- Green -->
+    <polygon points="405,390 760,470 760,530 405,390" fill="#00b0ff" /> <!-- Blue -->
+    <polygon points="405,390 760,530 760,600 405,390" fill="#aa00ff" /> <!-- Violet -->
+  </g>
+
+  <!-- Central Prism -->
+  <g id="center-prism">
+    <!-- Left Face -->
+    <polygon points="400,250 260,490 400,490" fill="url(#prismLeft)" />
+    <!-- Right Face -->
+    <polygon points="400,250 540,490 400,490" fill="url(#prismRight)" />
+    <!-- Outer Glow Rim -->
+    <polygon points="400,250 260,490 540,490" fill="none" stroke="#7df9ff" stroke-width="3" opacity="0.7" />
+  </g>
+</svg>

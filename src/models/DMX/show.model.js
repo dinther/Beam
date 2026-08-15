@@ -15,10 +15,10 @@ import Group from './group.model';
 import Live from './live.model';
 import { buildLedBarProfile } from './generic/led_bar';
 
-const DEFAULT_PROJECT_NAME = 'new_project.asls';
+const DEFAULT_PROJECT_NAME = 'new_project.json';
 
 const SHOWFILE_EXTENSIONS = {
-  ASLS: 'json',
+  JSON: 'json',
 };
 
 const fixtureDataCache = {};
@@ -925,7 +925,7 @@ class Show extends EventEmitter {
    */
   static _parseShowData(showFile, extension) {
     switch (extension) {
-      case SHOWFILE_EXTENSIONS.ASLS:
+      case SHOWFILE_EXTENSIONS.JSON:
         return JSON.parse(showFile);
       default:
         throw new Error('Could not load provided file');

@@ -1,53 +1,35 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/ASLS-org/studio/develop/src/assets/images/studio_logo_textual.svg" alt="ASLS Studio" width="320"/>
+<img src="./Lightyard_logo_master.png" alt="Lightyard" width="160"/>
 
-**Open-source, web-based DMX lighting control software and visualizer**
+# Lightyard
 
-[![License: GPL v3](https://img.shields.io/github/license/asls-org/studio)](https://github.com/ASLS-org/studio/?tab=GPL-3.0-1-ov-file)
-[![Version](https://img.shields.io/github/v/tag/asls-org/studio?include_prereleases&sort=semver&style=flat&label=version)](https://github.com/ASLS-org/studio/releases)
-[![Made with Vue.js](https://madewithvuejs.com/storage/repo-shields/4381-shield.svg)](https://madewithvuejs.com/p/asls-studio/shield-link)
+**A real-time 3D sandbox for lighting rigs, driven by Art-Net**
 
-[Live Demo](https://demo.studio.asls.timekadel.com) · [Issues](https://github.com/ASLS-org/studio/issues) · [Discussions](https://github.com/ASLS-org/studio/discussions)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./COPYING)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#what-is-lightyard)
+
+[Issues](https://github.com/dinther/lightyard/issues) - [Manual](./manual.md)
 
 </div>
 
 ---
 
-> **Beta Notice:** ASLS Studio is in active beta development. All features are provided as-is. Please report any bugs or unexpected behaviour on the [issue tracker](https://github.com/ASLS-org/studio/issues).
+> **Alpha.** Lightyard is early software under active development. Things move,
+> break and get renamed. Please report anything odd on the
+> [issue tracker](https://github.com/dinther/lightyard/issues).
 
 ---
-- [What is ASLS Studio?](#what-is-asls-studio)
-- [Features](#features)
-  - [Lighting](#lighting)
-    - [Universe \& Fixture Patching](#universe--fixture-patching)
-    - [Fixture Grouping](#fixture-grouping)
-    - [Scene Composition](#scene-composition)
-    - [Parametric Effect Engine](#parametric-effect-engine)
-    - [Chase Sequencer](#chase-sequencer)
-  - [Common](#common)
-    - [Real-Time 3D Visualizer](#real-time-3d-visualizer)
-    - [Desktop App](#desktop-app)
-- [Requirements](#requirements)
-- [Getting Started](#getting-started)
-  - [1. Clone the repository](#1-clone-the-repository)
-  - [2. Install dependencies](#2-install-dependencies)
-  - [3. Start the development server](#3-start-the-development-server)
-  - [Production build (web)](#production-build-web)
-  - [Desktop distribution](#desktop-distribution)
-- [Streaming to Hardware](#streaming-to-hardware)
-- [Tech Stack](#tech-stack)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
 
-___
+## What is Lightyard?
 
-## What is ASLS Studio?
+Lightyard is a **sandbox for building and previewing lighting rigs in three dimensions**. You place fixtures where they will really hang, address them to real DMX universes, and watch them respond live to Art-Net from whatever is driving your show. It is a place to design a rig, prove the patch and rehearse content without a truck, a truss or a venue.
 
-ASLS Studio is a self-contained show control environment and DMX lighting control platform that covers the full workflow: patching fixtures into universes, grouping them, composing scenes and effects, sequencing cues into chases, and visualising everything in real time inside a 3D WebGL viewport. Studio can run entirely in the browser as a static web app, or be packaged as a native desktop application for Linux, macOS, and Windows via Electron.
+It is **not** a photo-realistic renderer, and it is not trying to be. There is no ray tracing, no measured photometrics and no attempt to predict exactly how a beam will look on a hazy stage. What it gives you is a fast, honest picture of *which fixture is doing what, where* - accurate in position, address and colour, and quick enough to sit alongside the software actually running your show.
 
-Live show data can be streamed out to physical hardware via the **WSC (Web Show Control)** protocol — a compact binary protocol with a gateway that translates to industry-standard downstream protocols.
+It is also **not a lighting desk**. Lightyard does not want to replace the thing you already program with. It listens.
+
+Lightyard is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, whose patching, scene, effect and chase engines it still carries. See [Acknowledgements](#acknowledgements).
 
 ---
 
@@ -97,8 +79,8 @@ In addition to running as a static web app, Studio can be packaged as a native d
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/ASLS-org/studio
-cd studio
+git clone https://github.com/dinther/lightyard
+cd lightyard
 ```
 
 ### 2. Install dependencies
@@ -140,11 +122,11 @@ npm run dist:win
 
 ## Streaming to Hardware
 
-Studio sends live show data using the **[WSC (Web Show Control)](https://github.com/ASLS-org/WSC)** protocol — a compact, binary, transport-agnostic protocol designed for real-time control of performance and show systems.
+Lightyard sends live show data using the **[WSC (Web Show Control)](https://github.com/ASLS-org/WSC)** protocol — a compact, binary, transport-agnostic protocol designed for real-time control of performance and show systems.
 
 WSC carries multiple message types over a single connection: bulk channel data (DMX universes), linear timecode (SMPTE/MTC), cue lifecycle commands (GO, STOP, PAUSE…), typed parameter writes, and opaque binary tunnels to downstream systems. Every packet includes a Transport Descriptor that tells the gateway which downstream protocol to use — so the browser never needs to know about the physical layer.
 
-The reference gateway (`@asls/wsc-server`) runs as a Node.js process alongside Studio and translates incoming WSC packets to the appropriate downstream protocol. Forwarding targets include Art-Net, sACN, DMX512, MIDI, MIDI Show Control, MIDI Timecode, OSC, and others.
+The reference gateway (`@asls/wsc-server`) runs as a Node.js process alongside Lightyard and translates incoming WSC packets to the appropriate downstream protocol. Forwarding targets include Art-Net, sACN, DMX512, MIDI, MIDI Show Control, MIDI Timecode, OSC, and others.
 
 Refer to the [WSC repository](https://github.com/ASLS-org/WSC) and its JavaScript implementation guide for gateway setup instructions.
 
@@ -173,16 +155,20 @@ Contributions of all kinds are welcome — bug reports, feature requests, fixtur
 2. Make your changes and test them locally (`npm start`).
 3. Open a **Pull Request** against `develop` with a clear description of the change and why.
 
-For larger changes or new features, opening a [Discussion](https://github.com/ASLS-org/studio/discussions) first is encouraged to align on direction before writing code.
+For larger changes or new features, opening a [Discussion](https://github.com/dinther/lightyard/discussions) first is encouraged to align on direction before writing code.
 
 ---
 
 ## License
 
-ASLS Studio is released under the **GNU General Public License v3.0**. See the [`COPYING`](./COPYING) file for full terms.
+Lightyard is released under the **GNU General Public License v3.0**, the licence it inherits from ASLS Studio. See the [`COPYING`](./COPYING) file for full terms.
+
+Copyright (c) 2026 Paul van Dinther. Portions copyright (c) ASLS-org / Timé Kadel, 2021.
 
 ---
 
 ## Acknowledgements
 
-ASLS Studio grew out of the ASLS research project and was made freely available to the lighting and open-source communities. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).
+Lightyard is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by [Timé Kadel](https://github.com/timekadel), which grew out of the ASLS research project and was made freely available to the lighting and open-source communities. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation everything here stands on.
+
+Lightyard adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and fixture-library export. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).

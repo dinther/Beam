@@ -38,7 +38,7 @@ export default {
       try {
         const el = document.createElement('a');
         el.setAttribute('href', `data:text/plain;charset=utf-8,${encodeURIComponent(this.$show.genShowFile())}`);
-        el.setAttribute('download', `${this.$show.name || 'asls_showfile'}.json` || 'showfile.json');
+        el.setAttribute('download', `${this.$show.name || 'lightyard_showfile'}.json` || 'showfile.json');
         el.style.display = 'none';
         document.body.appendChild(el);
         el.click();

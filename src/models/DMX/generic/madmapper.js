@@ -179,7 +179,7 @@ function fixtureElement(profile, options = {}) {
 
   const fixture = [
     `favorite="${options.favorite ? 1 : 0}"`,
-    `group="${escapeAttribute(options.group || 'ASLS')}"`,
+    `group="${escapeAttribute(options.group || 'Lightyard')}"`,
     `product="${escapeAttribute(options.product || profile.name)}"`,
   ].join(' ');
 

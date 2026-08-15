@@ -559,7 +559,7 @@ export function buildMadMapperLayout({
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"`
       + ` viewBox="0 0 ${width} ${height}">`,
-    '    <title>ASLS Studio fixture layout</title>',
+    '    <title>Lightyard fixture layout</title>',
     `    <desc>${escapeAttribute(legend)}</desc>`,
     '    <style>svg { background: black; }* { stroke: white; fill: none; }</style>',
     ...body,

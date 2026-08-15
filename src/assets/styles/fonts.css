@@ -1,4 +1,11 @@
 @font-face{
+  /* Lightyard brand face. One variable file covers the whole weight axis. */
+  font-family: 'SpaceGrotesk';
+  src: url(../fonts/SpaceGrotesk/SpaceGrotesk-VariableFont_wght.ttf) format('truetype');
+  font-weight: 300 700;
+  font-style: normal;
+}
+@font-face{
   font-family: 'Roboto-Regular';
   src: url(../fonts/Roboto/Roboto-Regular.ttf);
 }

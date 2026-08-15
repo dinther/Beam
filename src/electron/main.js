@@ -13,7 +13,7 @@ import {
   optimizer,
 } from '@electron-toolkit/utils';
 import path from 'path';
-import icon from '../assets/images/studio_standalone_logo.svg';
+import icon from '../assets/images/lightyard_logo.png?asset';
 import artnet from './artnet';
 import jsonstore from './jsonstore';
 import fileexport from './fileexport';

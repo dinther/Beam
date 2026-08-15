@@ -1,7 +1,11 @@
-appId: com.electron.app
-productName: ASLS Studio
+appId: com.dinther.lightyard
+productName: Lightyard
 directories:
   buildResources:  public
+  # Keep packaging output out of `dist`, which is where `npm run build` puts
+  # the Vite web build. Sharing that folder is what leaves a locked
+  # `dist/win-unpacked` behind when a packaging run is interrupted.
+  output: release
 files:
   - './out/**/*'
   - '!**/.vscode/*'
@@ -13,7 +17,7 @@ files:
 # asarUnpack:
 #   - resources/**
 win:
-  executableName: ASLS Studio
+  executableName: Lightyard
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

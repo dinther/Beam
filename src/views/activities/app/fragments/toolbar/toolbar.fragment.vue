@@ -187,7 +187,7 @@ export default {
               name: 'Manual',
               icon: 'help',
               callback: () => {
-                window.open('https://studio.asls.timekadel.com/', '_blank');
+                window.open('https://github.com/dinther/lightyard/blob/main/manual.md', '_blank');
               },
             },
             {
@@ -208,7 +208,7 @@ export default {
               name: 'Contact',
               icon: 'contact',
               callback: () => {
-                window.open('https://github.com/timekadel', '_blank');
+                window.open('https://github.com/dinther/lightyard', '_blank');
               },
             },
           ],
@@ -234,7 +234,7 @@ export default {
     async loadFile() {
       const el = document.createElement('input');
       el.type = 'file';
-      el.accept = '.asls,.json,';
+      el.accept = '.json,';
       el.style.display = 'none';
       el.addEventListener('change', async () => {
         if (el.files) {

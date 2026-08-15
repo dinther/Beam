@@ -21,40 +21,59 @@
         center-both
         gap="32"
       >
-        <studio-logo class="studio_logo" />
+        <uk-flex
+          col
+          center-both
+          class="brand"
+        >
+          <img
+            class="brand_mark"
+            src="@/assets/images/lightyard_logo.png"
+            alt="Lightyard"
+          >
+          <p class="brand_name">
+            Lightyard
+          </p>
+        </uk-flex>
         <div class="vertical_seprator" />
         <div class="build_info">
           <p>
             Version:&nbsp;<a
-              traget="_blank"
+              target="_blank"
               :href="
                 versionData.version
-                  ? `https://github.com/ASLS-org/studio/releases/tag/${versionData.version}`
-                  : 'https://github.com/ASLS-org/studio/releases/'
+                  ? `https://github.com/dinther/lightyard/releases/tag/${versionData.version}`
+                  : 'https://github.com/dinther/lightyard/releases/'
               "
             >{{ versionData.version || 'no-version-data' }}</a>
           </p>
           <p>Build date: {{ versionData.date || 'no-build-date' }}</p>
           <p style="margin-bottom:16px">
             Branch:&nbsp;<a
-              traget="_blank"
+              target="_blank"
               :href="
                 versionData.branch
-                  ? `https://github.com/ASLS-org/studio/tree/${versionData.branch}`
-                  : 'https://github.com/ASLS-org/studio/'
+                  ? `https://github.com/dinther/lightyard/tree/${versionData.branch}`
+                  : 'https://github.com/dinther/lightyard/'
               "
             >{{ versionData.branch || 'no-branch-data' }}</a>
           </p>
           <p>
             Copyright ©&nbsp;<a
-              traget="_blank"
-              href="https://github.com/asls-org"
-            >ASLS-org</a>&nbsp;2021-{{ new Date().getFullYear() }}
+              target="_blank"
+              href="https://github.com/dinther"
+            >Paul van Dinther</a>&nbsp;{{ new Date().getFullYear() }}
+          </p>
+          <p class="provenance">
+            Based on&nbsp;<a
+              target="_blank"
+              href="https://github.com/ASLS-org/studio"
+            >ASLS Studio</a>&nbsp;© ASLS-org 2021
           </p>
           <p>
             Released under the&nbsp;<a
               href="/COPYING"
-              traget="_blank"
+              target="_blank"
             >GPLv3 License</a>
           </p>
         </div>
@@ -75,13 +94,9 @@
 
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
-import StudioLogo from '@/assets/images/studio_logo_textual.svg';
 
 export default {
   name: 'UkPopupSplash',
-  components: {
-    StudioLogo,
-  },
   compatConfig: {
     // or, for full vue 3 compat in this component:
     MODE: 3,
@@ -138,10 +153,6 @@ export default {
   border: unset!important;
   padding: 64px;
 }
-.ASLS_logo {
-  opacity: 0.7;
-  text-align: center;
-}
 .loader_message {
   position: absolute;
   bottom: 1px;
@@ -179,9 +190,27 @@ export default {
   transition: width 0.5s;
   opacity: .5;
 }
-.studio_logo{
-  opacity: .74;
-  height: 90px;
+.brand {
+  gap: 10px;
+}
+.brand_mark {
+  height: 92px;
+  width: 92px;
+  object-fit: contain;
+}
+/* The wordmark is live text in the brand face, so it stays crisp at any DPI. */
+.brand_name {
+  font-family: SpaceGrotesk;
+  font-weight: 700;
+  font-size: 30px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--secondary-lighter);
+  opacity: .92;
+}
+.provenance {
+  opacity: .75;
+  font-size: 11px !important;
 }
 .vertical_seprator{
   height: 100%;

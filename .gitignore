@@ -1,10 +1,6 @@
 .DS_Store
 node_modules
 **/dist
-# Fallback packaging output, used when dist/win-unpacked is held by
-# a stale mapped section and electron-builder cannot clear it.
-/dist-build
-/docs/developer/core/dist
 
 # local env files
 .env.local
@@ -27,8 +23,8 @@ yarn-error.log*
 # Electron output
 /out
 
-#Electron-builder output
-/dist_electron
+# Electron-builder output
+/release
 
 # Vitepress
 **/.vitepress/cache
