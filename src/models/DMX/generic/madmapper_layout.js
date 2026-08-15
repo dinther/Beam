@@ -171,12 +171,12 @@ const round = (n) => Math.round(n * 1000) / 1000;
  * @param {Object} fixture Fixture instance
  * @param {String} projection
  * @param {Number} radius
- * @param {Function} manufacturerName resolves a display name from a slug
+ * @param {Function} definitionName names the fixture's definition, exactly as
+ *   the exported library calls it
  * @returns {Object} entry ready to render
  */
-function prepare(fixture, projection, radius, manufacturerName) {
-  const definition = `${manufacturerName(fixture.manufacturer)} - `
-    + `${(fixture.OFLData || {}).name || fixture.model}`;
+function prepare(fixture, projection, radius, definitionName) {
+  const definition = definitionName(fixture);
   const common = {
     name: fixture.name,
     universe: fixture.universe,
@@ -213,14 +213,15 @@ function prepare(fixture, projection, radius, manufacturerName) {
  * @param {Array} options.fixtures Fixture instances to include
  * @param {Array} [options.groups] groups, to become SVG groups
  * @param {String} [options.projection] one of `PROJECTIONS`
- * @param {Function} [options.manufacturerName] slug to display name
+ * @param {Function} [options.definitionName] names a fixture's definition; must
+ *   agree with the library export, since MadMapper resolves layouts by name
  * @returns {String|null} SVG document, or null when there is nothing to draw
  */
 export function buildMadMapperLayout({
   fixtures = [],
   groups = [],
   projection = PROJECTIONS.FRONT,
-  manufacturerName = (slug) => slug,
+  definitionName = (f) => `${f.manufacturer} - ${f.model}`,
 } = {}) {
   const patched = fixtures.filter((f) => f && f.channels && f.channels.length);
   if (!patched.length) return null;
@@ -239,7 +240,7 @@ export function buildMadMapperLayout({
   // handle a group holds and the one the pool holds may be a proxy and its
   // target, which are never equal.
   const entries = new Map();
-  patched.forEach((f) => entries.set(f.id, prepare(f, projection, radius, manufacturerName)));
+  patched.forEach((f) => entries.set(f.id, prepare(f, projection, radius, definitionName)));
 
   // Bounds, so the viewBox frames the content the way MadMapper's own does.
   let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;

@@ -125,9 +125,8 @@ export function componentsAttribute(profile, mode) {
 }
 
 /**
- * A profile as a MadMapper fixture document.
+ * One `<LEDFixture>` element, as the lines it occupies.
  *
- * @public
  * @param {Object} profile OFL-shaped profile; a generated bar carries
  *   `asls.bar` and `asls.components`
  * @param {Object} [options]
@@ -138,10 +137,9 @@ export function componentsAttribute(profile, mode) {
  * @param {Boolean} [options.avoidCrossUniversePixels] whether a pixel may
  *   straddle a universe boundary; the counterpart of `Fixture.universeAligned`
  * @param {Boolean} [options.favorite]
- * @returns {String|null} the contents of a `.mmfl` file, or null when the
- *   profile cannot be expressed
+ * @returns {Array|null} lines, or null when the profile cannot be expressed
  */
-export function buildMadMapperFixture(profile, options = {}) {
+function fixtureElement(profile, options = {}) {
   if (!profile) return null;
   const asls = profile.asls || {};
   const params = asls.bar;
@@ -188,13 +186,137 @@ export function buildMadMapperFixture(profile, options = {}) {
   // The trailing space after the last channel is MadMapper's own; kept so a
   // round trip through its editor comes back byte-identical.
   return [
-    '<LEDFixtureLibrary>',
     ` <LEDFixture ${fixture}>`,
     `  <PixelMapping ${attributes}>${body} </PixelMapping>`,
     ' </LEDFixture>',
+  ];
+}
+
+/**
+ * Wraps fixture elements in the document MadMapper reads.
+ *
+ * @param {Array} elements arrays of lines, one per fixture
+ * @returns {String}
+ */
+function library(elements) {
+  return [
+    '<LEDFixtureLibrary>',
+    ...[].concat(...elements),
     '</LEDFixtureLibrary>',
     '',
   ].join(EOL);
 }
 
-export default { buildMadMapperFixture, componentsAttribute, pixelMapping };
+/**
+ * A profile as a MadMapper fixture document.
+ *
+ * @public
+ * @param {Object} profile OFL-shaped profile; a generated bar carries
+ *   `asls.bar` and `asls.components`
+ * @param {Object} [options] see `fixtureElement`
+ * @returns {String|null} the contents of a `.mmfl` file, or null when the
+ *   profile cannot be expressed
+ */
+export function buildMadMapperFixture(profile, options = {}) {
+  const element = fixtureElement(profile, options);
+  return element ? library([element]) : null;
+}
+
+/**
+ * The definitions a set of fixtures needs, one per distinct profile and mode.
+ *
+ * A mode is part of the identity, not a detail of it: the same model in two
+ * modes is two fixtures to MadMapper, with different channel counts. So the
+ * mode's name joins the product name, but only when the show actually uses
+ * more than one -- there is no sense making every name uglier for a case that
+ * usually does not arise.
+ *
+ * The names this returns are the ones a layout must use in its `__FD__`
+ * fields. Both exports read them from here so they cannot drift apart.
+ *
+ * @public
+ * @param {Array} fixtures Fixture instances
+ * @param {Function} [manufacturerName] slug to display name
+ * @returns {Object} `{ definitions, nameOf }`
+ */
+export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
+  const used = new Map();
+  const modesPerModel = new Map();
+
+  fixtures.forEach((fixture) => {
+    if (!fixture || !fixture.OFLData) return;
+    const mode = fixture.mode || {};
+    const modeName = fixture.modeName || mode.name || '';
+    const model = `${fixture.manufacturer}/${fixture.model}`;
+    const key = `${model}/${modeName}`;
+
+    if (!modesPerModel.has(model)) modesPerModel.set(model, new Set());
+    modesPerModel.get(model).add(modeName);
+
+    if (!used.has(key)) {
+      used.set(key, {
+        key,
+        model,
+        modeName,
+        mode,
+        profile: fixture.OFLData,
+        group: manufacturerName(fixture.manufacturer),
+        base: fixture.OFLData.name || fixture.model,
+        universeAligned: !!fixture.universeAligned,
+        fixtures: [],
+      });
+    }
+    used.get(key).fixtures.push(fixture);
+  });
+
+  const definitions = [...used.values()].map((entry) => {
+    const ambiguous = modesPerModel.get(entry.model).size > 1 && entry.modeName;
+    return { ...entry, product: ambiguous ? `${entry.base} (${entry.modeName})` : entry.base };
+  });
+
+  const byKey = new Map(definitions.map((d) => [d.key, d]));
+
+  /**
+   * The definition name a fixture's layout entry must quote.
+   *
+   * @param {Object} fixture
+   * @returns {String} `group - product`
+   */
+  const nameOf = (fixture) => {
+    const modeName = fixture.modeName || (fixture.mode || {}).name || '';
+    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}`);
+    return found ? `${found.group} - ${found.product}` : `${fixture.manufacturer} - ${fixture.model}`;
+  };
+
+  return { definitions, nameOf };
+}
+
+/**
+ * Every definition a show needs, as one `.mmfl` document.
+ *
+ * MadMapper resolves a layout's fixtures by name, so this has to be imported
+ * before the layout that refers to it.
+ *
+ * @public
+ * @param {Array} definitions from `showDefinitions`
+ * @returns {String|null} document, or null when none could be expressed
+ */
+export function buildMadMapperLibrary(definitions = []) {
+  const elements = definitions
+    .map((d) => fixtureElement(d.profile, {
+      group: d.group,
+      product: d.product,
+      mode: d.mode,
+      avoidCrossUniversePixels: d.universeAligned,
+    }))
+    .filter(Boolean);
+  return elements.length ? library(elements) : null;
+}
+
+export default {
+  buildMadMapperFixture,
+  buildMadMapperLibrary,
+  showDefinitions,
+  componentsAttribute,
+  pixelMapping,
+};

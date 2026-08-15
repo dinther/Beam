@@ -26,6 +26,18 @@
       <p class="layout_hint">
         {{ hint }}
       </p>
+
+      <uk-checkbox
+        v-model="withDefinitions"
+        label="Also write fixture definitions"
+      />
+
+      <p class="layout_hint">
+        MadMapper resolves a layout's fixtures by name, so the definitions
+        have to be imported before the layout that refers to them.
+        {{ definitionCount }}
+        {{ definitionCount === 1 ? 'definition' : 'definitions' }} in this show.
+      </p>
     </uk-flex>
   </uk-popup>
 </template>
@@ -37,6 +49,7 @@ import {
   PROJECTION_LABELS,
   PROJECTIONS,
 } from '@/models/DMX/generic/madmapper_layout';
+import { buildMadMapperLibrary, showDefinitions } from '@/models/DMX/generic/madmapper';
 
 /** What each choice does to the rig, in one line. */
 const HINTS = {
@@ -63,6 +76,7 @@ export default {
     return {
       headerData: { title: 'Export layout for MadMapper', icon: 'export' },
       projectionIndex: 0,
+      withDefinitions: true,
       projectionNames: PROJECTION_LABELS.map((p) => p.label),
     };
   },
@@ -80,8 +94,29 @@ export default {
      * @type {Number}
      */
     fixtureCount() {
-      return this.$show.fixturePool.fixtures
-        .filter((f) => f.channels && f.channels.length).length;
+      return this.exportable.length;
+    },
+    /**
+     * Patched fixtures, the only ones either file can describe.
+     *
+     * @type {Array}
+     */
+    exportable() {
+      return this.$show.fixturePool.fixtures.filter((f) => f.channels && f.channels.length);
+    },
+    /**
+     * The definitions this show needs, and the names a layout must quote.
+     *
+     * Both files come from this one result, so a fixture cannot end up called
+     * one thing in the library and another in the layout.
+     *
+     * @type {Object}
+     */
+    definitions() {
+      return showDefinitions(this.exportable, (slug) => this.$show.manufacturerName(slug));
+    },
+    definitionCount() {
+      return this.definitions.definitions.length;
     },
     groupCount() {
       return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
@@ -99,14 +134,31 @@ export default {
       // `close` clears the parent's flag as well as this one, and leaving it
       // set meant the popup came straight back every time.
       this.close();
+      if (!window.fileExport) return;
+      const { definitions, nameOf } = this.definitions;
       const svg = buildMadMapperLayout({
-        fixtures: this.$show.fixturePool.fixtures,
+        fixtures: this.exportable,
         groups: this.$show.groups,
         projection: this.projection,
-        manufacturerName: (slug) => this.$show.manufacturerName(slug),
+        definitionName: nameOf,
       });
-      if (!svg || !window.fileExport) return;
+      if (!svg) return;
       const show = (this.$show.name || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
+      // Definitions first: MadMapper resolves a layout's fixtures by name, so
+      // they have to exist before the layout that quotes them is read.
+      if (this.withDefinitions) {
+        const contents = buildMadMapperLibrary(definitions);
+        if (contents) {
+          await window.fileExport.save({
+            contents,
+            defaultName: `${show} fixtures.mmfl`,
+            startIn: 'madmapperFixtures',
+            title: 'Export fixture definitions (import these first)',
+            filters: [{ name: 'MadMapper fixtures', extensions: ['mmfl'] }],
+          });
+        }
+      }
+
       await window.fileExport.save({
         contents: svg,
         defaultName: `${show} ${this.projection}.svg`,
