@@ -413,6 +413,19 @@ export default {
       return this.activeKind === 'fixtures';
     },
     /**
+     * What to call this fixture in MadMapper.
+     *
+     * The profile's own name, not `model`: for a library fixture that is the
+     * file it was loaded from, so exporting one produced a fixture called
+     * "mac-aura.json". Generated profiles name themselves after the model, so
+     * both come out the same there.
+     *
+     * @type {String}
+     */
+    madMapperProduct() {
+      return (this.fixture.OFLData || {}).name || this.fixture.model || '';
+    },
+    /**
      * Pixel size to lay the selected fixture out with.
      *
      * Mirrors `Fixture.alignmentPixelSize`, which cannot be used directly:
@@ -441,7 +454,7 @@ export default {
       if (!this.fixture.loaded || !this.fixture.OFLData) return null;
       return buildMadMapperFixture(this.fixture.OFLData, {
         group: this.fixture.manufacturer,
-        product: this.fixture.model,
+        product: this.madMapperProduct,
         mode: this.fixture.modes[this.fixture.mode],
         avoidCrossUniversePixels: Fixture.profileKeepsPixelsWhole(this.fixture.OFLData),
       });
@@ -726,7 +739,7 @@ export default {
       if (!contents || !window.fileExport) return;
       const written = await window.fileExport.save({
         contents,
-        defaultName: `${this.fixture.model}.mmfl`,
+        defaultName: `${this.madMapperProduct.replace(/[<>:"/\\|?*]/g, ' ').trim()}.mmfl`,
         startIn: 'madmapperFixtures',
         title: 'Export fixture to MadMapper',
         filters: [{ name: 'MadMapper fixture', extensions: ['mmfl'] }],
