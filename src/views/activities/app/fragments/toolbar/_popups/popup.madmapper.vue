@@ -27,6 +27,18 @@
         {{ hint }}
       </p>
 
+      <p
+        v-if="edgeOn.length"
+        class="layout_warning"
+      >
+        {{ edgeOn.length }}
+        {{ edgeOn.length === 1 ? 'fixture points' : 'fixtures point' }}
+        straight at this view and cannot be drawn at its real angle:
+        {{ edgeOn.slice(0, 4).join(', ') }}{{ edgeOn.length > 4 ? '…' : '' }}.
+        Exported at a token length so nothing is lost, but worth placing by
+        hand or choosing another view.
+      </p>
+
       <uk-checkbox
         v-model="withDefinitions"
         label="Also write fixture definitions"
@@ -48,6 +60,7 @@ import {
   buildMadMapperLayout,
   PROJECTION_LABELS,
   PROJECTIONS,
+  edgeOnFixtures,
 } from '@/models/DMX/generic/madmapper_layout';
 import { buildMadMapperLibrary, showDefinitions } from '@/models/DMX/generic/madmapper';
 
@@ -118,6 +131,14 @@ export default {
     definitionCount() {
       return this.definitions.definitions.length;
     },
+    /**
+     * Fixtures this view sees end-on, which it cannot honestly represent.
+     *
+     * @type {Array}
+     */
+    edgeOn() {
+      return edgeOnFixtures(this.exportable, this.projection);
+    },
     groupCount() {
       return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
     },
@@ -176,6 +197,15 @@ export default {
   padding: 16px;
   width: 340px;
   white-space: normal;
+}
+.layout_warning {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--accent-orange, #d08b3c);
+  margin: 0;
+  width: 0;
+  min-width: 100%;
 }
 .layout_summary {
   font-family: Roboto-Regular;

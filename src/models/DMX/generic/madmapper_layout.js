@@ -29,6 +29,17 @@ const MARGIN = 40;
 const POINT_FIXTURE_HALF = 0.14;
 
 /**
+ * Shortest line worth drawing, in metres.
+ *
+ * A bar pointing straight at the viewer projects to a point, and MadMapper
+ * discards a zero-length line -- so the fixture vanishes from the import
+ * without saying so. Anything shorter than this is drawn at this length
+ * instead: the direction is a fiction, but a fixture in the wrong place can be
+ * moved, whereas one that never arrived has to be noticed first.
+ */
+const MIN_PROJECTED_LENGTH = 0.05;
+
+/**
  * How the rig is flattened.
  *
  * The camera projections keep the rig looking like itself from a chosen side
@@ -67,12 +78,19 @@ export const PROJECTION_LABELS = [
  * The scene is Z-up and SVG's y axis points down, so every projection that
  * keeps height as height negates it.
  *
+ * The unwraps measure an angle, and an angle needs something to be measured
+ * about. That has to be the middle of whatever is being unwrapped rather than
+ * the world origin: a rig hanging four metres up is nowhere near the origin,
+ * and measured from there its entire latitude range collapses into a band.
+ *
  * @param {THREE.Vector3} point scene position, metres
  * @param {String} projection one of `PROJECTIONS`
  * @param {Number} radius reference radius for the unwraps, metres
+ * @param {THREE.Vector3} [origin] what the unwraps turn about
  * @returns {Object} `{ x, y }` in metres
  */
-export function project(point, projection, radius = 1) {
+export function project(point, projection, radius = 1, origin = null) {
+  const p = origin ? point.clone().sub(origin) : point;
   switch (projection) {
     case PROJECTIONS.BACK: return { x: -point.x, y: -point.z };
     case PROJECTIONS.LEFT: return { x: -point.y, y: -point.z };
@@ -82,17 +100,69 @@ export function project(point, projection, radius = 1) {
     case PROJECTIONS.CYLINDRICAL:
       // Angle about the vertical axis becomes distance along x, so content
       // travels around the rig rather than through it.
-      return { x: Math.atan2(point.y, point.x) * radius, y: -point.z };
+      return { x: Math.atan2(p.y, p.x) * radius, y: -p.z };
     case PROJECTIONS.SPHERICAL: {
-      const r = Math.max(point.length(), 1e-6);
+      const r = Math.max(p.length(), 1e-6);
       return {
-        x: Math.atan2(point.y, point.x) * radius,
-        y: -Math.asin(THREE.MathUtils.clamp(point.z / r, -1, 1)) * radius,
+        x: Math.atan2(p.y, p.x) * radius,
+        y: -Math.asin(THREE.MathUtils.clamp(p.z / r, -1, 1)) * radius,
       };
     }
     case PROJECTIONS.FRONT:
     default: return { x: point.x, y: -point.z };
   }
+}
+
+/**
+ * Whether a projection measures an angle, and so meets itself at a seam.
+ *
+ * @param {String} projection
+ * @returns {Boolean}
+ */
+export function wrapsAround(projection) {
+  return projection === PROJECTIONS.CYLINDRICAL || projection === PROJECTIONS.SPHERICAL;
+}
+
+/**
+ * Slides a value by whole turns until it sits nearest a reference.
+ *
+ * An angle has no single answer, and `atan2` picks the one in (-pi, pi]. A bar
+ * lying across that seam gets one end from each side and is drawn stretched
+ * clean across the canvas -- which is what those long horizontal lines were.
+ * Both ends are placed on whichever side its middle fell.
+ *
+ * @param {Number} value
+ * @param {Number} reference
+ * @param {Number} period one full turn, in the same units
+ * @returns {Number}
+ */
+function nearestTurn(value, reference, period) {
+  if (!(period > 0)) return value;
+  return value - Math.round((value - reference) / period) * period;
+}
+
+/**
+ * Pulls a projected line out to a minimum length about its own middle.
+ *
+ * @param {Object} a first end
+ * @param {Object} b second end
+ * @returns {Array} the two ends, at least `MIN_PROJECTED_LENGTH` apart
+ */
+function ensureLength(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length >= MIN_PROJECTED_LENGTH) return [a, b];
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  // Along whatever direction survived the projection, or flat if none did.
+  const ux = length > 1e-9 ? dx / length : 1;
+  const uy = length > 1e-9 ? dy / length : 0;
+  const half = MIN_PROJECTED_LENGTH / 2;
+  return [
+    { x: mx - ux * half, y: my - uy * half },
+    { x: mx + ux * half, y: my + uy * half },
+  ];
 }
 
 /**
@@ -173,9 +243,10 @@ const round = (n) => Math.round(n * 1000) / 1000;
  * @param {Number} radius
  * @param {Function} definitionName names the fixture's definition, exactly as
  *   the exported library calls it
+ * @param {THREE.Vector3} origin what the unwraps turn about
  * @returns {Object} entry ready to render
  */
-function prepare(fixture, projection, radius, definitionName) {
+function prepare(fixture, projection, radius, definitionName, origin) {
   const definition = definitionName(fixture);
   const common = {
     name: fixture.name,
@@ -187,8 +258,18 @@ function prepare(fixture, projection, radius, definitionName) {
   const ends = fixtureEnds(fixture);
   if (ends) {
     const { bar } = fixture.OFLData.asls;
-    const [a, b] = ends.map((p) => project(p, projection, radius));
+    const middle = project(scenePoint(fixture), projection, radius, origin);
+    const period = 2 * Math.PI * radius;
+    const placed = ends
+      .map((p) => project(p, projection, radius, origin))
+      .map((q) => (wrapsAround(projection)
+        ? { ...q, x: nearestTurn(q.x, middle.x, period) }
+        : q));
+    const edgeOn = Math.hypot(placed[1].x - placed[0].x, placed[1].y - placed[0].y)
+      < MIN_PROJECTED_LENGTH;
+    const [a, b] = ensureLength(placed[0], placed[1]);
     return {
+      edgeOn,
       ...common,
       kind: 'fixture_line',
       a,
@@ -199,10 +280,50 @@ function prepare(fixture, projection, radius, definitionName) {
 
   // Anything without a length is drawn as a square facing the canvas, which is
   // how MadMapper represents a fixture that is one pixel rather than a run.
-  const c = project(scenePoint(fixture), projection, radius);
+  const c = project(scenePoint(fixture), projection, radius, origin);
   return {
     ...common, kind: 'fixture_quad', centre: c, half: POINT_FIXTURE_HALF,
   };
+}
+
+/**
+ * The middle and reach of a set of fixtures, which the unwraps turn about.
+ *
+ * @public
+ * @param {Array} fixtures Fixture instances
+ * @returns {Object} `{ centre, radius }`
+ */
+export function layoutFrame(fixtures) {
+  const centre = new THREE.Vector3();
+  if (!fixtures.length) return { centre, radius: 1 };
+  fixtures.forEach((f) => centre.add(scenePoint(f)));
+  centre.divideScalar(fixtures.length);
+  const radius = Math.max(
+    ...fixtures.map((f) => Math.hypot(f.position.x - centre.x, f.position.y - centre.y)),
+    0.5,
+  );
+  return { centre, radius };
+}
+
+/**
+ * Fixtures that a projection sees end-on, and so cannot represent.
+ *
+ * Worth knowing before exporting: they are drawn at a token length, pointing
+ * in a direction the view does not actually justify.
+ *
+ * @public
+ * @param {Array} fixtures Fixture instances
+ * @param {String} projection
+ * @returns {Array} names
+ */
+export function edgeOnFixtures(fixtures, projection) {
+  const { centre, radius } = layoutFrame(fixtures);
+  return fixtures.filter((f) => {
+    const ends = fixtureEnds(f);
+    if (!ends) return false;
+    const [a, b] = ends.map((p) => project(p, projection, radius, centre));
+    return Math.hypot(b.x - a.x, b.y - a.y) < MIN_PROJECTED_LENGTH;
+  }).map((f) => f.name);
 }
 
 /**
@@ -226,21 +347,17 @@ export function buildMadMapperLayout({
   const patched = fixtures.filter((f) => f && f.channels && f.channels.length);
   if (!patched.length) return null;
 
-  // The unwraps need a radius to turn an angle into a distance. Taken from the
-  // rig itself so a metre across the canvas is roughly a metre of fixture.
-  const centre = new THREE.Vector3();
-  patched.forEach((f) => centre.add(scenePoint(f)));
-  centre.divideScalar(patched.length);
-  const radius = Math.max(
-    ...patched.map((f) => Math.hypot(f.position.x - centre.x, f.position.y - centre.y)),
-    0.5,
-  );
+  // The unwraps need a radius to turn an angle into a distance, and a centre to
+  // turn about. Both come from the rig itself.
+  const { centre, radius } = layoutFrame(patched);
 
   // Keyed by id, not by the fixture object: the show is reactive, so the
   // handle a group holds and the one the pool holds may be a proxy and its
   // target, which are never equal.
   const entries = new Map();
-  patched.forEach((f) => entries.set(f.id, prepare(f, projection, radius, definitionName)));
+  patched.forEach((f) => {
+    entries.set(f.id, prepare(f, projection, radius, definitionName, centre));
+  });
 
   // Bounds, so the viewBox frames the content the way MadMapper's own does.
   let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
