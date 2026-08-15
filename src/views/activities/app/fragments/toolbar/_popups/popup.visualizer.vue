@@ -91,7 +91,7 @@
         <uk-num-input
           v-model="$show.visualizerHandle.globalBrightness"
           :min="25"
-          :max="100"
+          :max="200"
           style="width: 100px"
         />
       </uk-flex>
@@ -136,6 +136,30 @@
         <uk-spacer />
         <uk-checkbox v-model="$show.visualizerHandle.showAxes" />
       </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Background:</h4>
+          <p class="subtitle">
+            Colour behind the scene.
+          </p>
+        </div>
+        <uk-spacer />
+        <input
+          v-model="backgroundColor"
+          type="color"
+          class="colour_swatch"
+        >
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Debug:</h4>
+          <p class="subtitle">
+            Show the frame timings and the emitter tuning panel.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-checkbox v-model="$show.visualizerHandle.debug" />
+      </uk-flex>
     </uk-flex>
   </uk-popup>
 </template>
@@ -157,6 +181,30 @@ export default {
        */
       headerData: { title: 'Visualizer settings' },
     };
+  },
+  computed: {
+    /**
+     * Floor image, as the index the select works in.
+     *
+     * @type {Number}
+     */
+    /**
+     * Scene background, as the hex string the colour input works in.
+     *
+     * @type {String}
+     */
+    backgroundColor: {
+      get() {
+        return this.$show.visualizerHandle
+          ? this.$show.visualizerHandle.backgroundColor
+          : '#0c0d0a';
+      },
+      set(value) {
+        if (this.$show.visualizerHandle) {
+          this.$show.visualizerHandle.backgroundColor = value;
+        }
+      },
+    },
   },
   watch: {
     state(state) {
@@ -192,6 +240,24 @@ export default {
 </script>
 
 <style scoped>
+/* The kit has no colour input, so this is the native one with its chrome taken
+   off: a swatch the same height as the selects beside it. */
+.colour_swatch {
+  width: 48px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--secondary-light);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+.colour_swatch::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.colour_swatch::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
 .body {
   padding: 10px;
   min-width: 400px;

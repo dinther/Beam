@@ -22,6 +22,10 @@ const DEFAULTS = {
   showGrid: true,
   showAxes: true,
   showFloor: true,
+  /** Whether the frame timings and the shader tuning panel are on screen. */
+  debug: false,
+  /** Scene background, as a hex string. Matches SceneManager's own default. */
+  backgroundColor: '#0C0D0A',
 };
 
 let values = { ...DEFAULTS };

@@ -25,6 +25,8 @@ const state = {
   lastLog: 0,
   fps: 0,
   element: null,
+  /** Whether the readout should be on screen once it exists. */
+  visible: true,
   gl: null,
   ext: null,
   // Timer query results are not ready in the frame that issues them, so each
@@ -86,6 +88,7 @@ function init(renderer) {
   // instead, and the totals cover every pass.
   renderer.info.autoReset = false;
   state.element = buildElement(renderer.domElement.parentElement);
+  state.element.style.display = state.visible ? '' : 'none';
   state.gl = renderer.getContext();
   // Often unavailable: browsers gate it because precise GPU timing is a
   // fingerprinting and side-channel vector. CPU time and draw counts still work.
@@ -198,11 +201,28 @@ function setPasses(count) {
   state.gpuSamples.length = 0;
 }
 
+/**
+ * Shows or hides the readout.
+ *
+ * The measuring carries on either way: the cost of reading a timer query is
+ * nothing beside the frame it measures, and stopping would mean the numbers
+ * were cold every time the panel came back.
+ *
+ * @param {Boolean} visible
+ */
+function setVisible(visible) {
+  state.visible = !!visible;
+  // Recorded whether or not the element exists yet: the preference is read
+  // while the scene is built and the overlay is created with the renderer, and
+  // the order between those is not this module's business.
+  if (state.element) state.element.style.display = state.visible ? '' : 'none';
+}
+
 /** @returns {Number} how many times the scene is drawn per frame */
 function getPasses() {
   return state.passes;
 }
 
 export default {
-  init, begin, end, setPasses, getPasses,
+  init, begin, end, setPasses, getPasses, setVisible,
 };

@@ -204,6 +204,57 @@ class Visualizer {
     this.showGrid = source.showGrid;
     this.showAxes = source.showAxes;
     this.showFloor = source.showFloor;
+    this.debug = source.debug;
+    this.backgroundColor = source.backgroundColor;
+  }
+
+  /**
+   * Scene background.
+   *
+   * Set on the existing colour rather than replaced: the scene's background is
+   * a Color instance and swapping it for a string would drop whatever else
+   * three.js hangs off it.
+   *
+   * @type {String}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set backgroundColor(value) {
+    if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) return;
+    Preferences.set('backgroundColor', value);
+    if (SceneManager.background && SceneManager.background.set) {
+      SceneManager.background.set(value);
+    } else {
+      SceneManager.background = new THREE.Color(value);
+    }
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get backgroundColor() {
+    return Preferences.get('backgroundColor');
+  }
+
+  /**
+   * Whether the frame timings and the shader tuning panel are on screen.
+   *
+   * Both are working surfaces rather than features, so they are off unless
+   * asked for, and the answer is remembered the way the helpers are.
+   *
+   * @type {Boolean}
+   */
+  set debug(visible) {
+    // Not asVisible: that treats a missing value as visible, which is right
+    // for the helpers and wrong here. A show or a preferences file that says
+    // nothing about debugging is not asking for it.
+    this._debug = !!visible;
+    Preferences.set('debug', this._debug);
+    Perf.setVisible(this._debug);
+    if (this.ledDebugPanel && this.ledDebugPanel.domElement) {
+      this.ledDebugPanel.domElement.style.display = this._debug ? '' : 'none';
+    }
+  }
+
+  get debug() {
+    return !!this._debug;
   }
 
   /**
@@ -326,7 +377,12 @@ class Visualizer {
    * @type {Number}
    */
   set globalBrightness(value) {
-    this._globalBrightness = value ? value / 100 : DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS;
+    // The fallback is a percentage like the value it stands in for, so it has
+    // to be scaled the same way. Assigned raw it made a show that named no
+    // brightness a hundred times brighter than one that asked for full.
+    this._globalBrightness = value
+      ? value / 100
+      : DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS / 100;
     Preferences.set('globalBrightness', this._globalBrightness * 100);
     if (this.globalLightHandle) {
       this.globalLightHandle.intensity = this._globalBrightness * 0.25;
@@ -400,6 +456,20 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   setView(name) {
     Controls.setView(name);
+  }
+
+  /**
+   * Chooses the opening view for a show that has just loaded.
+   *
+   * @public
+   */
+  // eslint-disable-next-line class-methods-use-this
+  frameDefault() {
+    // Three-quarters from the front, a little above: enough of an angle to
+    // read depth, not so much that it becomes a plan. The distance is not ours
+    // to choose -- setViewDirection fits whatever is there, and copes with an
+    // empty show by framing a unit box at the origin.
+    Controls.setViewDirection(new THREE.Vector3(1, -1, 0.6));
   }
 
   /**
@@ -586,7 +656,10 @@ class Visualizer {
 
     // Emitter and glow tuning. Writes straight into shader uniforms so values
     // can be found by eye rather than by rebuild.
-    createLEDDebugPanel(this, this.domElement.parentElement);
+    this.ledDebugPanel = createLEDDebugPanel(this, this.domElement.parentElement);
+    // Built either way, so switching the preference is instant rather than
+    // needing the scene rebuilt; only its visibility follows the flag.
+    this.debug = Preferences.get('debug');
   }
 
   /**
@@ -682,11 +755,11 @@ class Visualizer {
     const aspect = width / height;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.01, 1000);
     this.camera.up.set(0, 0, 1);
-    // Framed on the LED array, which is centred at z = 2. Kept in step with
-    // Controls.DEFAULT_ZOOM_OUT_ENDPOS so the opening frame and whatever the
-    // focus animation settles on are the same view.
-    this.camera.position.set(4.6, 4.6, 1.5);
-    this.camera.lookAt(0, 0, 4.1);
+    // Only where the camera sits for the instant before a show is framed:
+    // `frameDefault` decides the real opening view from what the show actually
+    // contains, rather than from a rig that happened to be here once.
+    this.camera.position.set(4.6, -4.6, 3);
+    this.camera.lookAt(0, 0, 1);
   }
 
   /**
@@ -778,7 +851,13 @@ class Visualizer {
     if (this.width !== width || this.height !== height) {
       this.width = width;
       this.height = height;
-      this.renderer.setSize(width, height);
+      // Buffer only, never the canvas's own style. setSize writes inline
+      // width and height by default, and a ResizeObserver is watching this
+      // very element -- so each resize restyled what it was measuring, while
+      // the stylesheet's `!important` sizing overrode it again. The buffer and
+      // the displayed size disagreed for a frame every frame of a drag, which
+      // is the flicker. CSS sizes the canvas; this only sizes what is drawn.
+      this.renderer.setSize(width, height, false);
       if (finalComposer) finalComposer.setSize(width, height);
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
