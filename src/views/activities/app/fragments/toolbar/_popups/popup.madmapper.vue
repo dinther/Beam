@@ -87,11 +87,6 @@ export default {
       return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
     },
   },
-  watch: {
-    modelValue(state) {
-      this.state = state;
-    },
-  },
   methods: {
     /**
      * Writes the scene as a MadMapper fixture layout.
@@ -100,6 +95,10 @@ export default {
      * @async
      */
     async exportLayout() {
+      // Closed before the save dialog opens, rather than after it returns:
+      // `close` clears the parent's flag as well as this one, and leaving it
+      // set meant the popup came straight back every time.
+      this.close();
       const svg = buildMadMapperLayout({
         fixtures: this.$show.fixturePool.fixtures,
         groups: this.$show.groups,
