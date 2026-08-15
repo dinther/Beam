@@ -54,12 +54,24 @@ const HALF_PI = Math.PI / 2;
  * @constant {Array}
  */
 const FACES = [
-  { label: 'Left', view: 'left', normal: [-1, 0, 0], up: [0, 0, 1] },
-  { label: 'Right', view: 'right', normal: [1, 0, 0], up: [0, 0, 1] },
-  { label: 'Front', view: 'front', normal: [0, -1, 0], up: [0, 0, 1] },
-  { label: 'Back', view: 'back', normal: [0, 1, 0], up: [0, 0, 1] },
-  { label: 'Top', view: 'top', normal: [0, 0, 1], up: [0, 1, 0] },
-  { label: 'Bottom', view: 'bottom', normal: [0, 0, -1], up: [0, -1, 0] },
+  {
+    label: 'Left', view: 'left', normal: [-1, 0, 0], up: [0, 0, 1],
+  },
+  {
+    label: 'Right', view: 'right', normal: [1, 0, 0], up: [0, 0, 1],
+  },
+  {
+    label: 'Front', view: 'front', normal: [0, -1, 0], up: [0, 0, 1],
+  },
+  {
+    label: 'Back', view: 'back', normal: [0, 1, 0], up: [0, 0, 1],
+  },
+  {
+    label: 'Top', view: 'top', normal: [0, 0, 1], up: [0, 1, 0],
+  },
+  {
+    label: 'Bottom', view: 'bottom', normal: [0, 0, -1], up: [0, -1, 0],
+  },
 ];
 
 /** Reused while orienting the faces. */

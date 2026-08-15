@@ -62,7 +62,7 @@ class GroupHandle {
     // group is; writing a world position into a node that now has a parent
     // would send it somewhere else entirely.
     if (this._dummy.parent && this._dummy.parent !== SceneManager) return;
-    const position = this._group.position;
+    const { position } = this._group;
     const rotation = this._group.rotationRad;
     this._dummy.position.set(position.x, position.y, position.z);
     this._dummy.rotation.set(rotation.x, rotation.y, rotation.z);

@@ -37,7 +37,6 @@
           @input="setInput"
         />
       </uk-flex>
-
     </uk-flex>
   </uk-popup>
 </template>

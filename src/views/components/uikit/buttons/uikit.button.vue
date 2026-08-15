@@ -11,7 +11,9 @@
       class="uikit_button_icon"
       :name="icon"
     />
-    <h4 v-if="!iconOnly">{{ label }}</h4>
+    <h4 v-if="!iconOnly">
+      {{ label }}
+    </h4>
   </button>
 </template>
 
