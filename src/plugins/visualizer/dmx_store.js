@@ -8,10 +8,11 @@ import * as THREE from 'three';
  * about. Nothing per-LED happens on the CPU, so cost is set by universe count
  * rather than by how many emitters are being driven.
  *
- * Addressing follows the usual controller convention: only the first 510
- * channels of each universe are used, so that a 3-channel pixel never straddles
- * a universe boundary. Channels 511 and 512 are left unused, and fixtures are
- * addressed by a continuous global pixel index across universes.
+ * A fixture works out its own texel for each component, through
+ * `Fixture.pixelTexels`, so how wide its pixels are and whether it keeps them
+ * whole within a universe is its own business rather than this file's. The
+ * 510-channel convention below serves only the fallback, for callers that
+ * bring no mapping of their own.
  */
 
 /** Channels in a DMX universe. */
@@ -25,8 +26,21 @@ const UNIVERSE_SIZE = 512;
  */
 const USABLE_CHANNELS = 510;
 
-/** How many universes the texture can hold. */
-const UNIVERSE_COUNT = 64;
+/**
+ * How many universes the texture can hold.
+ *
+ * A row costs 512 bytes here and the same again on the GPU, so 512 universes
+ * is a quarter of a megabyte. The ceiling that would actually bite is maximum
+ * texture height, typically 16384, which is about as many universes as Art-Net
+ * addressing offers anyway.
+ *
+ * The LED shader compiles this in as a #define and divides row indices by it,
+ * so the texture and the shader are always sized from the same number.
+ */
+const UNIVERSE_COUNT = 512;
+
+/** Universes already complained about, so a dropped frame is said once. */
+const droppedUniverses = new Set();
 
 const data = new Uint8Array(UNIVERSE_SIZE * UNIVERSE_COUNT);
 
@@ -50,7 +64,17 @@ let unsubscribe = null;
  * @param {Uint8Array} frame up to 512 channel values
  */
 function write(universe, frame) {
-  if (universe < 0 || universe >= UNIVERSE_COUNT) return;
+  if (universe < 0 || universe >= UNIVERSE_COUNT) {
+    // Dropping it in silence is how a rig ends up half dark with nothing to
+    // explain it. Said once per universe: a sender repeats itself forty times
+    // a second, and the console would be useless within moments.
+    if (!droppedUniverses.has(universe)) {
+      droppedUniverses.add(universe);
+      // eslint-disable-next-line no-console
+      console.warn(`[dmx] universe ${universe} ignored: past the ${UNIVERSE_COUNT} this build holds`);
+    }
+    return;
+  }
   data.set(frame.subarray(0, UNIVERSE_SIZE), universe * UNIVERSE_SIZE);
   // Coalesced by three.js into a single upload before the next render, however
   // many universes arrived in between.
