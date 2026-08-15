@@ -163,6 +163,7 @@
               >
                 <uk-num-input
                   v-model="fixture.position.x"
+                  color="var(--axis-x-field)"
                   label="Pos X"
                   :min="-1000"
                   :max="1000"
@@ -171,6 +172,7 @@
                 />
                 <uk-num-input
                   v-model="fixture.position.y"
+                  color="var(--axis-y-field)"
                   label="Pos Y"
                   :min="-1000"
                   :max="1000"
@@ -179,6 +181,7 @@
                 />
                 <uk-num-input
                   v-model="fixture.position.z"
+                  color="var(--axis-z-field)"
                   label="Pos Z"
                   :min="-1000"
                   :max="1000"
@@ -194,6 +197,7 @@
               >
                 <uk-num-input
                   v-model="positionOffsets.x"
+                  color="var(--axis-x-field)"
                   label="Offset X"
                   :min="-1000"
                   :max="1000"
@@ -202,6 +206,7 @@
                 />
                 <uk-num-input
                   v-model="positionOffsets.y"
+                  color="var(--axis-y-field)"
                   label="Offset Y"
                   :min="-1000"
                   :max="1000"
@@ -210,6 +215,7 @@
                 />
                 <uk-num-input
                   v-model="positionOffsets.z"
+                  color="var(--axis-z-field)"
                   label="Offset Z"
                   :min="-1000"
                   :max="1000"
@@ -230,6 +236,7 @@
               >
                 <uk-num-input
                   v-model="fixture.rotation.x"
+                  color="var(--axis-x-field)"
                   label="°Rot X"
                   :max="360"
                   :disabled="!formEnabled"
@@ -237,6 +244,7 @@
                 />
                 <uk-num-input
                   v-model="fixture.rotation.y"
+                  color="var(--axis-y-field)"
                   label="°Rot Y"
                   :max="360"
                   :disabled="!formEnabled"
@@ -244,6 +252,7 @@
                 />
                 <uk-num-input
                   v-model="fixture.rotation.z"
+                  color="var(--axis-z-field)"
                   label="°Rot Z"
                   :max="360"
                   :disabled="!formEnabled"
@@ -258,6 +267,7 @@
               >
                 <uk-num-input
                   v-model="rotationOffsets.x"
+                  color="var(--axis-x-field)"
                   label="°Offset X"
                   :max="360"
                   :disabled="!fixture.loaded || loading || amount <= 1"
@@ -265,6 +275,7 @@
                 />
                 <uk-num-input
                   v-model="rotationOffsets.y"
+                  color="var(--axis-y-field)"
                   label="°Offset Y"
                   :max="360"
                   :disabled="!fixture.loaded || loading || amount <= 1"
@@ -272,6 +283,7 @@
                 />
                 <uk-num-input
                   v-model="rotationOffsets.z"
+                  color="var(--axis-z-field)"
                   label="°Offset Z"
                   :max="360"
                   :disabled="!fixture.loaded || loading || amount <= 1"

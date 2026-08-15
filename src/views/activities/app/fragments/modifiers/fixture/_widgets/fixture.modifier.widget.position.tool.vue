@@ -15,7 +15,7 @@
       >
         <uk-num-input
           v-model="fixture.posX"
-          color="var(--accent-maroon)"
+          color="var(--axis-x-field)"
           :precision="1"
           :min="-1000"
           :max="1000"
@@ -23,7 +23,7 @@
         />
         <uk-num-input
           v-model="fixture.posY"
-          color="var(--accent-teal)"
+          color="var(--axis-y-field)"
           :precision="1"
           :min="-1000"
           :max="1000"
@@ -31,7 +31,7 @@
         />
         <uk-num-input
           v-model="fixture.posZ"
-          color="var(--accent-blue)"
+          color="var(--axis-z-field)"
           :precision="1"
           :min="-1000"
           :max="1000"
@@ -44,21 +44,21 @@
       >
         <uk-num-input
           v-model="fixture.rotX"
-          color="var(--accent-maroon)"
+          color="var(--axis-x-field)"
           :min="-360"
           :max="360"
           label="Rotation X"
         />
         <uk-num-input
           v-model="fixture.rotY"
-          color="var(--accent-teal)"
+          color="var(--axis-y-field)"
           :min="-360"
           :max="360"
           label="Rotation Y"
         />
         <uk-num-input
           v-model="fixture.rotZ"
-          color="var(--accent-blue)"
+          color="var(--axis-z-field)"
           :min="-360"
           :max="360"
           label="Rotation Z"

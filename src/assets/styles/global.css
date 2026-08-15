@@ -47,6 +47,26 @@
   --accent-gold: #E2C753;
   --accent-orange: #E76D58;
   --accent-red: #E25D6A;
+
+  /*
+   * Scene axes. Deliberately outside the accent palette and deliberately pure:
+   * these exist to agree with the transform gizmo, which paints its handles
+   * #ff0000, #00ff00 and #0000ff in controls.js. Changing one means changing
+   * the other, or a field stops meaning the handle it drives.
+   */
+  --axis-x: #ff0000;
+  --axis-y: #00ff00;
+  --axis-z: #0000ff;
+
+  /*
+   * The same three for input fields, pulled back a little. A gizmo handle is a
+   * few pixels of colour against a dark scene and can carry a pure primary; a
+   * field border is a long thin run of it next to text, where the same colour
+   * shouts. Still unmistakably the axis, just quieter.
+   */
+  --axis-x-field: #db3d3d;
+  --axis-y-field: #39ac39;
+  --axis-z-field: #5c70d6;
 }
 
 [data-theme="light"] {
