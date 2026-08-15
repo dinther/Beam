@@ -1,6 +1,9 @@
 .DS_Store
 node_modules
 **/dist
+# Fallback packaging output, used when dist/win-unpacked is held by
+# a stale mapped section and electron-builder cannot clear it.
+/dist-build
 /docs/developer/core/dist
 
 # local env files
