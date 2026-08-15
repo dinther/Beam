@@ -52,6 +52,14 @@ class Group extends Proxify {
     };
     /** Members, in list order. Held as objects, not ids. */
     this.members = [];
+    /**
+     * Which flattenings of this group are wanted when exporting a layout.
+     *
+     * A group may have several: the same fixtures mapped both as an elevation
+     * and as an unwrap, so a cue can swap between them. Empty means the
+     * export's own default is used.
+     */
+    this.mappings = Array.isArray(data.mappings) ? [...data.mappings] : [];
     // Selection attaches to this the same way it attaches to a fixture's
     // renderer, so a group can be picked up and moved like anything else.
     this._3DModel = new GroupHandle(this);
@@ -96,6 +104,7 @@ class Group extends Proxify {
       position: { ...this._position },
       rotation: { ...this._rotation },
       members: this.members.map((member) => member.id),
+      mappings: [...this.mappings],
     };
   }
 

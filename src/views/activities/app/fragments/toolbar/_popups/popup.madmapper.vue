@@ -13,14 +13,21 @@
     >
       <uk-select-input
         v-model="projectionIndex"
-        label="Flatten by"
+        label="Default mapping"
         :options="projectionNames"
       />
+
+      <p class="layout_hint">
+        Used for groups that tick no mapping of their own, and for fixtures in
+        no group. A group's own choices are made in its widget, and a group may
+        ask for several.
+      </p>
 
       <p class="layout_summary">
         {{ fixtureCount }} patched
         {{ fixtureCount === 1 ? 'fixture' : 'fixtures' }},
-        {{ groupCount }} {{ groupCount === 1 ? 'group' : 'groups' }}
+        {{ groupCount }} {{ groupCount === 1 ? 'group' : 'groups' }},
+        {{ islandCount }} {{ islandCount === 1 ? 'square' : 'squares' }}
       </p>
 
       <p class="layout_hint">
@@ -177,6 +184,23 @@ export default {
     },
     definitionCount() {
       return this.definitions.definitions.length;
+    },
+    /**
+     * How many 1024 squares the canvas will carry: one per group per mapping,
+     * plus one for anything belonging to no group.
+     *
+     * @type {Number}
+     */
+    islandCount() {
+      const groups = (this.$show.groups || [])
+        .filter((g) => (g.members || []).some((m) => m.channels && m.channels.length));
+      const grouped = new Set();
+      let count = 0;
+      groups.forEach((g) => {
+        (g.members || []).forEach((m) => grouped.add(m.id));
+        count += Math.max(1, ((g.mappings || []).length));
+      });
+      return count + (this.exportable.some((f) => !grouped.has(f.id)) ? 1 : 0);
     },
     /**
      * Fixtures this view sees end-on, which it cannot honestly represent.

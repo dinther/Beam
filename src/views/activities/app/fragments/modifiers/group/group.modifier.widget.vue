@@ -21,6 +21,28 @@
         {{ group.members.length === 1 ? 'member' : 'members' }}
       </p>
 
+      <p class="group_summary">
+        Export mappings
+      </p>
+      <uk-flex
+        wrap
+        :gap="4"
+        class="group_mappings"
+      >
+        <uk-checkbox
+          v-for="option in mappingOptions"
+          :key="option.id"
+          :model-value="hasMapping(option.id)"
+          :label="option.label"
+          @update:model-value="(on) => setMapping(option.id, on)"
+        />
+      </uk-flex>
+      <p class="group_hint">
+        Each ticked mapping exports this group again, flattened that way, at the
+        same addresses under its own name. Nothing ticked follows the export
+        dialog's own choice.
+      </p>
+
       <uk-flex
         :gap="8"
         class="group_actions"
@@ -47,6 +69,8 @@
 </template>
 
 <script>
+import { PROJECTION_LABELS } from '@/models/DMX/generic/madmapper_layout';
+
 /** How long the save button confirms for, in ms. */
 const SAVE_FEEDBACK_MS = 1500;
 
@@ -91,8 +115,36 @@ export default {
     saveLabel() {
       return this.saved ? 'saved' : 'save as structure';
     },
+    mappingOptions() {
+      return PROJECTION_LABELS;
+    },
   },
   methods: {
+    /**
+     * Whether this group asks for a mapping.
+     *
+     * @public
+     * @param {String} id projection id
+     * @returns {Boolean}
+     */
+    hasMapping(id) {
+      return !!this.group && (this.group.mappings || []).includes(id);
+    },
+    /**
+     * Adds or removes a mapping.
+     *
+     * Replaced rather than mutated so the change reaches Vue through the
+     * group's own reactivity, the way the name does.
+     *
+     * @public
+     * @param {String} id projection id
+     * @param {Boolean} wanted
+     */
+    setMapping(id, wanted) {
+      if (!this.group) return;
+      const current = (this.group.mappings || []).filter((m) => m !== id);
+      this.group.mappings = wanted ? [...current, id] : current;
+    },
     /**
      * Stores the arrangement for placing again later.
      *
@@ -112,7 +164,7 @@ export default {
      */
     ungroup() {
       if (!this.group) return;
-      this.$show.deleteGroup(this.group);
+      this.$show.ungroup(this.group);
     },
   },
 };
@@ -148,5 +200,8 @@ export default {
 }
 .group_actions {
   align-items: center;
+}
+.group_mappings {
+  flex-wrap: wrap;
 }
 </style>

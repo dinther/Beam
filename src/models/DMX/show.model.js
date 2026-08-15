@@ -380,6 +380,13 @@ class Show extends EventEmitter {
     this.ready = true;
     this.isSaved = true;
 
+    // Opening view chosen from the show that just loaded. Every fixture has
+    // its renderer by now, and bounds come from those rather than from drawn
+    // matrices, so there is nothing to wait a frame for.
+    if (this.visualizerHandle && this.visualizerHandle.frameDefault) {
+      this.visualizerHandle.frameDefault();
+    }
+
     // A fallback load must not overwrite the stored show: whatever could not
     // be loaded is still the user's work, and persisting over it destroys the
     // only copy.
@@ -734,6 +741,28 @@ class Show extends EventEmitter {
    * @param {Object} group group to remove
    */
   deleteGroup(group) {
+    const index = this.groups.indexOf(group);
+    if (index === -1) return;
+    // Deleting a group deletes what is in it. Dissolving a group and keeping
+    // its fixtures is a different intention, and has its own word.
+    [...group.members].forEach((member) => {
+      group.remove(member);
+      const handle = this.fixturePool.findFromId(member.id);
+      if (!handle) return;
+      PatchSingleton.unpatchFixture(handle);
+      this.fixturePool.delete(handle, true);
+    });
+    group.dispose();
+    this.groups.splice(index, 1);
+  }
+
+  /**
+   * Dissolves a group, leaving its fixtures in the show.
+   *
+   * @public
+   * @param {Object} group group to dissolve
+   */
+  ungroup(group) {
     const index = this.groups.indexOf(group);
     if (index === -1) return;
     [...group.members].forEach((member) => group.remove(member));

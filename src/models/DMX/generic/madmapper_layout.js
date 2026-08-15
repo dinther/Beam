@@ -22,8 +22,8 @@ import * as THREE from 'three';
 /** SVG units per metre. Fixed, so exports of the same rig stay comparable. */
 export const UNITS_PER_METRE = 200;
 
-/** Margin around the content, in SVG units. */
-const MARGIN = 40;
+/** MadMapper writes CRLF, and its own exports are read back byte for byte. */
+const EOL = '\r\n';
 
 /** Half-width of the square drawn for a fixture with no length, in metres. */
 const POINT_FIXTURE_HALF = 0.14;
@@ -399,18 +399,46 @@ export function edgeOnFixtures(fixtures, projection, perspective = null) {
   }).map((f) => f.name);
 }
 
+/** Side of the square each mapped group is fitted into, in SVG units. */
+export const ISLAND_SIZE = 1024;
+
+/** Space left between islands on the canvas. */
+const ISLAND_GAP = 64;
+
+/**
+ * The mappings a group asks for, falling back to the export's own default.
+ *
+ * @param {Object} group
+ * @param {String} fallback projection id
+ * @returns {Array} projection ids
+ */
+function mappingsOf(group, fallback) {
+  const wanted = (group && group.mappings) || [];
+  return wanted.length ? wanted : [fallback];
+}
+
 /**
  * The scene as a MadMapper fixture layout.
+ *
+ * Every group is flattened its own way, into its own square. A group asking
+ * for more than one mapping appears once per mapping, at the same addresses
+ * each time and under a different name -- which MadMapper accepts, because it
+ * settles collisions on the name rather than the address. That is what lets a
+ * cue swap between two mappings of the same fixtures.
+ *
+ * Each square is the same size so that content laid over one mapping lands the
+ * same way over another, which is the point of swapping them at all.
  *
  * @public
  * @param {Object} options
  * @param {Array} options.fixtures Fixture instances to include
- * @param {Array} [options.groups] groups, to become SVG groups
- * @param {String} [options.projection] one of `PROJECTIONS`
+ * @param {Array} [options.groups] groups, each carrying its own mappings
+ * @param {String} [options.projection] mapping for groups that name none, and
+ *   for fixtures belonging to no group
  * @param {Function} [options.definitionName] names a fixture's definition; must
  *   agree with the library export, since MadMapper resolves layouts by name
- * @param {Object|null} [options.perspective] `{ distance }` in radii, to look
- *   through a pinhole instead of flattening along an axis
+ * @param {Object|null} [options.perspective] `{ distance }` in radii, applied
+ *   to whichever mappings are camera views
  * @returns {String|null} SVG document, or null when there is nothing to draw
  */
 export function buildMadMapperLayout({
@@ -423,84 +451,114 @@ export function buildMadMapperLayout({
   const patched = fixtures.filter((f) => f && f.channels && f.channels.length);
   if (!patched.length) return null;
 
-  // The unwraps need a radius to turn an angle into a distance, and a centre to
-  // turn about. Both come from the rig itself.
-  const frame = layoutFrame(patched);
-  const eye = perspective && isCameraView(projection) ? perspective : null;
-
-  // Keyed by id, not by the fixture object: the show is reactive, so the
-  // handle a group holds and the one the pool holds may be a proxy and its
-  // target, which are never equal.
-  const entries = new Map();
-  patched.forEach((f) => {
-    entries.set(f.id, prepare(f, projection, definitionName, frame, eye));
+  // One island per group per mapping, then whatever belongs to no group.
+  const islands = [];
+  const grouped = new Set();
+  groups.forEach((group) => {
+    const members = (group.members || []).filter((m) => m && m.channels && m.channels.length);
+    if (!members.length) return;
+    members.forEach((m) => grouped.add(m.id));
+    mappingsOf(group, projection).forEach((mapping) => {
+      islands.push({ members, mapping, name: group.name });
+    });
   });
+  const loose = patched.filter((f) => !grouped.has(f.id));
+  if (loose.length) islands.push({ members: loose, mapping: projection, name: 'Fixtures' });
+  if (!islands.length) return null;
 
-  // Bounds, so the viewBox frames the content the way MadMapper's own does.
-  let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
-  const see = (x, y) => {
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-  };
-  entries.forEach((e) => {
-    if (e.kind === 'fixture_line') { see(e.a.x, e.a.y); see(e.b.x, e.b.y); } else {
-      see(e.centre.x - e.half, e.centre.y - e.half);
-      see(e.centre.x + e.half, e.centre.y + e.half);
-    }
-  });
-
-  const toX = (x) => round((x - minX) * UNITS_PER_METRE + MARGIN);
-  const toY = (y) => round((y - minY) * UNITS_PER_METRE + MARGIN);
-  const width = Math.ceil((maxX - minX) * UNITS_PER_METRE + MARGIN * 2);
-  const height = Math.ceil((maxY - minY) * UNITS_PER_METRE + MARGIN * 2);
+  // Numbered by mapping rather than by island, so one number means one way of
+  // looking at the whole rig and a cue can raise or lower it as a set.
+  const order = PROJECTION_LABELS.map((p) => p.id)
+    .filter((id) => islands.some((island) => island.mapping === id));
+  const prefixOf = new Map(order.map((id, i) => [id, `M${i + 1}`]));
 
   /**
-   * Renders one fixture.
+   * Flattens one island and fits it to its square.
    *
-   * @param {Object} entry
-   * @returns {String}
+   * @param {Object} island
+   * @returns {Object} rendered lines and the prefix used
    */
-  const render = (entry) => {
-    const id = escapeAttribute(elementId(entry));
-    if (entry.kind === 'fixture_line') {
-      return `        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
-        + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
-        + ` thickness="${round(entry.thickness)}"/>`;
-    }
-    const x0 = toX(entry.centre.x - entry.half); const x1 = toX(entry.centre.x + entry.half);
-    const y0 = toY(entry.centre.y - entry.half); const y1 = toY(entry.centre.y + entry.half);
-    return `        <polygon id="${id}" points="${x0},${y0} ${x1},${y0} ${x1},${y1} ${x0},${y1}"/>`;
+  const buildIsland = (island) => {
+    const frame = layoutFrame(island.members);
+    const eye = perspective && isCameraView(island.mapping) ? perspective : null;
+    const prefix = prefixOf.get(island.mapping) || 'M1';
+
+    const entries = island.members.map((fixture) => {
+      const entry = prepare(fixture, island.mapping, definitionName, frame, eye);
+      return { ...entry, name: `${prefix} ${entry.name}` };
+    });
+
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    const see = (x, y) => {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    };
+    entries.forEach((e) => {
+      if (e.kind === 'fixture_line') { see(e.a.x, e.a.y); see(e.b.x, e.b.y); } else {
+        see(e.centre.x - e.half, e.centre.y - e.half);
+        see(e.centre.x + e.half, e.centre.y + e.half);
+      }
+    });
+
+    // Fitted rather than stretched: a wide unwrap and a tall elevation share
+    // the same square, but neither is distorted to reach its edges.
+    const spanX = Math.max(maxX - minX, 1e-6);
+    const spanY = Math.max(maxY - minY, 1e-6);
+    const scale = ISLAND_SIZE / Math.max(spanX, spanY);
+    const padX = (ISLAND_SIZE - spanX * scale) / 2;
+    const padY = (ISLAND_SIZE - spanY * scale) / 2;
+
+    return {
+      entries, minX, minY, scale, padX, padY, prefix, name: island.name,
+    };
   };
 
-  // Grouped fixtures first, in group order, then whatever is left at the root.
+  const built = islands.map(buildIsland);
+
+  // Laid out in as square a grid as the count allows.
+  const columns = Math.max(1, Math.ceil(Math.sqrt(built.length)));
+  const rows = Math.ceil(built.length / columns);
+  const step = ISLAND_SIZE + ISLAND_GAP;
+  const width = columns * ISLAND_SIZE + (columns - 1) * ISLAND_GAP;
+  const height = rows * ISLAND_SIZE + (rows - 1) * ISLAND_GAP;
+
   const body = [];
-  const taken = new Set();
-  groups.forEach((group) => {
-    const members = (group.members || []).filter((m) => m && entries.has(m.id));
-    if (!members.length) return;
-    members.forEach((m) => taken.add(m.id));
-    body.push(`    <g id="${escapeAttribute(group.name)}">`);
-    members.forEach((m) => body.push(render(entries.get(m.id))));
+  built.forEach((island, index) => {
+    const originX = (index % columns) * step;
+    const originY = Math.floor(index / columns) * step;
+    const toX = (x) => round(originX + island.padX + (x - island.minX) * island.scale);
+    const toY = (y) => round(originY + island.padY + (y - island.minY) * island.scale);
+    // Thickness is a width on the canvas, so it follows the island's own scale.
+    const toThickness = (t) => round((t / UNITS_PER_METRE) * island.scale);
+
+    body.push(`    <g id="${escapeAttribute(`${island.prefix} ${island.name}`)}">`);
+    island.entries.forEach((entry) => {
+      const id = escapeAttribute(elementId(entry));
+      if (entry.kind === 'fixture_line') {
+        body.push(`        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
+          + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
+          + ` thickness="${toThickness(entry.thickness)}"/>`);
+        return;
+      }
+      const x0 = toX(entry.centre.x - entry.half); const x1 = toX(entry.centre.x + entry.half);
+      const y0 = toY(entry.centre.y - entry.half); const y1 = toY(entry.centre.y + entry.half);
+      body.push(`        <polygon id="${id}" points="${x0},${y0} ${x1},${y0} ${x1},${y1} ${x0},${y1}"/>`);
+    });
     body.push('    </g>');
   });
-  const loose = patched.filter((f) => !taken.has(f.id));
-  if (loose.length) {
-    body.push('    <g id="Fixtures">');
-    loose.forEach((f) => body.push(render(entries.get(f.id))));
-    body.push('    </g>');
-  }
 
+  const legend = order.map((id) => `${prefixOf.get(id)} = ${id}`).join(', ');
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"`
       + ` viewBox="0 0 ${width} ${height}">`,
     '    <title>ASLS Studio fixture layout</title>',
-    `    <desc>${escapeAttribute(projection)}${eye ? ' perspective' : ''} projection</desc>`,
+    `    <desc>${escapeAttribute(legend)}</desc>`,
     '    <style>svg { background: black; }* { stroke: white; fill: none; }</style>',
     ...body,
     '</svg>',
     '',
-  ].join('\r\n');
+  ].join(EOL);
 }
 
 export default {

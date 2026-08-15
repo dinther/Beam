@@ -136,13 +136,13 @@ export default {
       Controls.attach(group);
     },
     /**
-     * Dissolves the selected group, leaving its members where they are.
+     * Deletes any groups in a deletion, along with the fixtures they hold.
      *
      * @public
      * @param {Array} items list entries being deleted
      * @returns {Boolean} whether a group was handled
      */
-    ungroupIfGroup(items) {
+    deleteGroups(items) {
       const groupItems = items.filter((item) => item && item.isGroup);
       if (!groupItems.length) return false;
       groupItems.forEach((item) => {
@@ -226,8 +226,9 @@ export default {
      * @param {Array} fixtures listable entries of the fixtures to delete
      */
     deleteFixtures(fixtures) {
-      // Removing a group means dissolving it, not destroying what is in it.
-      if (this.ungroupIfGroup(fixtures)) return;
+      // Deleting a group takes its fixtures with it; the group widget's
+      // ungroup is what leaves them behind.
+      if (this.deleteGroups(fixtures)) return;
       fixtures.forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
     },
     /**
