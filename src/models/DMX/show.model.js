@@ -661,7 +661,7 @@ class Show extends EventEmitter {
           fixture.channels.length,
           1,
           0,
-          !!member.universeAligned,
+          fixture.alignmentPixelSize,
         );
         if (address > -1) {
           fixture.address = address;

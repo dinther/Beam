@@ -16,6 +16,7 @@ import path from 'path';
 import icon from '../assets/images/studio_standalone_logo.svg';
 import artnet from './artnet';
 import jsonstore from './jsonstore';
+import fileexport from './fileexport';
 
 // GPU timer queries are disabled by default because precise timing is a
 // side-channel and fingerprinting vector. Enabled in development only, so the
@@ -140,6 +141,13 @@ function setupJsonStore() {
   ipcMain.handle('store:path', (_event, name) => jsonstore.storePath(name));
 }
 
+/**
+ * Saving generated documents for other applications to read.
+ */
+function setupFileExport() {
+  ipcMain.handle('file:export', (_event, payload) => fileexport.save(payload));
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -157,6 +165,7 @@ app.whenReady().then(() => {
   createWindow();
   setupArtnet();
   setupJsonStore();
+  setupFileExport();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

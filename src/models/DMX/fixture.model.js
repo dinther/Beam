@@ -196,7 +196,14 @@ class Fixture extends Proxify {
       this.id = parseInt(data.id, 10);
       // Read before the address: patching lays the channels out according to
       // this, so it has to be known by the time the address is claimed.
-      this._universeAligned = !!data.universeAligned;
+      //
+      // Whether pixels are kept whole is a property of the model, not of one
+      // patch of it -- the same strip behaves the same wherever it is
+      // addressed -- so an instance that says nothing inherits the profile's
+      // answer, and only an explicit value overrides it.
+      this._universeAligned = data.universeAligned === undefined
+        ? Fixture.profileKeepsPixelsWhole(this.OFLData)
+        : !!data.universeAligned;
       // One absolute address is the truth; universe and chStart are views of
       // it. Older shows carry the pair instead, so accept either.
       if (data.address !== undefined) {
@@ -711,14 +718,42 @@ class Fixture extends Proxify {
   }
 
   /**
-   * Whether the fixture skips the last two channels of every universe, so that
-   * its channels tile 510 to a universe.
+   * Whether the fixture keeps its pixels whole within a universe.
    *
    * Only meaningful for a fixture long enough to cross a boundary. Changing it
    * re-lays the channels, so a patched fixture has to be re-patched.
    *
    * @type {Boolean}
    */
+  /**
+   * Channels one pixel of this fixture occupies.
+   *
+   * A generated bar says so directly. Anything else is a single pixel as far
+   * as this is concerned -- which is also how MadMapper describes a mover: one
+   * pixel, one by one, as many channels wide as the mode is.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get channelsPerPixel() {
+    const { components } = this.OFLData.asls || {};
+    if (components && components.length) return components.length;
+    return this.channels.length || 1;
+  }
+
+  /**
+   * Pixel size to lay this fixture's channels out with.
+   *
+   * One means channels run on across universe boundaries, which is what a
+   * fixture that does not care looks like to `channelAddress`.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get alignmentPixelSize() {
+    return this.universeAligned ? this.channelsPerPixel : 1;
+  }
+
   set universeAligned(value) {
     const next = !!value;
     if (this._universeAligned === next) return;
@@ -786,7 +821,7 @@ class Fixture extends Proxify {
    * @return {Number} absolute address
    */
   addressOf(index) {
-    return channelAddress(this.address, index, this._universeAligned);
+    return channelAddress(this.address, index, this.alignmentPixelSize);
   }
 
   /**
@@ -1163,6 +1198,28 @@ class Fixture extends Proxify {
    * @param {Fixture}
    * @static
    */
+  /**
+   * Whether a profile wants its pixels kept whole within a universe.
+   *
+   * A generated profile can say so outright. When it does not -- an older one,
+   * or a library fixture with nowhere to record it -- the answer follows from
+   * the arithmetic: a pixel whose channel count divides 512 tiles a universe
+   * exactly and can never be split, so the question is moot, while one that
+   * does not divide it will eventually straddle a boundary unless told not to.
+   *
+   * @public
+   * @param {Object} OFLData profile
+   * @returns {Boolean}
+   */
+  static profileKeepsPixelsWhole(OFLData) {
+    const asls = (OFLData || {}).asls || {};
+    if (asls.bar && asls.bar.universeAligned !== undefined) {
+      return !!asls.bar.universeAligned;
+    }
+    const perPixel = (asls.components || []).length;
+    return perPixel > 0 && DMX_UNIVERSE_LENGTH % perPixel !== 0;
+  }
+
   static deleteInstance(instance) {
     const model = instance._3DModel;
     if (model instanceof LedBar) {

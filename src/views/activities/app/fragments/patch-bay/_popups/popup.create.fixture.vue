@@ -136,6 +136,10 @@
           v-model="serpentine"
           label="Serpentine"
         />
+        <uk-checkbox
+          v-model="universeAligned"
+          label="Prevent cross universe pixels"
+        />
       </uk-flex>
 
       <p class="create_summary">
@@ -201,6 +205,7 @@ export default {
       scanAxisIndex: Math.max(AXES.indexOf(DEFAULT_BAR_PARAMS.scanAxis), 0),
       axes: AXES,
       serpentine: DEFAULT_BAR_PARAMS.serpentine,
+      universeAligned: DEFAULT_BAR_PARAMS.universeAligned,
     };
   },
   computed: {
@@ -278,6 +283,7 @@ export default {
           startCorner: this.startCorner,
           scanAxis: this.scanAxis,
           serpentine: this.serpentine,
+          universeAligned: this.universeAligned,
         },
       );
       this.state = false;

@@ -45,7 +45,7 @@
       <uk-checkbox
         v-show="canSpan"
         v-model="universeAligned"
-        label="Skip ch 511-512 of each universe"
+        label="Prevent cross universe pixels"
       />
       <uk-txt-input
         v-model="fixture.model"

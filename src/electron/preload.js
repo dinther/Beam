@@ -26,6 +26,21 @@ contextBridge.exposeInMainWorld('artnet', {
 });
 
 /**
+ * Saving generated documents somewhere the user picks.
+ *
+ * Separate from `jsonStore`, which owns our own state: these files are written
+ * for other applications to read, so the destination is chosen in a save dialog
+ * rather than being ours to decide.
+ */
+contextBridge.exposeInMainWorld('fileExport', {
+  /**
+   * @param {Object} payload contents, defaultName, startIn, filters, title
+   * @returns {Promise<String|null>} path written, or null when cancelled
+   */
+  save: (payload) => ipcRenderer.invoke('file:export', payload),
+});
+
+/**
  * Named JSON stores in the application data directory.
  *
  * This is a desktop application, so its state lives in files that can be

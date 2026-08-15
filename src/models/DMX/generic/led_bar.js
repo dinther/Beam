@@ -57,6 +57,14 @@ export const DEFAULT_BAR_PARAMS = {
   beamAngle: 120,
   /** Component order down the wire. 'GRB' is what most cheap strips use. */
   order: 'GRB',
+  /**
+   * Whether a pixel may be split across a universe boundary.
+   *
+   * A property of the model rather than of any one patch of it: the same strip
+   * lays its channels out the same way wherever it is addressed. Three
+   * channels do not divide 512, so the default bar needs this.
+   */
+  universeAligned: true,
   startCorner: START_CORNERS.TOP_LEFT,
   scanAxis: SCAN_AXES.ROW,
   serpentine: false,

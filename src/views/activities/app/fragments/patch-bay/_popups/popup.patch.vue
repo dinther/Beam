@@ -49,6 +49,14 @@
             @click="createPopupState = true"
           />
           <uk-button
+            v-if="activeKind === 'fixtures'"
+            icon="export"
+            :label="madMapperLabel"
+            :disabled="!exportableToMadMapper"
+            title="Write this fixture as a MadMapper .mmfl definition, in the selected mode"
+            @click="exportToMadMapper"
+          />
+          <uk-button
             v-if="activeKind === 'objects'"
             icon="export"
             label="import object"
@@ -120,7 +128,7 @@
             <uk-checkbox
               v-show="canSpan"
               v-model="fixture.universeAligned"
-              label="Skip ch 511-512"
+              label="Prevent cross universe pixels"
               style="align-self: center"
               @input="checkPatch"
             />
@@ -293,6 +301,12 @@
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
 import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
+import { buildMadMapperFixture } from '@/models/DMX/generic/madmapper';
+import Fixture from '@/models/DMX/fixture.model';
+import CreateFixturePopup from './popup.create.fixture.vue';
+
+/** How long the export button confirms for, in ms. */
+const EXPORT_FEEDBACK_MS = 1500;
 
 const NO_FIXTURE_STR = 'No fixture model selected';
 const DEFAULT_FIXTURE_AMOUNT = 1;
@@ -308,8 +322,6 @@ const DEFAULT_FIXTURE_DATA = {
   mode: 0,
   loaded: false,
 };
-
-import CreateFixturePopup from './popup.create.fixture.vue';
 
 export default {
   name: 'UkPopupPatch',
@@ -340,6 +352,8 @@ export default {
        * kinds are tabs rather than folders above them.
        */
       activeKind: 'fixtures',
+      /** Path most recently exported to, shown briefly on the button. */
+      exported: false,
       /**
        * The list for whichever kind is showing.
        *
@@ -397,6 +411,46 @@ export default {
      */
     addressable() {
       return this.activeKind === 'fixtures';
+    },
+    /**
+     * Pixel size to lay the selected fixture out with.
+     *
+     * Mirrors `Fixture.alignmentPixelSize`, which cannot be used directly:
+     * nothing here is a Fixture yet, only the form that will become one.
+     *
+     * @type {Number}
+     */
+    alignmentPixelSize() {
+      if (!this.fixture.loaded || !this.fixture.universeAligned) return 1;
+      const { components } = (this.fixture.OFLData || {}).asls || {};
+      if (components && components.length) return components.length;
+      const mode = this.fixture.modes[this.fixture.mode];
+      return (mode && mode.channels && mode.channels.length) || 1;
+    },
+    /**
+     * The selected fixture as a MadMapper document, when it can be one.
+     *
+     * A generated bar exports as a pixel grid and a library profile as a
+     * Custom channel list, so nearly everything is expressible; what is not is
+     * a profile whose mode embeds a pixel matrix, and that comes back null
+     * rather than as a file with its channels quietly misaligned.
+     *
+     * @type {String|null}
+     */
+    madMapperDocument() {
+      if (!this.fixture.loaded || !this.fixture.OFLData) return null;
+      return buildMadMapperFixture(this.fixture.OFLData, {
+        group: this.fixture.manufacturer,
+        product: this.fixture.model,
+        mode: this.fixture.modes[this.fixture.mode],
+        avoidCrossUniversePixels: Fixture.profileKeepsPixelsWhole(this.fixture.OFLData),
+      });
+    },
+    exportableToMadMapper() {
+      return !!this.madMapperDocument;
+    },
+    madMapperLabel() {
+      return this.exported ? 'exported' : 'to MadMapper';
     },
     emptyMessage() {
       if (this.activeKind === 'objects') return 'No objects yet';
@@ -657,6 +711,31 @@ export default {
         this.patchError = false;
       }
     },
+    /**
+     * Writes the selected profile as a MadMapper fixture definition.
+     *
+     * `avoidCrossUniversePixels` comes from the same checkbox that drives our
+     * own addressing, so the two applications are told the same thing rather
+     * than being configured separately and drifting.
+     *
+     * @public
+     * @async
+     */
+    async exportToMadMapper() {
+      const contents = this.madMapperDocument;
+      if (!contents || !window.fileExport) return;
+      const written = await window.fileExport.save({
+        contents,
+        defaultName: `${this.fixture.model}.mmfl`,
+        startIn: 'madmapperFixtures',
+        title: 'Export fixture to MadMapper',
+        filters: [{ name: 'MadMapper fixture', extensions: ['mmfl'] }],
+      });
+      if (written) {
+        this.exported = true;
+        setTimeout(() => { this.exported = false; }, EXPORT_FEEDBACK_MS);
+      }
+    },
     async loadFixture(item) {
       // Folders are selectable now that a row's click selects rather than
       // folds, so a manufacturer arrives here as well as a profile. It carries
@@ -678,6 +757,7 @@ export default {
         model: fixture,
         manufacturer: manufacturer.name,
         category: data.categories[0],
+        universeAligned: Fixture.profileKeepsPixelsWhole(data),
         loaded: true,
       });
       this.patchError = false;
@@ -694,7 +774,7 @@ export default {
         this.patchAddress,
         chCount,
         this.amount,
-        this.fixture.universeAligned,
+        this.alignmentPixelSize,
       )) {
         this.patchError = false;
         this.chStop = chCount * this.amount + this.patchAddress;
@@ -715,7 +795,7 @@ export default {
         chCount,
         this.amount,
         this.startAddress || 0,
-        this.fixture.universeAligned,
+        this.alignmentPixelSize,
       );
       this.chStop = chCount * this.amount + address;
       if (address > -1) {
