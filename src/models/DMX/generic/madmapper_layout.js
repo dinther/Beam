@@ -60,16 +60,23 @@ export const PROJECTIONS = {
   SPHERICAL: 'spherical',
 };
 
-/** Human labels, in the order worth offering them. */
+/**
+ * Human labels and the tag each mapping carries into an export.
+ *
+ * The tag prefixes every fixture and group of that mapping, which is what
+ * lets two mappings of the same fixtures sit at the same addresses without
+ * MadMapper renaming one of them. Three letters so a fixture list stays
+ * readable, and distinct from each other so nothing collides.
+ */
 export const PROJECTION_LABELS = [
-  { id: PROJECTIONS.FRONT, label: 'Front' },
-  { id: PROJECTIONS.BACK, label: 'Back' },
-  { id: PROJECTIONS.LEFT, label: 'Left' },
-  { id: PROJECTIONS.RIGHT, label: 'Right' },
-  { id: PROJECTIONS.TOP, label: 'Top' },
-  { id: PROJECTIONS.BOTTOM, label: 'Bottom' },
-  { id: PROJECTIONS.CYLINDRICAL, label: 'Cylindrical unwrap' },
-  { id: PROJECTIONS.SPHERICAL, label: 'Spherical unwrap' },
+  { id: PROJECTIONS.FRONT, label: 'Front', tag: 'FRT' },
+  { id: PROJECTIONS.BACK, label: 'Back', tag: 'BCK' },
+  { id: PROJECTIONS.LEFT, label: 'Left', tag: 'LFT' },
+  { id: PROJECTIONS.RIGHT, label: 'Right', tag: 'RGT' },
+  { id: PROJECTIONS.TOP, label: 'Top', tag: 'TOP' },
+  { id: PROJECTIONS.BOTTOM, label: 'Bottom', tag: 'BTM' },
+  { id: PROJECTIONS.CYLINDRICAL, label: 'Cylindrical unwrap', tag: 'CYL' },
+  { id: PROJECTIONS.SPHERICAL, label: 'Spherical unwrap', tag: 'SPH' },
 ];
 
 /**
@@ -466,11 +473,11 @@ export function buildMadMapperLayout({
   if (loose.length) islands.push({ members: loose, mapping: projection, name: 'Fixtures' });
   if (!islands.length) return null;
 
-  // Numbered by mapping rather than by island, so one number means one way of
+  // Tagged by mapping rather than by island, so one tag means one way of
   // looking at the whole rig and a cue can raise or lower it as a set.
-  const order = PROJECTION_LABELS.map((p) => p.id)
-    .filter((id) => islands.some((island) => island.mapping === id));
-  const prefixOf = new Map(order.map((id, i) => [id, `M${i + 1}`]));
+  const order = PROJECTION_LABELS
+    .filter((p) => islands.some((island) => island.mapping === p.id));
+  const prefixOf = new Map(order.map((p) => [p.id, p.tag]));
 
   /**
    * Flattens one island and fits it to its square.
@@ -481,7 +488,7 @@ export function buildMadMapperLayout({
   const buildIsland = (island) => {
     const frame = layoutFrame(island.members);
     const eye = perspective && isCameraView(island.mapping) ? perspective : null;
-    const prefix = prefixOf.get(island.mapping) || 'M1';
+    const prefix = prefixOf.get(island.mapping) || 'FRT';
 
     const entries = island.members.map((fixture) => {
       const entry = prepare(fixture, island.mapping, definitionName, frame, eye);
@@ -547,7 +554,7 @@ export function buildMadMapperLayout({
     body.push('    </g>');
   });
 
-  const legend = order.map((id) => `${prefixOf.get(id)} = ${id}`).join(', ');
+  const legend = order.map((p) => `${p.tag} = ${p.label}`).join(', ');
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"`
