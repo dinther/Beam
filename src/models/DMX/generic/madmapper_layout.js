@@ -114,6 +114,72 @@ export function project(point, projection, radius = 1, origin = null) {
 }
 
 /**
+ * Which way each camera view looks, in scene axes. Z is up.
+ *
+ * @constant {Object}
+ */
+const VIEW_AXES = {
+  [PROJECTIONS.FRONT]: { forward: [0, 1, 0], up: [0, 0, 1] },
+  [PROJECTIONS.BACK]: { forward: [0, -1, 0], up: [0, 0, 1] },
+  [PROJECTIONS.LEFT]: { forward: [1, 0, 0], up: [0, 0, 1] },
+  [PROJECTIONS.RIGHT]: { forward: [-1, 0, 0], up: [0, 0, 1] },
+  [PROJECTIONS.TOP]: { forward: [0, 0, -1], up: [0, 1, 0] },
+  [PROJECTIONS.BOTTOM]: { forward: [0, 0, 1], up: [0, 1, 0] },
+};
+
+/**
+ * Whether a projection is a camera looking at the rig, rather than an unwrap.
+ *
+ * @param {String} projection
+ * @returns {Boolean}
+ */
+export function isCameraView(projection) {
+  return Object.prototype.hasOwnProperty.call(VIEW_AXES, projection);
+}
+
+/**
+ * Flattens a point through a pinhole camera placed near the rig.
+ *
+ * A parallel projection loses a whole axis, so anything lying along the view
+ * direction collapses to a point -- a bar aimed at the viewer keeps its sixty
+ * pixels but is given nowhere to put them. A camera at a finite distance has
+ * no such direction except the single ray through its own centre: put the eye
+ * just outside a convex rig and every edge gets real length, the near face
+ * opens out into the boundary and the far one nests inside it, which is the
+ * shape a wiring diagram of a polyhedron is always drawn in.
+ *
+ * `distance` is in radii, measured from the rig's centre. Close to 1 the eye
+ * is nearly touching and the effect is extreme; large values approach the
+ * parallel projection it replaces.
+ *
+ * @param {THREE.Vector3} point scene position, metres
+ * @param {String} projection one of the camera views
+ * @param {Object} frame `{ centre, radius }`
+ * @param {Number} distance eye distance in radii
+ * @returns {Object} `{ x, y }` in metres
+ */
+export function projectPerspective(point, projection, frame, distance) {
+  const axes = VIEW_AXES[projection] || VIEW_AXES[PROJECTIONS.FRONT];
+  const forward = new THREE.Vector3(...axes.forward).normalize();
+  const up = new THREE.Vector3(...axes.up).normalize();
+  const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+  const trueUp = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+  const reach = frame.radius * Math.max(distance, 1.01);
+  const eye = frame.centre.clone().sub(forward.clone().multiplyScalar(reach));
+  const v = point.clone().sub(eye);
+
+  // Anything level with the eye or behind it has no image; hold it just in
+  // front so it stays on the canvas rather than turning inside out.
+  const depth = Math.max(v.dot(forward), reach * 0.02);
+  const scale = reach;
+  return {
+    x: (v.dot(right) / depth) * scale,
+    y: -(v.dot(trueUp) / depth) * scale,
+  };
+}
+
+/**
  * Whether a projection measures an angle, and so meets itself at a seam.
  *
  * @param {String} projection
@@ -240,13 +306,13 @@ const round = (n) => Math.round(n * 1000) / 1000;
  *
  * @param {Object} fixture Fixture instance
  * @param {String} projection
- * @param {Number} radius
  * @param {Function} definitionName names the fixture's definition, exactly as
  *   the exported library calls it
- * @param {THREE.Vector3} origin what the unwraps turn about
+ * @param {Object} frame `{ centre, radius }`
+ * @param {Object|null} perspective `{ distance }`, or null for a parallel view
  * @returns {Object} entry ready to render
  */
-function prepare(fixture, projection, radius, definitionName, origin) {
+function prepare(fixture, projection, definitionName, frame, perspective) {
   const definition = definitionName(fixture);
   const common = {
     name: fixture.name,
@@ -255,14 +321,18 @@ function prepare(fixture, projection, radius, definitionName, origin) {
     definition,
   };
 
+  const flatten = (p) => (perspective
+    ? projectPerspective(p, projection, frame, perspective.distance)
+    : project(p, projection, frame.radius, frame.centre));
+
   const ends = fixtureEnds(fixture);
   if (ends) {
     const { bar } = fixture.OFLData.asls;
-    const middle = project(scenePoint(fixture), projection, radius, origin);
-    const period = 2 * Math.PI * radius;
+    const middle = flatten(scenePoint(fixture));
+    const period = 2 * Math.PI * frame.radius;
     const placed = ends
-      .map((p) => project(p, projection, radius, origin))
-      .map((q) => (wrapsAround(projection)
+      .map(flatten)
+      .map((q) => (wrapsAround(projection) && !perspective
         ? { ...q, x: nearestTurn(q.x, middle.x, period) }
         : q));
     const edgeOn = Math.hypot(placed[1].x - placed[0].x, placed[1].y - placed[0].y)
@@ -280,7 +350,7 @@ function prepare(fixture, projection, radius, definitionName, origin) {
 
   // Anything without a length is drawn as a square facing the canvas, which is
   // how MadMapper represents a fixture that is one pixel rather than a run.
-  const c = project(scenePoint(fixture), projection, radius, origin);
+  const c = flatten(scenePoint(fixture));
   return {
     ...common, kind: 'fixture_quad', centre: c, half: POINT_FIXTURE_HALF,
   };
@@ -316,12 +386,15 @@ export function layoutFrame(fixtures) {
  * @param {String} projection
  * @returns {Array} names
  */
-export function edgeOnFixtures(fixtures, projection) {
-  const { centre, radius } = layoutFrame(fixtures);
+export function edgeOnFixtures(fixtures, projection, perspective = null) {
+  const frame = layoutFrame(fixtures);
+  const flatten = (p) => (perspective && isCameraView(projection)
+    ? projectPerspective(p, projection, frame, perspective.distance)
+    : project(p, projection, frame.radius, frame.centre));
   return fixtures.filter((f) => {
     const ends = fixtureEnds(f);
     if (!ends) return false;
-    const [a, b] = ends.map((p) => project(p, projection, radius, centre));
+    const [a, b] = ends.map(flatten);
     return Math.hypot(b.x - a.x, b.y - a.y) < MIN_PROJECTED_LENGTH;
   }).map((f) => f.name);
 }
@@ -336,6 +409,8 @@ export function edgeOnFixtures(fixtures, projection) {
  * @param {String} [options.projection] one of `PROJECTIONS`
  * @param {Function} [options.definitionName] names a fixture's definition; must
  *   agree with the library export, since MadMapper resolves layouts by name
+ * @param {Object|null} [options.perspective] `{ distance }` in radii, to look
+ *   through a pinhole instead of flattening along an axis
  * @returns {String|null} SVG document, or null when there is nothing to draw
  */
 export function buildMadMapperLayout({
@@ -343,20 +418,22 @@ export function buildMadMapperLayout({
   groups = [],
   projection = PROJECTIONS.FRONT,
   definitionName = (f) => `${f.manufacturer} - ${f.model}`,
+  perspective = null,
 } = {}) {
   const patched = fixtures.filter((f) => f && f.channels && f.channels.length);
   if (!patched.length) return null;
 
   // The unwraps need a radius to turn an angle into a distance, and a centre to
   // turn about. Both come from the rig itself.
-  const { centre, radius } = layoutFrame(patched);
+  const frame = layoutFrame(patched);
+  const eye = perspective && isCameraView(projection) ? perspective : null;
 
   // Keyed by id, not by the fixture object: the show is reactive, so the
   // handle a group holds and the one the pool holds may be a proxy and its
   // target, which are never equal.
   const entries = new Map();
   patched.forEach((f) => {
-    entries.set(f.id, prepare(f, projection, radius, definitionName, centre));
+    entries.set(f.id, prepare(f, projection, definitionName, frame, eye));
   });
 
   // Bounds, so the viewBox frames the content the way MadMapper's own does.
@@ -418,7 +495,7 @@ export function buildMadMapperLayout({
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"`
       + ` viewBox="0 0 ${width} ${height}">`,
     '    <title>ASLS Studio fixture layout</title>',
-    `    <desc>${escapeAttribute(projection)} projection</desc>`,
+    `    <desc>${escapeAttribute(projection)}${eye ? ' perspective' : ''} projection</desc>`,
     '    <style>svg { background: black; }* { stroke: white; fill: none; }</style>',
     ...body,
     '</svg>',

@@ -27,6 +27,36 @@
         {{ hint }}
       </p>
 
+      <uk-flex
+        v-if="cameraView"
+        :gap="8"
+        center-v
+      >
+        <uk-checkbox
+          v-model="usePerspective"
+          label="Perspective"
+        />
+        <uk-num-input
+          v-if="usePerspective"
+          v-model="eyeDistance"
+          class="field"
+          label="Eye (radii)"
+          :min="1.1"
+          :max="20"
+          :step="0.1"
+        />
+      </uk-flex>
+
+      <p
+        v-if="cameraView && usePerspective"
+        class="layout_hint"
+      >
+        Flattening along an axis loses anything lying on it, so a bar aimed at
+        the view keeps its pixels but has nowhere to put them. A camera at a
+        finite distance has no such direction: bring the eye close and the near
+        face opens out while the far one nests inside it.
+      </p>
+
       <p
         v-if="edgeOn.length"
         class="layout_warning"
@@ -61,6 +91,7 @@ import {
   PROJECTION_LABELS,
   PROJECTIONS,
   edgeOnFixtures,
+  isCameraView,
 } from '@/models/DMX/generic/madmapper_layout';
 import { buildMadMapperLibrary, showDefinitions } from '@/models/DMX/generic/madmapper';
 
@@ -90,6 +121,9 @@ export default {
       headerData: { title: 'Export layout for MadMapper', icon: 'export' },
       projectionIndex: 0,
       withDefinitions: true,
+      usePerspective: false,
+      /** Eye distance from the rig's centre, in radii. */
+      eyeDistance: 1.3,
       projectionNames: PROJECTION_LABELS.map((p) => p.label),
     };
   },
@@ -99,6 +133,19 @@ export default {
     },
     hint() {
       return HINTS[this.projection] || '';
+    },
+    cameraView() {
+      return isCameraView(this.projection);
+    },
+    /**
+     * Eye settings, or null when this view is flattened along an axis.
+     *
+     * @type {Object|null}
+     */
+    perspective() {
+      return this.cameraView && this.usePerspective
+        ? { distance: Number(this.eyeDistance) || 1.3 }
+        : null;
     },
     /**
      * Fixtures that will be written. An unpatched one has no address to carry,
@@ -137,7 +184,7 @@ export default {
      * @type {Array}
      */
     edgeOn() {
-      return edgeOnFixtures(this.exportable, this.projection);
+      return edgeOnFixtures(this.exportable, this.projection, this.perspective);
     },
     groupCount() {
       return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
@@ -162,6 +209,7 @@ export default {
         groups: this.$show.groups,
         projection: this.projection,
         definitionName: nameOf,
+        perspective: this.perspective,
       });
       if (!svg) return;
       const show = (this.$show.name || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
@@ -182,7 +230,7 @@ export default {
 
       await window.fileExport.save({
         contents: svg,
-        defaultName: `${show} ${this.projection}.svg`,
+        defaultName: `${show} ${this.projection}${this.perspective ? ' perspective' : ''}.svg`,
         startIn: 'madmapperFixtures',
         title: 'Export layout for MadMapper',
         filters: [{ name: 'SVG fixture layout', extensions: ['svg'] }],
