@@ -1,0 +1,146 @@
+<template>
+  <uk-popup
+    v-model="state"
+    :valid="!!fixtureCount"
+    :header="headerData"
+    @submit="exportLayout"
+    @input="update()"
+  >
+    <uk-flex
+      col
+      :gap="8"
+      class="layout_export"
+    >
+      <uk-select-input
+        v-model="projectionIndex"
+        label="Flatten by"
+        :options="projectionNames"
+      />
+
+      <p class="layout_summary">
+        {{ fixtureCount }} patched
+        {{ fixtureCount === 1 ? 'fixture' : 'fixtures' }},
+        {{ groupCount }} {{ groupCount === 1 ? 'group' : 'groups' }}
+      </p>
+
+      <p class="layout_hint">
+        {{ hint }}
+      </p>
+    </uk-flex>
+  </uk-popup>
+</template>
+
+<script>
+import PopupMixin from '@/views/mixins/popup.mixin';
+import {
+  buildMadMapperLayout,
+  PROJECTION_LABELS,
+  PROJECTIONS,
+} from '@/models/DMX/generic/madmapper_layout';
+
+/** What each choice does to the rig, in one line. */
+const HINTS = {
+  [PROJECTIONS.FRONT]: 'As seen from the front. Fixtures behind others land on top of them.',
+  [PROJECTIONS.BACK]: 'As seen from behind. Fixtures behind others land on top of them.',
+  [PROJECTIONS.LEFT]: 'As seen from the left. Fixtures behind others land on top of them.',
+  [PROJECTIONS.RIGHT]: 'As seen from the right. Fixtures behind others land on top of them.',
+  [PROJECTIONS.TOP]: 'A plan view. Fixtures above others land on top of them.',
+  [PROJECTIONS.BOTTOM]: 'A plan view from below. Fixtures below others land on top of them.',
+  [PROJECTIONS.CYLINDRICAL]:
+    'Unrolled about the vertical axis, so content travels around the rig rather than through it. Nothing overlaps.',
+  [PROJECTIONS.SPHERICAL]:
+    'Unrolled by longitude and latitude, which suits a rig shaped roughly like a ball. Nothing overlaps.',
+};
+
+export default {
+  name: 'UkPopupMadmapper',
+  mixins: [PopupMixin],
+  compatConfig: {
+    // or, for full vue 3 compat in this component:
+    MODE: 3,
+  },
+  data() {
+    return {
+      headerData: { title: 'Export layout for MadMapper', icon: 'export' },
+      projectionIndex: 0,
+      projectionNames: PROJECTION_LABELS.map((p) => p.label),
+    };
+  },
+  computed: {
+    projection() {
+      return (PROJECTION_LABELS[this.projectionIndex] || PROJECTION_LABELS[0]).id;
+    },
+    hint() {
+      return HINTS[this.projection] || '';
+    },
+    /**
+     * Fixtures that will be written. An unpatched one has no address to carry,
+     * so it would arrive in MadMapper as a shape driving nothing.
+     *
+     * @type {Number}
+     */
+    fixtureCount() {
+      return this.$show.fixturePool.fixtures
+        .filter((f) => f.channels && f.channels.length).length;
+    },
+    groupCount() {
+      return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
+    },
+  },
+  watch: {
+    modelValue(state) {
+      this.state = state;
+    },
+  },
+  methods: {
+    /**
+     * Writes the scene as a MadMapper fixture layout.
+     *
+     * @public
+     * @async
+     */
+    async exportLayout() {
+      const svg = buildMadMapperLayout({
+        fixtures: this.$show.fixturePool.fixtures,
+        groups: this.$show.groups,
+        projection: this.projection,
+        manufacturerName: (slug) => this.$show.manufacturerName(slug),
+      });
+      if (!svg || !window.fileExport) return;
+      const show = (this.$show.name || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
+      await window.fileExport.save({
+        contents: svg,
+        defaultName: `${show} ${this.projection}.svg`,
+        startIn: 'madmapperFixtures',
+        title: 'Export layout for MadMapper',
+        filters: [{ name: 'SVG fixture layout', extensions: ['svg'] }],
+      });
+    },
+  },
+};
+</script>
+
+<style scoped>
+.layout_export {
+  padding: 16px;
+  width: 340px;
+  white-space: normal;
+}
+.layout_summary {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--secondary-lighter);
+  margin: 0;
+}
+.layout_hint {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--secondary-lighter-alt);
+  margin: 0;
+  /* Wraps to the popup's width rather than setting it: a paragraph's natural
+     width is its whole sentence on one line. */
+  width: 0;
+  min-width: 100%;
+}
+</style>

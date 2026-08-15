@@ -15,6 +15,7 @@
     <newshow-popup v-model="newProjectPopupState" />
     <saveas-popup v-model="saveasPopupState" />
     <artnet-popup v-model="artnetPopupState" />
+    <madmapper-popup v-model="madmapperPopupState" />
   </uk-flex>
 </template>
 
@@ -26,6 +27,7 @@ import CreditsPopup from './_popups/popup.credits.vue';
 import NewshowPopup from './_popups/popup.newshow.vue';
 import SaveasPopup from './_popups/popup.saveas.vue';
 import ArtnetPopup from './_popups/popup.artnet.vue';
+import MadmapperPopup from './_popups/popup.madmapper.vue';
 
 export default {
   name: 'ToolbarFragment',
@@ -40,6 +42,7 @@ export default {
     NewshowPopup,
     SaveasPopup,
     ArtnetPopup,
+    MadmapperPopup,
   },
   data() {
     return {
@@ -56,6 +59,10 @@ export default {
        * Art-Net settings popup state
        */
       artnetPopupState: false,
+      /**
+       * MadMapper layout export popup state
+       */
+      madmapperPopupState: false,
       /**
        * New project popup state
        */
@@ -117,6 +124,13 @@ export default {
               icon: 'export',
               callback: () => {
                 this.saveasPopupState = true;
+              },
+            },
+            {
+              name: 'Export MadMapper Layout',
+              icon: 'export',
+              callback: () => {
+                this.madmapperPopupState = true;
               },
             },
           ],
