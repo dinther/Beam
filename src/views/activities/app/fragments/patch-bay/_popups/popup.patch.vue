@@ -422,6 +422,9 @@ export default {
      *
      * @type {String}
      */
+    madMapperGroup() {
+      return this.$show.manufacturerName(this.fixture.manufacturer);
+    },
     madMapperProduct() {
       return (this.fixture.OFLData || {}).name || this.fixture.model || '';
     },
@@ -453,7 +456,7 @@ export default {
     madMapperDocument() {
       if (!this.fixture.loaded || !this.fixture.OFLData) return null;
       return buildMadMapperFixture(this.fixture.OFLData, {
-        group: this.fixture.manufacturer,
+        group: this.madMapperGroup,
         product: this.madMapperProduct,
         mode: this.fixture.modes[this.fixture.mode],
         avoidCrossUniversePixels: Fixture.profileKeepsPixelsWhole(this.fixture.OFLData),

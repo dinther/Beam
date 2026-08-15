@@ -53,6 +53,15 @@ class Show extends EventEmitter {
     this.groups = [];
     /** Saved arrangements, keyed by name, for placing again. */
     this.structures = {};
+    /**
+     * Manufacturer display names, keyed by the folder the library uses.
+     *
+     * The library addresses a manufacturer by a slug -- `martin`,
+     * `5star-systems` -- because that is its directory. Anything shown to a
+     * person, or written into a file another application will show to one,
+     * wants the real name instead.
+     */
+    this.manufacturers = {};
     /** Showfile fixture id to instance, for the duration of a load. */
     this.loadedFixturesById = new Map();
     this.running = false;
@@ -71,6 +80,7 @@ class Show extends EventEmitter {
       this.isSaved = false;
       this.emit('saveState', this.isSaved);
     });
+    this.preloadManufacturers();
     this.preloadFixtureList();
   }
 
@@ -345,6 +355,7 @@ class Show extends EventEmitter {
     this.loading.percentage = 40;
     await this.preloadGeneratedProfiles();
     await this.preloadStructures();
+    await this.preloadManufacturers();
     await this.preloadFixtureList();
     await this.preloadFixtureOverrides();
 
@@ -792,6 +803,32 @@ class Show extends EventEmitter {
   refreshFixtureList() {
     const library = this.rawOFLFixtures.filter((entry) => !entry.generated);
     this.rawOFLFixtures = [...this.generatedFixtureList(), ...library];
+  }
+
+  /**
+   * Loads the library's manufacturer display names.
+   *
+   * @public
+   * @async
+   */
+  async preloadManufacturers() {
+    try {
+      const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/manufacturers.json`);
+      this.manufacturers = res.data || {};
+    } catch (err) {
+      this.manufacturers = {};
+    }
+  }
+
+  /**
+   * A manufacturer's display name, falling back to the slug it is stored under.
+   *
+   * @public
+   * @param {String} slug library folder name
+   * @returns {String}
+   */
+  manufacturerName(slug) {
+    return (this.manufacturers[slug] || {}).name || slug || '';
   }
 
   async preloadFixtureList() {
