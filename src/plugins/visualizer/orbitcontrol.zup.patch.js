@@ -78,7 +78,11 @@ THREE.OrbitControls = function ( object, domElement ) {
 	this.keys = { LEFT: 37, UP: 38, RIGHT: 39, BOTTOM: 40 };
 
 	// Mouse buttons
-	this.mouseButtons = { ORBIT: THREE.MOUSE.LEFT, ZOOM: THREE.MOUSE.MIDDLE, PAN: THREE.MOUSE.RIGHT };
+	// Navigation is off the left button entirely, which belongs to selection and
+	// the transform gizmo -- a press there should never be ambiguous between
+	// picking something and swinging the camera. Dolly has no button of its own
+	// because the wheel already does it.
+	this.mouseButtons = { ORBIT: THREE.MOUSE.RIGHT, ZOOM: - 1, PAN: THREE.MOUSE.MIDDLE };
 
 	// for reset
 	this.target0 = this.target.clone();

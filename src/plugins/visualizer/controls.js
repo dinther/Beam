@@ -55,6 +55,20 @@ const CLICK_SLOP_PX = 4;
  * @constant {Object} raycaster
  */
 const raycaster = new THREE.Raycaster();
+
+/**
+ * Floor the orbit pivot falls back to when nothing solid is under the pointer.
+ *
+ * @constant {Object} pivotGround
+ */
+const pivotGround = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+
+/** Scratch vectors for pivot maths, kept out of the per-event path. */
+const pivotPoint = new THREE.Vector3();
+const pivotAxis = new THREE.Vector3();
+
+/** Closest the pivot may sit to the camera, in metres. */
+const MIN_PIVOT_DISTANCE = 0.2;
 /**
  * @constant {Object} pointer
  */
@@ -469,6 +483,9 @@ class Controls {
    * @param {Object} e pointerdown event
    */
   handlePointerDown(e) {
+    // Right starts an orbit, so that is the moment to decide what it turns
+    // about.
+    if (e.button === 2) this.setPivotFromPointer(e);
     // A press that starts on a gizmo axis belongs to the transform handle.
     // Middle and right belong to the camera.
     if (e.button !== 0 || (this.handle && this.handle.axis)) {
@@ -638,6 +655,54 @@ class Controls {
       // A modified click that misses keeps whatever is already selected.
       this.deselectAll();
     }
+  }
+
+  /**
+   * Puts the orbit pivot at the depth of whatever the pointer is over.
+   *
+   * A pivot fixed far behind the thing being looked at makes the camera swing
+   * wildly for a small drag, which is the whole complaint about orbiting from
+   * a bolted-down centre. Taking the depth from a raycast fixes that, and pan
+   * speed with it -- the control derives that from the same distance.
+   *
+   * The pivot stays on the axis the camera already looks down, though, rather
+   * than moving to the hit itself. This control re-aims at its target every
+   * frame, so an off-axis pivot would swing the view to centre it the instant
+   * the button went down: a worse jump than the one being fixed. Only the
+   * distance changes, and distance is what governs how orbiting feels.
+   *
+   * @public
+   * @param {Object} e pointerdown event carrying the client coordinates
+   */
+  setPivotFromPointer(e) {
+    if (!this.cameraHandle || !this.controlHandle) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    pointer.x = (((e.clientX - rect.left) / rect.width) * 2) - 1;
+    pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
+    raycaster.setFromCamera(pointer, this.cameraHandle);
+
+    const targets = [MovingHead.instancedMesh, ...LedBar.pickObjects()].filter(Boolean);
+    const hit = raycaster.intersectObjects(targets, false)[0];
+    if (hit) {
+      pivotPoint.copy(hit.point);
+    } else if (!raycaster.ray.intersectPlane(pivotGround, pivotPoint)) {
+      // Pointing at the sky: nothing to orbit about, so leave the pivot alone.
+      return;
+    }
+
+    pivotAxis.subVectors(this.controlHandle.target, this.cameraHandle.position);
+    if (pivotAxis.lengthSq() < 1e-9) return;
+    pivotAxis.normalize();
+
+    // Depth along the view axis, not distance along the ray: the pointer is
+    // off centre, and the two differ by more the wider the lens.
+    const depth = pivotPoint.sub(this.cameraHandle.position).dot(pivotAxis);
+    if (!(depth > MIN_PIVOT_DISTANCE)) return;
+
+    this.controlHandle.target
+      .copy(this.cameraHandle.position)
+      .add(pivotAxis.multiplyScalar(depth));
   }
 
   /**
