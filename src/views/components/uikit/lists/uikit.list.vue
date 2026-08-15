@@ -29,12 +29,16 @@
       @focus="handleFocusIn"
       @focusout="handleFocusOut"
     >
+      <!-- Stretching an unfolded item to share the container's height is what
+           accordion mode is, so it follows that flag. Without it a group takes
+           only the room its own items need and the slack gathers at the bottom,
+           rather than being dealt out equally between the groups. -->
       <div
         v-for="(treeItem, index) in filteredItems"
         :key="index"
         class="uikit_list_item parent"
         :style="{
-          flex: treeItem.unfolded ? 1 : 'unset',
+          flex: treeItem.unfolded && accordion ? 1 : 'unset',
           overflowY: treeItem.unfolded && treeItem.value.unfold && accordion ? 'hidden' : 'visible',
         }"
       >

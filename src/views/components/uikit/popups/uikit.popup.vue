@@ -11,10 +11,11 @@
         @mousedown="startDrag"
         @mouseup="stopDrag"
       >
-        <img
+        <uk-icon
           v-if="header.icon"
-          :src="header.icon"
-        >
+          class="header_icon"
+          :name="header.icon"
+        />
         <h3>{{ header.title }}</h3>
         <span style="flex: 1" />
         <uk-icon
@@ -353,6 +354,10 @@ export default {
   align-items: center;
   background: var(--secondary-darker);
   user-select: none;
+}
+.header_icon {
+  margin-right: 8px;
+  fill: var(--secondary-lighter);
 }
 .header:active {
   cursor: move;

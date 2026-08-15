@@ -316,8 +316,8 @@ export default {
   padding-top: 8px;
 }
 .channel_map {
-  max-height: 220px;
-  overflow-y: auto;
+  /* Scrolls sideways only: the widget body carries the vertical scrollbar now,
+     and two nested ones make the map awkward to reach. */
   overflow-x: auto;
   border: 1px solid var(--primary-dark);
   border-radius: 3px;

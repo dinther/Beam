@@ -27,8 +27,13 @@ try {
   app.config.globalProperties.$show = reactive(ShowSingleton);
   app.config.globalProperties.$http = axios;
   app.config.globalProperties.$utils = reactive(utils);
-  app.config.errorHandler = (err) => {
-    console.log(err);
+  app.config.errorHandler = (err, instance, info) => {
+    // The message on its own says nothing about where it came from, and a
+    // render error names no file. Vue hands over what it was doing and which
+    // component was doing it; both are worth more than the message.
+    const component = (instance && instance.$options && instance.$options.name) || 'unknown';
+    console.error(`[vue] ${info} in <${component}>`);
+    console.error((err && err.stack) || err);
     EventBus.emit('app_error', err);
   };
   app.use(router);

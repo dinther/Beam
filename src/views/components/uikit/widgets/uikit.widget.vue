@@ -156,10 +156,20 @@ export default {
 .body {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  /* Centred while it fits, aligned to the start once it does not. Plain
+     `center` puts the overflow half above the container, and no scrollbar can
+     reach above its own origin -- so tall content loses its top for good
+     rather than becoming scrollable. `safe` is exactly this fallback. */
+  align-items: safe center;
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  /* Scrolls rather than clips. A widget taller than the space it is given used
+     to lose whatever did not fit, silently and from whichever end the layout
+     ran out. min-height lets a flex child shrink under its own content, which
+     is what allows the scrollbar to appear at all. */
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .docked .header {
   width: 30px !important;
