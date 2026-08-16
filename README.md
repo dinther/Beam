@@ -1,12 +1,12 @@
 <div align="center">
 
 <img src="./Lightyard_logo_master.png" alt="Lightyard" width="160"/>
-
-# Lightyard
+<br><img src="./Lightyard.png" alt="Lightyard" width="260"/>
 
 **A real-time 3D sandbox for lighting rigs, driven by Art-Net**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./COPYING)
+
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#what-is-lightyard)
 
 [Issues](https://github.com/dinther/lightyard/issues) - [Manual](./manual.md)
