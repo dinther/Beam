@@ -37,11 +37,23 @@ Lightyard is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by 
 
 ### Lighting
 
-#### Universe & Fixture Patching
-Create and manage DMX universes, patch fixtures from a built-in library (XML fixture definitions parsed via `xml2js`), assign DMX addresses and operating modes, and adjust per-fixture settings at any time through the Universe Modifier. Channel faders allow live manipulation of any patched fixture's output including color, pan/tilt, zoom, intensity, strobe, and more.
+#### Smart Fixture Patching
+Patch fixtures from a built-in library (XML fixture definitions parsed via `xml2js`), assign DMX addresses and operating modes. Troubleshoot DMX issues.
 
 #### Fixture Grouping
 Fixtures from different universes can be combined into logical groups. Groups are the unit of cue programming: scenes and effects are defined at the group level and can span the show's entire rig.
+
+#### Reusable custom structures
+Group your reusable creations and store it as a structure for later re-use or when you require several of them.
+
+#### Intuitive fixture Arranger
+Lightning fast organize your fixtures in neat lines, arcs or grids.
+
+#### MadMapper integration
+Export fixture definitions and layout to files that can be imported in MadMapper. Patching is done in Lightyard once. MadMapper will just work.
+
+#### Automated MadMapper 2D fixture mapping
+Complex 3D light layouts in Lightyard can be flatted to 2D by a range of projections and also ported to MadMapper leaving you with perfect 2D layouts in MadMapper ready for use.
 
 ### Common
 
@@ -49,7 +61,7 @@ Fixtures from different universes can be combined into logical groups. Groups ar
 A WebGL 2.0 viewport powered by [Three.js](https://threejs.org/) r170 and the `postprocessing` library renders the full rig in three dimensions. Fixtures respond to live channel data — position, color, beam angle, zoom, strobe, and color wheel slots are all emulated in real time. The visualizer includes volumetric beam rendering, simulated atmospheric fog with turbulence, physically-accurate or simplified light attenuation, in-viewport fixture transform controls (translate, rotate, discrete), and adjustable global scene illumination.
 
 #### Desktop App
-In addition to running as a static web app, Studio can be packaged as a native desktop application via Electron. Distribution targets are configured for Linux (arm64), macOS (arm64), and Windows (x64).
+Lightyard is packaged as a native desktop application via Electron. Distribution targets are configured for Linux (arm64), macOS (arm64), and Windows (x64).
 
 ---
 
