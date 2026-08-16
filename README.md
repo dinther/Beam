@@ -43,15 +43,6 @@ Create and manage DMX universes, patch fixtures from a built-in library (XML fix
 #### Fixture Grouping
 Fixtures from different universes can be combined into logical groups. Groups are the unit of cue programming: scenes and effects are defined at the group level and can span the show's entire rig.
 
-#### Scene Composition
-Scenes are snapshot-style cues that drive a set of fixtures to predefined channel values. Each scene supports configurable fade in/out curves based on Bézier easing (linear, ease, ease-in, ease-in-out, or fully custom), relative or absolute start points, loop and trigger modes, and precise multi-fixture editing — including a unified channel view when multiple fixtures are selected simultaneously.
-
-#### Parametric Effect Engine
-Effects modulate fixture channels over time using waveforms (sine, triangle, square). Per-channel and per-fixture parameters include frequency, min/max boundaries, phase shift, and directional spread across the fixture group — enabling smooth fan-like animations with minimal setup.
-
-#### Chase Sequencer
-Chases are timeline-based compositions of group cues (scenes and effects) arranged across a bar grid. They support independent quantization, BPM-synced durations, loop and single-shot modes, and parallel cue lanes per group. The timeline editor supports drag-to-resize cue blocks, vertical zoom, and fold-to-hide empty lanes.
-
 ### Common
 
 #### Real-Time 3D Visualizer
