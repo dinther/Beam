@@ -365,15 +365,33 @@ class Fixture extends Proxify {
   }
 
   /**
+   * A coordinate the renderer can actually use, or the one already held.
+   *
+   * @static
+   * @param {*} value candidate coordinate
+   * @param {Number} fallback value to keep when the candidate is unusable
+   * @return {Number} a finite number
+   */
+  static usableCoordinate(value, fallback) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+    return Number.isFinite(fallback) ? fallback : 0;
+  }
+
+  /**
    * Fixture's position in 3D space (meter)
    *
    * @type {Object}
    */
   set position(positionData) {
+    // A non-finite coordinate is not a position, it is a fixture that stops
+    // being drawn: NaN reaches the renderer, poisons the world matrix, and the
+    // fixture silently disappears while still sitting in the patch bay. Keeping
+    // the last good value turns a lost fixture into a rejected keystroke.
     this._position = {
-      x: positionData.x,
-      y: positionData.y,
-      z: positionData.z, // Math.max(positionData.z, 0)
+      x: Fixture.usableCoordinate(positionData.x, this._position.x),
+      y: Fixture.usableCoordinate(positionData.y, this._position.y),
+      z: Fixture.usableCoordinate(positionData.z, this._position.z), // Math.max(z, 0)
     };
     if (this._3DModel) {
       this._3DModel.position = this._position;
@@ -442,10 +460,12 @@ class Fixture extends Proxify {
    * @type {Object}
    */
   set rotation(rotationData) {
+    // Same rule as position: a NaN angle blanks the fixture rather than
+    // turning it. See usableCoordinate.
     this._rotation = {
-      x: Fixture.degToRad(rotationData.x),
-      y: Fixture.degToRad(rotationData.y),
-      z: Fixture.degToRad(rotationData.z),
+      x: Fixture.degToRad(Fixture.usableCoordinate(rotationData.x, this.rotation.x)),
+      y: Fixture.degToRad(Fixture.usableCoordinate(rotationData.y, this.rotation.y)),
+      z: Fixture.degToRad(Fixture.usableCoordinate(rotationData.z, this.rotation.z)),
     };
     if (this._3DModel) {
       this._3DModel.rotation = this._rotation;

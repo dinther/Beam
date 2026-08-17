@@ -89,8 +89,13 @@ export default {
     return {
       /**
        * Button's toggle state.
+       *
+       * Read from `modelValue`, which is the prop that exists -- `this.value`
+       * named nothing, so a toggle bound to something already on started off
+       * looking off, and only righted itself the first time the bound value
+       * changed.
        */
-      toggled: this.toggleable ? this.value : false,
+      toggled: this.toggleable ? !!this.modelValue : false,
     };
   },
   watch: {

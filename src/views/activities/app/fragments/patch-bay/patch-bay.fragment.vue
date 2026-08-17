@@ -218,6 +218,15 @@ export default {
         }
         fixture.highlight(true, true);
       });
+      // Highlighting attaches each fixture to the gizmo, but nothing has said
+      // so out loud -- and anything watching the selection rather than the
+      // list would never hear about a selection made here. Same rule the 3D
+      // view uses: a primary is only named when there is exactly one, since
+      // naming one of many routes the list back to it and collapses the
+      // selection that was just made.
+      Controls.emitSelection(
+        Controls.pooledInstances.length === 1 ? Controls.pooledInstances[0] : null,
+      );
     },
     /**
      * Deletes the highlighted fixtures from the show.

@@ -205,13 +205,25 @@ export default {
      * @param {Boolean} doEmit whether or not to emit changes back to parent element.
      */
     updateValue(doEmit = true) {
-      const val = parseFloat(this.content).toFixed(this.precision);
-      this.content = val;
-      if (val < this.min || Number.isNaN(val)) {
-        this.content = parseFloat(this.min >= 0 ? this.min : 0).toFixed(this.precision);
-      } else if (val > this.max) {
-        this.content = parseFloat(this.max).toFixed(this.precision);
-      }
+      // Parsed as a number and kept as one. This used to run through
+      // `.toFixed()` first, which returns a *string* -- so `Number.isNaN(val)`
+      // was asking whether the string "NaN" was the number NaN, which it never
+      // is. An empty or unparseable field therefore sailed past the guard and
+      // emitted a real NaN, which reached fixture positions and, through
+      // JSON.stringify, was written to the show file as null. A fixture with a
+      // null position has a NaN world matrix and simply stops being drawn.
+      const parsed = parseFloat(this.content);
+      const min = parseFloat(this.min);
+      const max = parseFloat(this.max);
+      // Nothing usable typed: fall back to zero, or to whichever end of the
+      // range is nearest it when zero is out of bounds.
+      const fallback = Math.min(Math.max(0, min), max);
+      // Clamped both ways. Under-range used to land on zero rather than on the
+      // minimum whenever the minimum was negative, so -2000 in a field ranging
+      // to -1000 became 0 instead of -1000.
+      const value = Number.isNaN(parsed) ? fallback : Math.min(Math.max(parsed, min), max);
+
+      this.content = value.toFixed(this.precision);
       if (doEmit) {
         /**
          * Input value changed
