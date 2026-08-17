@@ -13,7 +13,7 @@ import {
   optimizer,
 } from '@electron-toolkit/utils';
 import path from 'path';
-import icon from '../assets/images/lightyard_logo.png?asset';
+import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
 import jsonstore from './jsonstore';
 import fileexport from './fileexport';
@@ -25,6 +25,14 @@ import fileexport from './fileexport';
 if (is.dev) {
   app.commandLine.appendSwitch('enable-webgl-draft-extensions');
 }
+
+// Where show files live, pinned by hand rather than inherited from the app
+// name. Electron derives userData from `name` in package.json during
+// development but from `productName` once packaged, so the two disagree by
+// design -- and every rename moves the folder again. That has already orphaned
+// a show once. Pinning it means both builds read and write the same
+// %APPDATA%/Beam, and a future rename cannot move it.
+app.setPath('userData', path.join(app.getPath('appData'), 'Beam'));
 
 console.log('MAIN PROCESS STARTED');
 

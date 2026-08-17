@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="./Lightyard_logo_master.png" alt="Lightyard" width="160"/>
-<br><img src="./Lightyard.png" alt="Lightyard" width="260"/>
+<img src="./Beatline_Beam_logo_master.png" alt="Beatline Beam" width="160"/>
+<br><img src="./Beam.png" alt="Beatline Beam" width="260"/>
 
 **A real-time 3D sandbox for lighting rigs, driven by Art-Net**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./COPYING)
 
-[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#what-is-lightyard)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#what-is-beatline-beam)
 
 [Issues](https://github.com/dinther/lightyard/issues) - [Manual](./manual.md)
 
@@ -15,21 +15,21 @@
 
 ---
 
-> **Alpha.** Lightyard is early software under active development. Things move,
+> **Alpha.** Beam is early software under active development. Things move,
 > break and get renamed. Please report anything odd on the
 > [issue tracker](https://github.com/dinther/lightyard/issues).
 
 ---
 
-## What is Lightyard?
+## What is Beatline Beam?
 
-Lightyard is a **sandbox for building and previewing lighting rigs in three dimensions**. You place fixtures where they will really hang, address them to real DMX universes, and watch them respond live to Art-Net from whatever is driving your show. It is a place to design a rig, prove the patch and rehearse content without a truck, a truss or a venue.
+Beam is a **sandbox for building and previewing lighting rigs in three dimensions**. You place fixtures where they will really hang, address them to real DMX universes, and watch them respond live to Art-Net from whatever is driving your show. It is a place to design a rig, prove the patch and rehearse content without a truck, a truss or a venue.
 
 It is **not** a photo-realistic renderer, and it is not trying to be. There is no ray tracing, no measured photometrics and no attempt to predict exactly how a beam will look on a hazy stage. What it gives you is a fast, honest picture of *which fixture is doing what, where* - accurate in position, address and colour, and quick enough to sit alongside the software actually running your show.
 
-It is also **not a lighting desk**. Lightyard does not want to replace the thing you already program with. It listens.
+It is also **not a lighting desk**. Beam does not want to replace the thing you already program with. It listens.
 
-Lightyard is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, whose patching, scene, effect and chase engines it still carries. See [Acknowledgements](#acknowledgements).
+Beam is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, whose patching, scene, effect and chase engines it still carries. See [Acknowledgements](#acknowledgements).
 
 ---
 
@@ -50,10 +50,10 @@ Group your reusable creations and store it as a structure for later re-use or wh
 Lightning fast organize your fixtures in neat lines, arcs or grids.
 
 #### MadMapper integration
-Export fixture definitions and layout to files that can be imported in MadMapper. Patching is done in Lightyard once. MadMapper will just work.
+Export fixture definitions and layout to files that can be imported in MadMapper. Patching is done in Beam once. MadMapper will just work.
 
 #### Automated MadMapper 2D fixture mapping
-Complex 3D light layouts in Lightyard can be flatted to 2D by a range of projections and also ported to MadMapper leaving you with perfect 2D layouts in MadMapper ready for use.
+Complex 3D light layouts in Beam can be flatted to 2D by a range of projections and also ported to MadMapper leaving you with perfect 2D layouts in MadMapper ready for use.
 
 ### Common
 
@@ -61,7 +61,7 @@ Complex 3D light layouts in Lightyard can be flatted to 2D by a range of project
 A WebGL 2.0 viewport powered by [Three.js](https://threejs.org/) r170 and the `postprocessing` library renders the full rig in three dimensions. Fixtures respond to live channel data — position, color, beam angle, zoom, strobe, and color wheel slots are all emulated in real time. The visualizer includes volumetric beam rendering, simulated atmospheric fog with turbulence, physically-accurate or simplified light attenuation, in-viewport fixture transform controls (translate, rotate, discrete), and adjustable global scene illumination.
 
 #### Desktop App
-Lightyard is packaged as a native desktop application via Electron. Distribution targets are configured for Linux (arm64), macOS (arm64), and Windows (x64).
+Beam is packaged as a native desktop application via Electron. Distribution targets are configured for Linux (arm64), macOS (arm64), and Windows (x64).
 
 ---
 
@@ -125,11 +125,11 @@ npm run dist:win
 
 ## Streaming to Hardware
 
-Lightyard sends live show data using the **[WSC (Web Show Control)](https://github.com/ASLS-org/WSC)** protocol — a compact, binary, transport-agnostic protocol designed for real-time control of performance and show systems.
+Beam sends live show data using the **[WSC (Web Show Control)](https://github.com/ASLS-org/WSC)** protocol — a compact, binary, transport-agnostic protocol designed for real-time control of performance and show systems.
 
 WSC carries multiple message types over a single connection: bulk channel data (DMX universes), linear timecode (SMPTE/MTC), cue lifecycle commands (GO, STOP, PAUSE…), typed parameter writes, and opaque binary tunnels to downstream systems. Every packet includes a Transport Descriptor that tells the gateway which downstream protocol to use — so the browser never needs to know about the physical layer.
 
-The reference gateway (`@asls/wsc-server`) runs as a Node.js process alongside Lightyard and translates incoming WSC packets to the appropriate downstream protocol. Forwarding targets include Art-Net, sACN, DMX512, MIDI, MIDI Show Control, MIDI Timecode, OSC, and others.
+The reference gateway (`@asls/wsc-server`) runs as a Node.js process alongside Beam and translates incoming WSC packets to the appropriate downstream protocol. Forwarding targets include Art-Net, sACN, DMX512, MIDI, MIDI Show Control, MIDI Timecode, OSC, and others.
 
 Refer to the [WSC repository](https://github.com/ASLS-org/WSC) and its JavaScript implementation guide for gateway setup instructions.
 
@@ -164,7 +164,7 @@ For larger changes or new features, opening a [Discussion](https://github.com/di
 
 ## License
 
-Lightyard is released under the **GNU General Public License v3.0**, the licence it inherits from ASLS Studio. See the [`COPYING`](./COPYING) file for full terms.
+Beam is released under the **GNU General Public License v3.0**, the licence it inherits from ASLS Studio. See the [`COPYING`](./COPYING) file for full terms.
 
 Copyright (c) 2026 Paul van Dinther. Portions copyright (c) ASLS-org / Timé Kadel, 2021.
 
@@ -172,6 +172,6 @@ Copyright (c) 2026 Paul van Dinther. Portions copyright (c) ASLS-org / Timé Kad
 
 ## Acknowledgements
 
-Lightyard is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by [Timé Kadel](https://github.com/timekadel), which grew out of the ASLS research project and was made freely available to the lighting and open-source communities. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation everything here stands on.
+Beam is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by [Timé Kadel](https://github.com/timekadel), which grew out of the ASLS research project and was made freely available to the lighting and open-source communities. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation everything here stands on.
 
-Lightyard adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and fixture-library export. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).
+Beam adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and fixture-library export. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).

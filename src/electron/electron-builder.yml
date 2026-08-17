@@ -1,5 +1,5 @@
-appId: com.dinther.lightyard
-productName: Lightyard
+appId: com.beatline.beam
+productName: Beatline Beam
 directories:
   buildResources:  public
   # Keep packaging output out of `dist`, which is where `npm run build` puts
@@ -17,7 +17,7 @@ files:
 # asarUnpack:
 #   - resources/**
 win:
-  executableName: Lightyard
+  executableName: Beatline Beam
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

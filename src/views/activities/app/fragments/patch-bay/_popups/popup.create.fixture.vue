@@ -187,7 +187,7 @@ export default {
       headerData: { title: 'Create generic fixture' },
       kindIndex: 0,
       kinds: KINDS,
-      manufacturer: 'Lightyard',
+      manufacturer: 'Beatline',
       model: 'LED Bar',
       length: DEFAULT_BAR_PARAMS.length * MM,
       width: DEFAULT_BAR_PARAMS.width * MM,

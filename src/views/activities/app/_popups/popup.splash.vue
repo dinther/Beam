@@ -28,11 +28,11 @@
         >
           <img
             class="brand_mark"
-            src="@/assets/images/lightyard_logo.png"
-            alt="Lightyard"
+            src="@/assets/images/beam_logo.png"
+            alt="Beatline Beam"
           >
           <p class="brand_name">
-            Lightyard
+            Beatline Beam
           </p>
         </uk-flex>
         <div class="vertical_seprator" />

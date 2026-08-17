@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./Lightyard_logo_master.png" alt="Lightyard" width="140"/>
+<img src="./Beatline_Beam_logo_master.png" alt="Beatline Beam" width="140"/>
 
-# Lightyard
+# Beatline Beam
 
 ### The manual
 
@@ -57,7 +57,7 @@
 
 ## So what is it?
 
-Lightyard is a **sandbox for lighting rigs**.
+Beam is a **sandbox for lighting rigs**.
 
 You build your rig in three dimensions — the movers where they'll really hang, the LED bars at the height they'll really sit, the panel at the angle it'll really be flown. You give every fixture a real DMX address in a real universe. Then you point some Art-Net at it and watch the whole thing light up, live, at whatever frame rate your machine can manage.
 
@@ -69,11 +69,11 @@ The word *sandbox* is doing real work in that sentence. This is a place to try t
 
 Three things, and it's worth being blunt about all of them, because knowing what a tool refuses to do is how you avoid being disappointed by it.
 
-**It is not photo-realistic.** There's no ray tracing here. No measured photometrics, no IES profiles, no attempt to predict how a beam will actually look punching through real haze in a real room. The haze in Lightyard is an effect that looks *plausible* and costs almost nothing to draw. If you need a render your client will mistake for a photograph, you want a renderer, and you want an afternoon. Lightyard would rather give you sixty honest frames a second than one beautiful lie.
+**It is not photo-realistic.** There's no ray tracing here. No measured photometrics, no IES profiles, no attempt to predict how a beam will actually look punching through real haze in a real room. The haze in Beam is an effect that looks *plausible* and costs almost nothing to draw. If you need a render your client will mistake for a photograph, you want a renderer, and you want an afternoon. Beam would rather give you sixty honest frames a second than one beautiful lie.
 
 What it *is* accurate about is the stuff that bites you on site: **which fixture is where, what it's addressed to, and what colour it's doing right now.** Position, orientation, patch, and response. Those are exact. The prettiness is approximate on purpose.
 
-**It is not a lighting desk.** Lightyard has no programmer, no cue stack you'd want to run a show from, no submasters, no busking layout. It doesn't want to replace the thing you already program with, because you already have one and you're better at it than a fork of a web app is going to be. Lightyard *listens*. Something else drives.
+**It is not a lighting desk.** Beam has no programmer, no cue stack you'd want to run a show from, no submasters, no busking layout. It doesn't want to replace the thing you already program with, because you already have one and you're better at it than a fork of a web app is going to be. Beam *listens*. Something else drives.
 
 **It is not finished.** See [alpha](#its-alpha-and-what-that-means), below.
 
@@ -87,19 +87,19 @@ And you hit the same wall every time: **MadMapper works on a flat canvas, and yo
 
 To map content onto your rig, you first have to flatten it — decide where each fixture sits on a 2D surface, so content sweeping across that surface hits your fixtures in an order that means something. Done by hand, that's an afternoon of dragging rectangles. And it's an afternoon you have to spend *again* the moment you want the content to wrap around the rig instead of sweeping across it, because the flattening **is** the effect. Same fixtures, never moved, completely different look.
 
-Lightyard already knows where every fixture is in three dimensions. So it can do that flattening for you, mechanically, as many ways as you like — front elevation, plan view, unrolled around a cylinder, unwrapped like a globe — and hand each one to MadMapper as a file with the addressing already baked in.
+Beam already knows where every fixture is in three dimensions. So it can do that flattening for you, mechanically, as many ways as you like — front elevation, plan view, unrolled around a cylinder, unwrapped like a globe — and hand each one to MadMapper as a file with the addressing already baked in.
 
 That's the pitch. **Build the rig once in 3D. Get as many 2D mappings out of it as you have ideas.**
 
-The preview is the other half. Because Lightyard listens to Art-Net, the same rig you exported is sitting right there responding to what MadMapper is sending. Change the content, watch the rig. No venue, no truss, no power.
+The preview is the other half. Because Beam listens to Art-Net, the same rig you exported is sitting right there responding to what MadMapper is sending. Change the content, watch the rig. No venue, no truss, no power.
 
 ## What else you need
 
-Lightyard is a receiver and a previewer. On its own it will show you a beautifully placed rig sitting in the dark. To see it *do* anything, you need something upstream sending Art-Net.
+Beam is a receiver and a previewer. On its own it will show you a beautifully placed rig sitting in the dark. To see it *do* anything, you need something upstream sending Art-Net.
 
-**The main event: MadMapper.** Lightyard's export is built specifically around it, and the workflow in the tutorial assumes it. MadMapper is commercial software that maps video and generative content onto physical fixtures and outputs Art-Net. If you're doing pixel work, you probably already have it. The export writes MadMapper's own fixture-library format (`.mmfl`) and a layout file it can import directly, using the same id encoding MadMapper's own export uses — this was learned by taking a file MadMapper exported and reading it byte for byte.
+**The main event: MadMapper.** Beam's export is built specifically around it, and the workflow in the tutorial assumes it. MadMapper is commercial software that maps video and generative content onto physical fixtures and outputs Art-Net. If you're doing pixel work, you probably already have it. The export writes MadMapper's own fixture-library format (`.mmfl`) and a layout file it can import directly, using the same id encoding MadMapper's own export uses — this was learned by taking a file MadMapper exported and reading it byte for byte.
 
-**Anything else that speaks Art-Net also works.** Lightyard doesn't care what's on the other end of the wire. A lighting desk, QLC+, Resolume, a Python script, an ESP32 — if it puts Art-Net on the network, Lightyard will render it. You just won't get the layout-export benefit, which is MadMapper-shaped.
+**Anything else that speaks Art-Net also works.** Beam doesn't care what's on the other end of the wire. A lighting desk, QLC+, Resolume, a Python script, an ESP32 — if it puts Art-Net on the network, Beam will render it. You just won't get the layout-export benefit, which is MadMapper-shaped.
 
 **A machine with a real GPU.** All the per-pixel work happens on the graphics card. Integrated graphics will run it; a discrete GPU will run it comfortably with several thousand emitters.
 
@@ -238,7 +238,7 @@ Fill it in like this:
 | Field | Value | Why |
 |---|---|---|
 | **Type** | LED bar | The only generic kind for now |
-| **Manufacturer** | `Lightyard` | Free text, it's yours |
+| **Manufacturer** | `Beatline` | Free text, it's yours |
 | **Model** | `Diamond 2x1` | What it'll be called in the library |
 | **Length** | `2.0` | Two metres, in metres |
 | **Width** | `1.0` | One metre across |
@@ -325,7 +325,7 @@ Open **Preferences → Art-Net** (**Ctrl+Shift+A**) and set **Receive** to **ena
 
 It'll say *Listening on UDP 6454*. If instead it says *Unavailable in the browser*, you're running the web version — you need the desktop app for this.
 
-That's the entire configuration. There isn't any more. Lightyard listens on the standard Art-Net port and renders whatever arrives, on whatever universe it arrives on.
+That's the entire configuration. There isn't any more. Beam listens on the standard Art-Net port and renders whatever arrives, on whatever universe it arrives on.
 
 Now send it something. In MadMapper — or any Art-Net source — output to your machine's IP on universe 0, and your movers will respond. Universe 1 and up, and the diamond lights.
 
@@ -347,13 +347,13 @@ Hit export. You get **two files**: the layout, and a `.mmfl` fixture-definitions
 
 **Why two files, and why the order matters.** MadMapper resolves a layout's fixtures **by name**. The layout says "there's a Diamond 2x1 here" — it doesn't say what a Diamond 2x1 *is*. That's in the definitions file. So MadMapper has to learn the definitions **before** it reads the layout that refers to them. Import them the wrong way round and you get a layout full of fixtures it can't resolve.
 
-Both files come from the same source inside Lightyard, so a fixture can't end up called one thing in one file and something else in the other.
+Both files come from the same source inside Beam, so a fixture can't end up called one thing in one file and something else in the other.
 
 ## Step 7: over in MadMapper
 
 You don't need to know MadMapper deeply. You need to know four things.
 
-**One — import the definitions first.** In MadMapper's fixture library, import the `.mmfl` file Lightyard wrote. Your `Diamond 2x1` is now a fixture MadMapper knows about.
+**One — import the definitions first.** In MadMapper's fixture library, import the `.mmfl` file Beam wrote. Your `Diamond 2x1` is now a fixture MadMapper knows about.
 
 **Two — then import the layout.** Your rig appears on the canvas: the diamond as a grid of pixels at the angle you exported it from, the movers as their own shapes, each group in its own square.
 
@@ -363,11 +363,11 @@ You don't need to know MadMapper deeply. You need to know four things.
 Name__UN__10__CH__121__FT__fixture_line__FD__Beatline - 60 LED Bar GRB
 ```
 
-Universe 10, channel 121. MadMapper reads that on import. What you addressed in Lightyard is what MadMapper outputs.
+Universe 10, channel 121. MadMapper reads that on import. What you addressed in Beam is what MadMapper outputs.
 
-**Four — point the output back at Lightyard.** Set MadMapper's Art-Net output to your machine's IP. Drop any content onto the mapped fixtures.
+**Four — point the output back at Beam.** Set MadMapper's Art-Net output to your machine's IP. Drop any content onto the mapped fixtures.
 
-And now the loop is closed: content in MadMapper, Art-Net over the network, your rig lighting up in Lightyard in real time. Change the content, watch the rig change.
+And now the loop is closed: content in MadMapper, Art-Net over the network, your rig lighting up in Beam in real time. Change the content, watch the rig change.
 
 That's the whole workflow. Everything else is refinement.
 
@@ -382,7 +382,7 @@ You described a rig **once**, in three dimensions, with real addresses. From tha
 
 # Part three — reference
 
-Everything Lightyard does, as completely as it can be documented today. This section is explicitly a **work in progress** — the software is moving, and some of this will drift. If something here doesn't match what you're seeing, trust the software.
+Everything Beam does, as completely as it can be documented today. This section is explicitly a **work in progress** — the software is moving, and some of this will drift. If something here doesn't match what you're seeing, trust the software.
 
 ## The patch bay
 
@@ -433,7 +433,7 @@ The default is a metre of 60-pixel GRB strip in an aluminium profile — a very 
 
 ## Addressing
 
-Universes are 512 channels, numbered as everyone else numbers them. Lightyard holds **512 universes** at once — 262,144 channels.
+Universes are 512 channels, numbered as everyone else numbers them. Beam holds **512 universes** at once — 262,144 channels.
 
 Anything arriving above that is dropped, but *says so*: you get one warning per offending universe in the console, deliberately once rather than per frame, since a source repeating at 40 Hz would bury the console in seconds. A rig going half-dark with no explanation is the thing this is designed to prevent.
 
@@ -497,7 +497,7 @@ Each group owns its mappings independently — one group can go out as a front e
 
 - Listens on **UDP 6454**, the standard Art-Net port.
 - **Desktop app only.** Browsers can't receive UDP. The web build says so rather than failing quietly.
-- Universe numbers are read from the full 15-bit Art-Net field, so any universe a source can address, Lightyard will accept — up to the 512 it can hold.
+- Universe numbers are read from the full 15-bit Art-Net field, so any universe a source can address, Beam will accept — up to the 512 it can hold.
 - No configuration beyond the switch. No IP to set, no subscription to manage.
 
 Output to hardware is a separate matter and goes via the WSC protocol inherited from ASLS Studio — see the README.
@@ -622,7 +622,7 @@ Check, in order:
 Probably addressing. Open the console (**Debug** in Visualizer preferences) and look for dropped-universe warnings — anything above universe 511 is refused, and it'll say so once per universe.
 
 **A fixture vanished from the MadMapper import.**
-It was edge-on to your export view. Lightyard warns about this before exporting, and gives such fixtures a token length so they survive — but if you exported past the warning, they may be somewhere odd on the canvas. Re-export from a view that suits them, or move them by hand in MadMapper.
+It was edge-on to your export view. Beam warns about this before exporting, and gives such fixtures a token length so they survive — but if you exported past the warning, they may be somewhere odd on the canvas. Re-export from a view that suits them, or move them by hand in MadMapper.
 
 **MadMapper imported the layout but the fixtures are wrong or missing.**
 You imported the layout before the definitions. Import the `.mmfl` first, then the layout.
@@ -638,9 +638,9 @@ Turn down fog **Density** and **Turbulence** first — they're the most expensiv
 
 ## Credits and licence
 
-Lightyard is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, released under the GPL-3.0. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation this stands on. Lightyard adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and library export.
+Beam is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, released under the GPL-3.0. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation this stands on. Beam adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and library export.
 
-Lightyard is likewise **GPL-3.0**. See [`COPYING`](./COPYING) for the full terms, and [`CREDITS.html`](./CREDITS.html) for third-party libraries, fonts and data.
+Beam is likewise **GPL-3.0**. See [`COPYING`](./COPYING) for the full terms, and [`CREDITS.html`](./CREDITS.html) for third-party libraries, fonts and data.
 
 Copyright © 2026 Paul van Dinther. Portions copyright © ASLS-org / Timé Kadel, 2021.
 
