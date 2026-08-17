@@ -1,8 +1,9 @@
 /* eslint-disable no-console */
 /* eslint-disable import/no-extraneous-dependencies */
-import { app, dialog } from 'electron';
+import { dialog } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import paths from './paths';
 
 /**
  * Show documents at paths the user chose (main process).
@@ -47,7 +48,7 @@ const SUBFOLDERS = ['autorecover', 'backups', 'exports'];
  * @returns {String} absolute path
  */
 function projectRoot() {
-  return path.join(app.getPath('documents'), 'Beatline', 'Beam');
+  return paths.beamRoot();
 }
 
 /**

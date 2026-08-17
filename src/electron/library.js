@@ -4,15 +4,21 @@ import { app } from 'electron';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import paths from './paths';
 
 /**
  * The user's fixture library on disk, one file per item (main process).
  *
- * Everything here belongs to the application rather than to a show: generated
- * fixture profiles, saved structures, and local corrections to shipped
- * profiles. A show only ever *names* these, so they are shared by every project
- * and edited in one place -- see the storage design. Freezing a project against
- * later edits is what Export is for, not this.
+ * Everything here is the user's own work, shared across projects rather than
+ * belonging to any one of them: generated fixture profiles, saved structures,
+ * and local corrections to shipped profiles. A show only ever *names* these, so
+ * they are edited in one place -- freezing a project against later edits is what
+ * Export is for, not this.
+ *
+ * It lives in the user's Documents, not in AppData. AppData is for settings,
+ * and a structure someone saved is not a setting: they will want to find the
+ * file again, copy it to another machine, or send it to somebody. That is the
+ * same reason one structure is one file.
  *
  * One item is one file. The alternative, a single keyed blob per kind, is what
  * this replaces: saving one structure used to re-serialise the whole library,
@@ -20,11 +26,14 @@ import path from 'path';
  * save touches exactly the file it names, and a file that will not parse is
  * skipped by name while the rest of the library still loads.
  *
- * Layout under `userData`:
+ * Layout, under `Documents/Beatline/Beam/Library`:
  *
- *   library/profiles/<manufacturer>/<model>.json
- *   library/structures/<name>.json
- *   library/overrides/<manufacturer>/<model>.json
+ *   Profiles/<manufacturer>/<model>.json
+ *   Structures/<name>.json
+ *   Overrides/<manufacturer>/<model>.json
+ *
+ * Nothing is created until there is something to put in it, so a user who has
+ * saved nothing never finds empty folders in their Documents.
  */
 
 /**
@@ -33,10 +42,13 @@ import path from 'path';
  * @constant {Object} KINDS
  */
 const KINDS = {
-  profiles: { depth: 2, legacy: 'generated_profiles' },
-  structures: { depth: 1, legacy: 'structures' },
-  overrides: { depth: 2, legacy: 'fixture_overrides' },
+  profiles: { depth: 2, legacy: 'generated_profiles', dir: 'Profiles' },
+  structures: { depth: 1, legacy: 'structures', dir: 'Structures' },
+  overrides: { depth: 2, legacy: 'fixture_overrides', dir: 'Overrides' },
 };
+
+/** Records that the one-time split of the old blobs has happened. */
+const MIGRATION_MARKER = 'library-migrated.json';
 
 /** Marks a file as ours and carries the key the filename cannot. */
 const FORMAT = 1;
@@ -57,10 +69,13 @@ const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 /**
  * Root of the library.
  *
+ * Beside the projects rather than inside any of them, and in Documents where
+ * the user can reach it.
+ *
  * @returns {String} absolute path
  */
 function libraryRoot() {
-  return path.join(app.getPath('userData'), 'library');
+  return path.join(paths.beamRoot(), 'Library');
 }
 
 /**
@@ -70,7 +85,7 @@ function libraryRoot() {
  * @returns {String|null} absolute path, or null when the kind is unknown
  */
 function kindRoot(kind) {
-  return KINDS[kind] ? path.join(libraryRoot(), kind) : null;
+  return KINDS[kind] ? path.join(libraryRoot(), KINDS[kind].dir) : null;
 }
 
 /**
@@ -269,22 +284,26 @@ function removeItem(kind, key) {
 /**
  * Splits the old single-file stores into the library, once.
  *
- * A kind migrates when its directory does not exist yet, so this runs on the
- * first launch after the change and never again. The originals are deliberately
- * left where they are: a migration that turns out to be wrong should cost
- * nothing to walk back, and a rename has already orphaned this user's data once.
+ * Runs once, recorded by a marker in `userData` -- settings being exactly the
+ * kind of thing AppData is for. Folder existence cannot stand in for that any
+ * more: the library is in the user's Documents now, where they are free to move
+ * or delete it, and re-splitting the old blobs behind their back is not a
+ * sensible reading of an empty folder.
+ *
+ * The originals are deliberately left where they are: a migration that turns out
+ * to be wrong should cost nothing to walk back, and a rename has already
+ * orphaned this user's data once.
  *
  * @returns {Object} kind to number of items migrated
  */
 function migrate() {
+  const marker = path.join(app.getPath('userData'), MIGRATION_MARKER);
+  if (fs.existsSync(marker)) return {};
   const migrated = {};
   Object.entries(KINDS).forEach(([kind, spec]) => {
-    const root = kindRoot(kind);
-    if (fs.existsSync(root)) return;
-    fs.mkdirSync(root, { recursive: true });
-    migrated[kind] = 0;
     const legacy = path.join(app.getPath('userData'), `${spec.legacy}.json`);
     if (!fs.existsSync(legacy)) return;
+    migrated[kind] = 0;
     try {
       const blob = JSON.parse(fs.readFileSync(legacy, 'utf8'));
       Object.entries(blob || {}).forEach(([key, value]) => {
@@ -295,6 +314,14 @@ function migrate() {
       console.error(`[library] could not migrate ${spec.legacy}.json: ${err.message}`);
     }
   });
+  try {
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, JSON.stringify({
+      at: new Date().toISOString(), into: libraryRoot(), migrated,
+    }, null, 2), 'utf8');
+  } catch (err) {
+    console.error(`[library] could not record the migration: ${err.message}`);
+  }
   return migrated;
 }
 
