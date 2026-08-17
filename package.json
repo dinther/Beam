@@ -19,6 +19,7 @@
     "@vue/compat": "^3.3.0",
     "axios": "^0.26.1",
     "events": "^3.3.0",
+    "fflate": "^0.8.3",
     "lodash": "^4.17.21",
     "mitt": "^3.0.1",
     "postprocessing": "^6.36.4",

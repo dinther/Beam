@@ -1,5 +1,5 @@
 {
-  "name": "New Project",
+  "name": "untitled",
   "bpm": 120,
   "fixtures": [],
   "universes": [
@@ -28,52 +28,7 @@
       "fixtures": []
     }
   ],
-  "groups": [
-    {
-      "id": 0,
-      "name": "Group 0",
-      "fixtures": [],
-      "cues": [],
-      "chases": [],
-      "solo": false,
-      "disabled": false,
-      "color": "#D9416B",
-      "master": 255
-    },
-    {
-      "id": 1,
-      "name": "Group 1",
-      "fixtures": [],
-      "cues": [],
-      "chases": [],
-      "solo": false,
-      "disabled": false,
-      "color": "#E046A6",
-      "master": 255
-    },
-    {
-      "id": 2,
-      "name": "Group 2",
-      "fixtures": [],
-      "cues": [],
-      "chases": [],
-      "solo": false,
-      "disabled": false,
-      "color": "#A45BC9",
-      "master": 255
-    },
-    {
-      "id": 3,
-      "name": "Group 3",
-      "fixtures": [],
-      "cues": [],
-      "chases": [],
-      "solo": false,
-      "disabled": false,
-      "color": "#8F5BC9",
-      "master": 255
-    }
-  ],
+  "groups": [],
   "visualizer": {
     "globalFoggingState": 0,
     "globalFoggingDensity": 80,

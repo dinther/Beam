@@ -50,7 +50,7 @@ export default {
        * Current show project naem
        * @todo, change name/use show handle directly ?
        */
-      project: this.$show.name,
+      project: this.$show.documentTitle,
       /**
        * Current show savestate
        */
@@ -95,7 +95,7 @@ export default {
           selected: false,
           items: [
             {
-              name: 'New Showfile',
+              name: 'New Project',
               icon: 'newfile',
               shortcut: 'Shift+N',
               callback: () => {
@@ -103,15 +103,22 @@ export default {
               },
             },
             {
-              name: 'Load Showfile',
+              name: 'Open Project',
               icon: 'folder',
               shortcut: 'Ctrl+O',
+              callback: () => {
+                this.openShow();
+              },
+            },
+            {
+              name: 'Import Showfile',
+              icon: 'folder',
               callback: () => {
                 this.loadFile();
               },
             },
             {
-              name: 'Save Showfile',
+              name: 'Save Project',
               shortcut: 'Ctrl+S',
               icon: 'save',
               callback: () => {
@@ -220,8 +227,18 @@ export default {
     this.$show.on('saveState', (state) => {
       this.saveState = state;
     });
+    // The title follows the document, not the show's stored name: a show that
+    // has never been saved is `untitled` whatever the template called itself.
+    this.$show.on('document', ({ title }) => {
+      this.project = title;
+    });
+    // A file that will not open has to say so. Silence would read as the app
+    // ignoring the click, and the show that is loaded stays untouched.
+    this.$show.on('documentError', (target) => {
+      EventBus.emit('app_error', new Error(`Could not open ${target}. It may not be a Beam project.`));
+    });
     EventBus.on('app_ready', () => {
-      this.project = this.$show.name;
+      this.project = this.$show.documentTitle;
     });
   },
   methods: {
@@ -257,8 +274,25 @@ export default {
      *
      * @public
      */
-    saveShow() {
-      this.$show.persistLocally();
+    /**
+     * Opens a project the user picks.
+     *
+     * @public
+     * @async
+     */
+    async openShow() {
+      await this.$show.openDocument();
+    },
+    /**
+     * Saves the show to its document, asking where the first time.
+     *
+     * @public
+     * @async
+     */
+    async saveShow() {
+      // Save means save the document. With nowhere to write yet this becomes
+      // Save As, because choosing where a first save lands is the user's.
+      await this.$show.saveDocument();
     },
     /**
      * Display visualizer popup

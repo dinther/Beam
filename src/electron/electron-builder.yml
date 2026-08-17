@@ -18,6 +18,14 @@ files:
 #   - resources/**
 win:
   executableName: Beam
+# Double-clicking a project opens it here. The extension is ours; the icon is
+# the application's, since a project has no separate identity to show.
+fileAssociations:
+  - ext: beam
+    name: Beatline Beam Project
+    description: Beatline Beam project
+    icon: public/icon.ico
+    role: Editor
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

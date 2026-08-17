@@ -75,6 +75,28 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow = null;
 
+/**
+ * A project named on the command line, waiting for the renderer to be ready.
+ *
+ * Double-clicking a `.beam` starts the application with that path in argv, or
+ * hands it to the copy already running. Either way it arrives long before there
+ * is anything to open it with, so it waits here until the renderer asks.
+ */
+let pendingDocument = null;
+
+/**
+ * The project among a set of command line arguments, if there is one.
+ *
+ * Only our own extension counts. Everything else on that line belongs to
+ * Chromium or, in development, to electron-vite.
+ *
+ * @param {Array} argv
+ * @returns {String|null} absolute path, or null
+ */
+function documentFromArgv(argv) {
+  return argv.slice(1).find((arg) => arg.toLowerCase().endsWith('.beam')) || null;
+}
+
 function createWindow() {
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -162,7 +184,6 @@ function setupFileExport() {
  * The user's fixture library, one file per item.
  */
 function setupLibrary() {
-  library.migrate();
   ipcMain.handle('library:readAll', (_event, kind) => library.readAll(kind));
   ipcMain.handle('library:write', (_event, kind, key, json) => library.writeItem(kind, key, json));
   ipcMain.handle('library:remove', (_event, kind, key) => library.removeItem(kind, key));
@@ -174,20 +195,45 @@ function setupLibrary() {
  */
 function setupDocumentStore() {
   ipcMain.handle('document:read', (_event, target) => documentstore.read(target));
-  ipcMain.handle('document:write', (_event, target, json) => documentstore.write(target, json));
+  ipcMain.handle('document:resources', (_event, target) => documentstore.readResources(target));
+  ipcMain.handle('document:write', (_event, target, json, resources) => documentstore.write(target, json, resources));
   ipcMain.handle('document:open', () => documentstore.openDialog());
-  ipcMain.handle('document:saveAs', (_event, name) => documentstore.saveDialog(name));
-  ipcMain.handle('document:in', (_event, folder) => documentstore.documentIn(folder));
-  ipcMain.handle('document:pathFor', (_event, folder) => documentstore.documentPathFor(folder));
+  ipcMain.handle('document:saveAs', (_event, name, title) => documentstore.saveDialog(name, title));
   ipcMain.handle('document:projectName', (_event, target) => documentstore.projectNameFor(target));
   ipcMain.handle('document:root', () => documentstore.projectRoot());
-  ipcMain.handle('document:subfolder', (_event, target, which) => documentstore.subfolder(target, which));
+  // Claimed rather than read: the renderer opens it once, and a reload must not
+  // reopen a file the user has since moved on from.
+  ipcMain.handle('document:claimPending', () => {
+    const target = pendingDocument;
+    pendingDocument = null;
+    return target;
+  });
 }
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
+// A second launch is not a second application. Windows starts one per
+// double-clicked file, so without this each project would open its own copy of
+// Beam, each with its own idea of what is open.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const target = documentFromArgv(argv);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      if (target) mainWindow.webContents.send('document:requested', target);
+    } else {
+      pendingDocument = target;
+    }
+  });
+}
+
 app.whenReady().then(() => {
+  pendingDocument = documentFromArgv(process.argv);
+
   // Windows groups taskbar buttons and attributes notifications by this
   // id, so it has to be ours rather than the toolkit's boilerplate default
   // -- and it has to match the appId electron-builder installs under, or a

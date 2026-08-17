@@ -117,8 +117,11 @@ export default {
     async submit() {
       this.close();
       this.$router.replace('/');
+      // A new project has never been saved, so it belongs to no document and
+      // is untitled until the user says otherwise. Cleared before the reload
+      // below, or the session would hand back the project they just left.
+      await this.$show.setDocument(null);
       await this.$show.loadFromUrl(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/${this.selectedTemplate.showfile}`);
-      this.$show.loading.state = false;
       // Yeah it sucks... But cleaning up everything from the view was a nightmare so for now:
       window.location.reload();
     },

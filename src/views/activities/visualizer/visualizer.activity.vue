@@ -14,7 +14,13 @@ export default {
   async mounted() {
     this.$show.slave = true;
     EventBus.on('visualizer_loaded', async () => {
-      await this.$show.loadPersisted();
+      // The show comes from the window that opened this one, which hands over
+      // its live Show on `window.$show`. Same origin, same memory, no file:
+      // the show exists in RAM until the user saves it to a document of their
+      // own, and a second window is no reason to write one behind their back.
+      const source = window.$show;
+      if (!source) return;
+      await this.$show.loadFromData(JSON.parse(source.genShowFile()));
     });
   },
 };

@@ -1,6 +1,4 @@
 /* eslint-disable no-console */
-/* eslint-disable import/no-extraneous-dependencies */
-import { app } from 'electron';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -37,18 +35,15 @@ import paths from './paths';
  */
 
 /**
- * How many path segments a kind's key has, and where its legacy blob lived.
+ * How many path segments a kind's key has, and the folder it lives in.
  *
  * @constant {Object} KINDS
  */
 const KINDS = {
-  profiles: { depth: 2, legacy: 'generated_profiles', dir: 'Profiles' },
-  structures: { depth: 1, legacy: 'structures', dir: 'Structures' },
-  overrides: { depth: 2, legacy: 'fixture_overrides', dir: 'Overrides' },
+  profiles: { depth: 2, dir: 'Profiles' },
+  structures: { depth: 1, dir: 'Structures' },
+  overrides: { depth: 2, dir: 'Overrides' },
 };
-
-/** Records that the one-time split of the old blobs has happened. */
-const MIGRATION_MARKER = 'library-migrated.json';
 
 /** Marks a file as ours and carries the key the filename cannot. */
 const FORMAT = 1;
@@ -281,50 +276,6 @@ function removeItem(kind, key) {
   }
 }
 
-/**
- * Splits the old single-file stores into the library, once.
- *
- * Runs once, recorded by a marker in `userData` -- settings being exactly the
- * kind of thing AppData is for. Folder existence cannot stand in for that any
- * more: the library is in the user's Documents now, where they are free to move
- * or delete it, and re-splitting the old blobs behind their back is not a
- * sensible reading of an empty folder.
- *
- * The originals are deliberately left where they are: a migration that turns out
- * to be wrong should cost nothing to walk back, and a rename has already
- * orphaned this user's data once.
- *
- * @returns {Object} kind to number of items migrated
- */
-function migrate() {
-  const marker = path.join(app.getPath('userData'), MIGRATION_MARKER);
-  if (fs.existsSync(marker)) return {};
-  const migrated = {};
-  Object.entries(KINDS).forEach(([kind, spec]) => {
-    const legacy = path.join(app.getPath('userData'), `${spec.legacy}.json`);
-    if (!fs.existsSync(legacy)) return;
-    migrated[kind] = 0;
-    try {
-      const blob = JSON.parse(fs.readFileSync(legacy, 'utf8'));
-      Object.entries(blob || {}).forEach(([key, value]) => {
-        if (writeItem(kind, key, JSON.stringify(value))) migrated[kind] += 1;
-      });
-      console.log(`[library] migrated ${migrated[kind]} ${kind} from ${spec.legacy}.json`);
-    } catch (err) {
-      console.error(`[library] could not migrate ${spec.legacy}.json: ${err.message}`);
-    }
-  });
-  try {
-    fs.mkdirSync(path.dirname(marker), { recursive: true });
-    fs.writeFileSync(marker, JSON.stringify({
-      at: new Date().toISOString(), into: libraryRoot(), migrated,
-    }, null, 2), 'utf8');
-  } catch (err) {
-    console.error(`[library] could not record the migration: ${err.message}`);
-  }
-  return migrated;
-}
-
 export default {
-  readAll, writeItem, removeItem, migrate, libraryRoot, pathFor,
+  readAll, writeItem, removeItem, libraryRoot, pathFor,
 };

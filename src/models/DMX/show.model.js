@@ -38,6 +38,17 @@ class Show extends EventEmitter {
   constructor() {
     super();
     this.name = '';
+    /**
+     * Absolute path of the document this show was opened from or last saved
+     * to, or null when it has never been saved.
+     *
+     * Null is what makes a show *untitled*, and it is why Save has to become
+     * Save As the first time: there is nowhere to write yet, and choosing that
+     * place is the user's to do, not ours.
+     */
+    this.documentPath = null;
+    /** The project's name -- its folder's -- or '' while untitled. */
+    this.projectName = '';
     this.isSaved = true;
     this.rawOFLFixtures = [];
     /** Local corrections to library profiles, keyed `manufacturer/model`. */
@@ -184,25 +195,6 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Persists the show to disk.
-   *
-   * Fire-and-forget: the save state is reported optimistically so the UI stays
-   * responsive, and a failure is logged by the main process rather than
-   * interrupting the user mid-edit.
-   *
-   * @public
-   */
-  persistLocally() {
-    if (typeof window !== 'undefined' && window.jsonStore) {
-      // Serialised here: show data is wrapped in reactive proxies, which
-      // structured clone cannot carry across the IPC boundary.
-      window.jsonStore.write('show', JSON.stringify(this.showData, null, 2));
-    }
-    this.isSaved = true;
-    this.emit('saveState', this.isSaved);
-  }
-
-  /**
    * Claims every loaded fixture's channels in the show's address space.
    *
    * @public
@@ -249,6 +241,123 @@ class Show extends EventEmitter {
   }
 
   /**
+   * What this show is called on screen.
+   *
+   * A show that has never been saved is `untitled`, whatever the template it
+   * was built from happens to call itself. The name only becomes real once the
+   * user has chosen where the document lives.
+   *
+   * @type {String}
+   */
+  get documentTitle() {
+    return this.projectName || 'untitled';
+  }
+
+  /**
+   * Points the show at a document, or at none.
+   *
+   * @private
+   * @async
+   * @param {String|null} target absolute path, or null to go back to untitled
+   */
+  async setDocument(target) {
+    this.documentPath = target || null;
+    this.projectName = target && window.documentStore
+      ? await window.documentStore.projectName(target)
+      : '';
+    this.emit('document', { path: this.documentPath, title: this.documentTitle });
+  }
+
+  /**
+   * Opens a document the user picks.
+   *
+   * The whole of it: ask which file, read that file, become it. Nothing is
+   * remembered between runs and nothing is opened unasked -- a document appears
+   * because the user said so.
+   *
+   * @public
+   * @async
+   * @returns {Promise<Boolean>} whether a document was opened
+   */
+  async openDocument() {
+    if (typeof window === 'undefined' || !window.documentStore) return false;
+    const target = await window.documentStore.open();
+    // Cancelling is an ordinary answer, not a failure.
+    if (!target) return false;
+    return this.openDocumentAt(target);
+  }
+
+  /**
+   * Opens a document already named -- double-clicked in Explorer, or handed
+   * over on the command line.
+   *
+   * @public
+   * @async
+   * @param {String} target absolute path
+   * @returns {Promise<Boolean>} whether it opened
+   */
+  async openDocumentAt(target) {
+    if (typeof window === 'undefined' || !window.documentStore || !target) return false;
+    const showData = await window.documentStore.read(target);
+    if (!showData) {
+      // Unreadable is not the same as empty: leave the show that is loaded
+      // alone rather than replacing it with nothing.
+      this.emit('documentError', target);
+      return false;
+    }
+    await this.loadFromData(showData);
+    await this.setDocument(target);
+    this.isSaved = true;
+    this.emit('saveState', this.isSaved);
+    return true;
+  }
+
+  /**
+   * Saves the show to its document, asking where to put it the first time.
+   *
+   * @public
+   * @async
+   * @returns {Promise<Boolean>} whether anything was written
+   */
+  async saveDocument() {
+    if (!this.documentPath) return this.saveDocumentAs();
+    return this.writeDocument(this.documentPath);
+  }
+
+  /**
+   * Saves the show to a document the user picks.
+   *
+   * @public
+   * @async
+   * @returns {Promise<Boolean>} whether anything was written
+   */
+  async saveDocumentAs() {
+    if (typeof window === 'undefined' || !window.documentStore) return false;
+    const target = await window.documentStore.saveAs(this.projectName || this.name);
+    // Cancelling a save dialog is an ordinary answer, not a failure.
+    if (!target) return false;
+    return this.writeDocument(target);
+  }
+
+  /**
+   * Writes the show to a path already decided on.
+   *
+   * @private
+   * @async
+   * @param {String} target absolute path
+   * @returns {Promise<Boolean>} whether the write succeeded
+   */
+  async writeDocument(target) {
+    const json = JSON.stringify(this.showData, null, 2);
+    const written = await window.documentStore.write(target, json);
+    if (!written) return false;
+    await this.setDocument(target);
+    this.isSaved = true;
+    this.emit('saveState', this.isSaved);
+    return true;
+  }
+
+  /**
    * Generates shiwfile from shuw data
    *
    * @returns {String} JSON formated show data.
@@ -286,21 +395,6 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Loads the persisted show from disk, if there is one.
-   *
-   * @async
-   * @public
-   * @returns {Boolean} whether a stored show was found and loaded
-   */
-  async loadPersisted() {
-    if (typeof window === 'undefined' || !window.jsonStore) return false;
-    const showData = await window.jsonStore.read('show');
-    if (!showData) return false;
-    await this.loadFromData(showData);
-    return true;
-  }
-
-  /**
    * Parses and loads showfile from provided data
    *
    * @todo re-implement QLC loader better
@@ -315,6 +409,10 @@ class Show extends EventEmitter {
     const showData = await Show._parseShowData(data, extension);
     await this.loadFromData(showData);
     this.name = filename;
+    // Importing a loose showfile is not opening a project. Leaving the previous
+    // document in place would point Save at somebody else's project and write
+    // this show straight over it.
+    await this.setDocument(null);
   }
 
   /**
@@ -324,12 +422,23 @@ class Show extends EventEmitter {
    * @public
    * @async
    */
-  async loadFromData(rawShowData, options = {}) {
+  async loadFromData(rawShowData) {
     // A load clears the show and then rebuilds it across several awaits. Two
     // overlapping calls would both clear first and then both append, leaving
     // one copy of every fixture per caller, so run them strictly in sequence.
     // A failed load must not stall the queue, hence the same handler twice.
-    const run = () => this.loadShowData(rawShowData, options);
+    //
+    // The load raises the loading overlay, so the load lowers it -- including
+    // when it throws. Leaving that to each caller is how opening a document
+    // came to sit at "Finalizing" forever: the show behind the overlay was
+    // loaded and fine, but nothing had thought to take the overlay away.
+    const run = async () => {
+      try {
+        return await this.loadShowData(rawShowData);
+      } finally {
+        this.loading.state = false;
+      }
+    };
     this.loadChain = this.loadChain.then(run, run);
     return this.loadChain;
   }
@@ -340,11 +449,10 @@ class Show extends EventEmitter {
    *
    * @param {Object} rawShowData raw show configuration data to be parsed/loaded
    * @param {Object} options load options
-   * @param {Boolean} options.persist whether to write the result to disk
    * @private
    * @async
    */
-  async loadShowData(rawShowData, { persist = true } = {}) {
+  async loadShowData(rawShowData) {
     const showData = migrateShowData(rawShowData);
     this.loading.state = true;
     this.loading.message = 'Clearing Show Data';
@@ -385,13 +493,6 @@ class Show extends EventEmitter {
     // matrices, so there is nothing to wait a frame for.
     if (this.visualizerHandle && this.visualizerHandle.frameDefault) {
       this.visualizerHandle.frameDefault();
-    }
-
-    // A fallback load must not overwrite the stored show: whatever could not
-    // be loaded is still the user's work, and persisting over it destroys the
-    // only copy.
-    if (persist) {
-      this.persistLocally();
     }
   }
 

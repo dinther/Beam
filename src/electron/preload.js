@@ -44,10 +44,9 @@ contextBridge.exposeInMainWorld('fileExport', {
 /**
  * Named JSON stores in the application data directory.
  *
- * This is a desktop application, so its state lives in files that can be
- * inspected and backed up rather than in browser storage. `show` holds the
- * working show; `preferences` holds application settings, which deliberately
- * do not travel with a show.
+ * Application settings only -- window layout, debug flags, the migration
+ * marker. Shows are not state: they live in RAM until the user saves them to a
+ * document of their own, and nothing here writes one behind their back.
  */
 contextBridge.exposeInMainWorld('jsonStore', {
   /** @returns {Promise<Object|null>} parsed contents, or null if absent */
@@ -95,27 +94,48 @@ contextBridge.exposeInMainWorld('library', {
 /**
  * Show documents, at paths the user chose.
  *
- * A project is a folder holding one `.beam` document named for it. Paths come
- * from the dialogs here rather than being invented by the renderer, and the main
- * process will only read or write files carrying our own extension.
+ * A `.beam` is a zip holding the show, so a Save dialog behaves the way one
+ * should: a name in, a file of that name out. Paths come from the dialogs here
+ * rather than being invented by the renderer, and the main process will only
+ * read or write files carrying our own extension.
  */
 contextBridge.exposeInMainWorld('documentStore', {
-  /** @returns {Promise<Object|null>} parsed document, or null when unreadable */
+  /** @returns {Promise<Object|null>} the show, or null when unreadable */
   read: (target) => ipcRenderer.invoke('document:read', target),
-  /** @returns {Promise<Boolean>} whether the write succeeded */
-  write: (target, json) => ipcRenderer.invoke('document:write', target, json),
+  /** @returns {Promise<Object>} resources an export carries, keyed by entry */
+  resources: (target) => ipcRenderer.invoke('document:resources', target),
+  /**
+   * @param {String} target
+   * @param {String} json serialised show
+   * @param {Object} [resources] entry path to serialised contents; collecting
+   *   these is what makes the file an export rather than an ordinary save
+   * @returns {Promise<Boolean>} whether the write succeeded
+   */
+  write: (target, json, resources) => ipcRenderer.invoke('document:write', target, json, resources),
   /** @returns {Promise<String|null>} chosen path, or null when cancelled */
   open: () => ipcRenderer.invoke('document:open'),
   /** @returns {Promise<String|null>} chosen path, or null when cancelled */
-  saveAs: (name) => ipcRenderer.invoke('document:saveAs', name),
-  /** @returns {Promise<String|null>} the single document in a folder */
-  documentIn: (folder) => ipcRenderer.invoke('document:in', folder),
-  /** @returns {Promise<String>} where a folder's document should sit */
-  pathFor: (folder) => ipcRenderer.invoke('document:pathFor', folder),
-  /** @returns {Promise<String>} the project's name, taken from its folder */
+  saveAs: (name, title) => ipcRenderer.invoke('document:saveAs', name, title),
+  /** @returns {Promise<String>} the project's name, taken from its file name */
   projectName: (target) => ipcRenderer.invoke('document:projectName', target),
   /** @returns {Promise<String>} where the save dialog starts */
   root: () => ipcRenderer.invoke('document:root'),
-  /** @returns {Promise<String|null>} a project subfolder, created on demand */
-  subfolder: (target, which) => ipcRenderer.invoke('document:subfolder', target, which),
+  /**
+   * A project the application was launched with, claimed once.
+   *
+   * @returns {Promise<String|null>} absolute path, or null when there is none
+   */
+  claimPending: () => ipcRenderer.invoke('document:claimPending'),
+  /**
+   * A project handed to the running application by a second launch -- someone
+   * double-clicking a `.beam` while Beam is already open.
+   *
+   * @param {(target: String) => void} callback
+   * @returns {() => void} unsubscribe
+   */
+  onRequested: (callback) => {
+    const listener = (_event, target) => callback(target);
+    ipcRenderer.on('document:requested', listener);
+    return () => ipcRenderer.removeListener('document:requested', listener);
+  },
 });

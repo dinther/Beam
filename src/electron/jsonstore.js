@@ -7,16 +7,16 @@ import path from 'path';
 /**
  * Named JSON files on disk (main process).
  *
- * State is kept as plain JSON in the platform's application data directory,
- * the way a desktop application is expected to behave -- on Windows that is
- * %APPDATA%\<app>\. Files can be inspected, backed up and copied between
- * machines, none of which is true of browser storage.
+ * Settings are kept as plain JSON in the platform's application data
+ * directory -- on Windows %APPDATA%\<app>\. The user's own work does not live
+ * here: their library is in Documents and their shows are wherever they saved
+ * them.
  *
  * Writes go to a temporary file first and are then renamed over the target, so
  * an interrupted save cannot leave a half-written file behind.
  *
- * Two stores use this: `show` for the working show, and `preferences` for
- * application settings, which deliberately do not travel with a show.
+ * Settings only. A show is a document the user names and saves; it is never
+ * quietly written here, and nothing reads one back at startup.
  */
 
 /** Rejects anything that is not a plain file name. */

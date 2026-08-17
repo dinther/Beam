@@ -99,6 +99,8 @@ export default {
        * Handle to show loading property
        */
       loader: this.$show.loading,
+      /** Drops the launched-with-a-project subscription on unmount. */
+      stopListeningForDocuments: null,
     };
   },
   watch: {
@@ -113,6 +115,12 @@ export default {
     this.$router._appReayState = false;
     EventBus.on('visualizer_loaded', this.setup);
     EventBus.on('app_error', this.handleAppError);
+    // Someone double-clicked a project while Beam was already running.
+    if (window.documentStore) {
+      this.stopListeningForDocuments = window.documentStore.onRequested((target) => {
+        this.$show.openDocumentAt(target);
+      });
+    }
   },
   /**
    * Drops the bus subscriptions. Without this a remount — a hot reload during
@@ -123,6 +131,7 @@ export default {
   beforeUnmount() {
     EventBus.off('visualizer_loaded', this.setup);
     EventBus.off('app_error', this.handleAppError);
+    if (this.stopListeningForDocuments) this.stopListeningForDocuments();
   },
   methods: {
     /**
@@ -191,34 +200,42 @@ export default {
      * @public
      */
     async setup() {
-      let localLoadingSucceeded = false;
+      // The app starts on a new, empty project. Nothing is restored, reopened
+      // or guessed at: a document appears only when the user opens one.
+      //
+      // It used to restore a stored show, and separately remember which file
+      // had been open. Those two could disagree -- the title said Propaganda
+      // while the contents were an empty autosave -- and one click on Save
+      // would then have written the empty show over a real project.
       try {
-        localLoadingSucceeded = await this.$show.loadPersisted();
+        const res = await fetch(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/blank.showfile.json`);
+        await this.$show.loadFromData(await res.json());
       } catch (err) {
-        // A stored show that will not load is still the user's work. Fall
-        // through to the demo so the app comes up, but leave the file alone.
         EventBus.emit('app_error', err);
       }
 
-      if (!localLoadingSucceeded) {
-        const res = await fetch(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/demo.showfile.json`);
-        const showData = await res.json();
-        // persist: false — the demo must never be written over a stored show.
-        await this.$show.loadFromData(showData, { persist: false });
-      }
-
-      await this.$router.push('/patch');
+      // Raised again in the same tick the load lowered it, so the overlay
+      // never blinks out between the two.
       this.loader = {
         message: 'Waiting for views to settle',
         percentage: 90,
         state: true,
       };
+      await this.$router.push('/patch');
 
       await new Promise((r) => { setTimeout(r, 500); });
       this.loader.state = false;
       this.$router._appReayState = true;
       this.ready = true;
       EventBus.emit('app_ready');
+
+      // Started by double-clicking a project: open it now that there is
+      // something to open it with. Claimed rather than read, so a reload does
+      // not reopen a file the user has since moved on from.
+      if (window.documentStore) {
+        const launchedWith = await window.documentStore.claimPending();
+        if (launchedWith) await this.$show.openDocumentAt(launchedWith);
+      }
     },
   },
 };
