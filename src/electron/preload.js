@@ -1,3 +1,4 @@
+/* eslint-disable import/no-extraneous-dependencies */
 import { contextBridge, ipcRenderer } from 'electron';
 
 /**
@@ -61,4 +62,60 @@ contextBridge.exposeInMainWorld('jsonStore', {
   clear: (name) => ipcRenderer.invoke('store:clear', name),
   /** @returns {Promise<String>} absolute path of the file */
   path: (name) => ipcRenderer.invoke('store:path', name),
+});
+
+/**
+ * The user's fixture library: generated profiles, saved structures, and local
+ * corrections to shipped profiles.
+ *
+ * One file per item, so saving one profile touches one file rather than
+ * re-serialising the library. Items are named by key -- `manufacturer/model`
+ * for profiles and overrides, a name for structures -- and never by path: the
+ * file name is a convenience the main process derives, not an identity.
+ */
+contextBridge.exposeInMainWorld('library', {
+  /**
+   * @param {String} kind 'profiles', 'structures' or 'overrides'
+   * @returns {Promise<Object>} key to contents
+   */
+  readAll: (kind) => ipcRenderer.invoke('library:readAll', kind),
+  /**
+   * @param {String} kind
+   * @param {String} key
+   * @param {String} json serialised contents of the item
+   * @returns {Promise<Boolean>} whether the write succeeded
+   */
+  write: (kind, key, json) => ipcRenderer.invoke('library:write', kind, key, json),
+  /** @returns {Promise<Boolean>} whether anything was removed */
+  remove: (kind, key) => ipcRenderer.invoke('library:remove', kind, key),
+  /** @returns {Promise<String>} absolute path of the library root */
+  root: () => ipcRenderer.invoke('library:root'),
+});
+
+/**
+ * Show documents, at paths the user chose.
+ *
+ * A project is a folder holding one `.beam` document named for it. Paths come
+ * from the dialogs here rather than being invented by the renderer, and the main
+ * process will only read or write files carrying our own extension.
+ */
+contextBridge.exposeInMainWorld('documentStore', {
+  /** @returns {Promise<Object|null>} parsed document, or null when unreadable */
+  read: (target) => ipcRenderer.invoke('document:read', target),
+  /** @returns {Promise<Boolean>} whether the write succeeded */
+  write: (target, json) => ipcRenderer.invoke('document:write', target, json),
+  /** @returns {Promise<String|null>} chosen path, or null when cancelled */
+  open: () => ipcRenderer.invoke('document:open'),
+  /** @returns {Promise<String|null>} chosen path, or null when cancelled */
+  saveAs: (name) => ipcRenderer.invoke('document:saveAs', name),
+  /** @returns {Promise<String|null>} the single document in a folder */
+  documentIn: (folder) => ipcRenderer.invoke('document:in', folder),
+  /** @returns {Promise<String>} where a folder's document should sit */
+  pathFor: (folder) => ipcRenderer.invoke('document:pathFor', folder),
+  /** @returns {Promise<String>} the project's name, taken from its folder */
+  projectName: (target) => ipcRenderer.invoke('document:projectName', target),
+  /** @returns {Promise<String>} where the save dialog starts */
+  root: () => ipcRenderer.invoke('document:root'),
+  /** @returns {Promise<String|null>} a project subfolder, created on demand */
+  subfolder: (target, which) => ipcRenderer.invoke('document:subfolder', target, which),
 });

@@ -16,6 +16,8 @@ import path from 'path';
 import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
 import jsonstore from './jsonstore';
+import library from './library';
+import documentstore from './documentstore';
 import fileexport from './fileexport';
 
 // GPU timer queries are disabled by default because precise timing is a
@@ -156,6 +158,32 @@ function setupFileExport() {
   ipcMain.handle('file:export', (_event, payload) => fileexport.save(payload));
 }
 
+/**
+ * The user's fixture library, one file per item.
+ */
+function setupLibrary() {
+  library.migrate();
+  ipcMain.handle('library:readAll', (_event, kind) => library.readAll(kind));
+  ipcMain.handle('library:write', (_event, kind, key, json) => library.writeItem(kind, key, json));
+  ipcMain.handle('library:remove', (_event, kind, key) => library.removeItem(kind, key));
+  ipcMain.handle('library:root', () => library.libraryRoot());
+}
+
+/**
+ * Show documents at paths the user chose.
+ */
+function setupDocumentStore() {
+  ipcMain.handle('document:read', (_event, target) => documentstore.read(target));
+  ipcMain.handle('document:write', (_event, target, json) => documentstore.write(target, json));
+  ipcMain.handle('document:open', () => documentstore.openDialog());
+  ipcMain.handle('document:saveAs', (_event, name) => documentstore.saveDialog(name));
+  ipcMain.handle('document:in', (_event, folder) => documentstore.documentIn(folder));
+  ipcMain.handle('document:pathFor', (_event, folder) => documentstore.documentPathFor(folder));
+  ipcMain.handle('document:projectName', (_event, target) => documentstore.projectNameFor(target));
+  ipcMain.handle('document:root', () => documentstore.projectRoot());
+  ipcMain.handle('document:subfolder', (_event, target, which) => documentstore.subfolder(target, which));
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -177,6 +205,8 @@ app.whenReady().then(() => {
   setupArtnet();
   setupJsonStore();
   setupFileExport();
+  setupLibrary();
+  setupDocumentStore();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

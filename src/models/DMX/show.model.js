@@ -442,13 +442,13 @@ class Show extends EventEmitter {
    * @async
    */
   async preloadFixtureOverrides() {
-    if (typeof window === 'undefined' || !window.jsonStore) {
+    if (typeof window === 'undefined' || !window.library) {
       this.fixtureOverrides = {};
       return;
     }
     // Nothing overridden is a perfectly ordinary state; every fixture then
     // falls back to its library profile and the renderer's own defaults.
-    this.fixtureOverrides = (await window.jsonStore.read('fixture_overrides')) || {};
+    this.fixtureOverrides = (await window.library.readAll('overrides')) || {};
   }
 
   /**
@@ -456,10 +456,23 @@ class Show extends EventEmitter {
    *
    * @public
    */
-  persistFixtureOverrides() {
-    if (typeof window !== 'undefined' && window.jsonStore) {
-      window.jsonStore.write('fixture_overrides', JSON.stringify(this.fixtureOverrides, null, 2));
-    }
+  persistFixtureOverrides(profileKey) {
+    if (typeof window === 'undefined' || !window.library) return;
+    // One item, one file. Writing only the profile that changed is the point of
+    // the library being files: nothing else is put at risk by this save.
+    const keys = profileKey ? [profileKey] : Object.keys(this.fixtureOverrides);
+    keys.forEach((key) => {
+      const entry = this.fixtureOverrides[key];
+      // A model whose last override has just been cleared has no entry left,
+      // and its file has to go with it. Written back instead it would return as
+      // an empty object on the next launch, and the default would stay
+      // overridden by nothing at all.
+      if (!entry || !Object.keys(entry).length) {
+        window.library.remove('overrides', key);
+        return;
+      }
+      window.library.write('overrides', key, JSON.stringify(entry, null, 2));
+    });
   }
 
   /**
@@ -474,7 +487,7 @@ class Show extends EventEmitter {
     const entry = this.fixtureOverrides[profileKey] || {};
     entry[key] = value;
     this.fixtureOverrides[profileKey] = entry;
-    this.persistFixtureOverrides();
+    this.persistFixtureOverrides(profileKey);
     this.applyFixtureOverride(profileKey, key, value);
   }
 
@@ -494,7 +507,7 @@ class Show extends EventEmitter {
     if (entry) {
       delete entry[key];
       if (!Object.keys(entry).length) delete this.fixtureOverrides[profileKey];
-      this.persistFixtureOverrides();
+      this.persistFixtureOverrides(profileKey);
     }
     this.applyFixtureOverride(profileKey, key, fallback);
   }
@@ -569,8 +582,8 @@ class Show extends EventEmitter {
    * @async
    */
   async preloadStructures() {
-    if (typeof window === 'undefined' || !window.jsonStore) return;
-    this.structures = (await window.jsonStore.read('structures')) || {};
+    if (typeof window === 'undefined' || !window.library) return;
+    this.structures = (await window.library.readAll('structures')) || {};
   }
 
   /**
@@ -605,8 +618,10 @@ class Show extends EventEmitter {
       }),
     };
     this.structures[group.name] = structure;
-    if (typeof window !== 'undefined' && window.jsonStore) {
-      await window.jsonStore.write('structures', JSON.stringify(this.structures, null, 2));
+    if (typeof window !== 'undefined' && window.library) {
+      // Only this structure is written. Saving one used to re-serialise every
+      // structure there was, so a bad write took the whole library with it.
+      await window.library.write('structures', group.name, JSON.stringify(structure, null, 2));
     }
     return group.name;
   }
@@ -794,8 +809,8 @@ class Show extends EventEmitter {
    * @async
    */
   async preloadGeneratedProfiles() {
-    if (typeof window === 'undefined' || !window.jsonStore) return;
-    const stored = await window.jsonStore.read('generated_profiles');
+    if (typeof window === 'undefined' || !window.library) return;
+    const stored = await window.library.readAll('profiles');
     this.generatedProfiles = stored || {};
   }
 
@@ -814,11 +829,8 @@ class Show extends EventEmitter {
     const profile = buildLedBarProfile(params);
     profile.name = model;
     this.generatedProfiles[key] = profile;
-    if (typeof window !== 'undefined' && window.jsonStore) {
-      await window.jsonStore.write(
-        'generated_profiles',
-        JSON.stringify(this.generatedProfiles, null, 2),
-      );
+    if (typeof window !== 'undefined' && window.library) {
+      await window.library.write('profiles', key, JSON.stringify(profile, null, 2));
     }
     this.refreshFixtureList();
     return key;
