@@ -10,6 +10,37 @@ import LedBar from './led_bar';
 import GroupHandle from './group_handle';
 
 /**
+ * Identity of a selected item, across kinds.
+ *
+ * A structure and a fixture number themselves independently, so ids alone
+ * collide: structure 3 and fixture 3 are different things that compare equal.
+ * Every selection test goes through this instead.
+ *
+ * @param {Object} item fixture or structure
+ * @return {String} a key unique across every kind of item
+ */
+function selectionKey(item) {
+  if (!item) return '';
+  if (item.isStructure) return `structure:${item.id}`;
+  return `fixture:${item.universe}:${item.id}`;
+}
+
+/**
+ * The item a pick belongs to.
+ *
+ * A structure's members have no individual identity in the 3D view -- the
+ * whole point of one is that it is a single thing to grab -- so a hit on a
+ * member resolves upward. A fixture standing on its own resolves to itself.
+ *
+ * @param {Object} fixture the fixture under the pointer, or null
+ * @return {Object} the item that hit selects, or null
+ */
+function itemFor(fixture) {
+  if (!fixture) return null;
+  return fixture.structure || fixture;
+}
+
+/**
  * Global position vector handle
  *
  * @constant {Object} position
@@ -604,8 +635,16 @@ class Controls {
       this.detachAll();
       this.clearAllHighlighting();
     }
+    // Resolved and deduped before anything is selected: a band drawn across a
+    // twelve-fixture truss hits twelve members and means one structure, and
+    // adding it twelve times would put twelve copies of it in the selection.
+    const seen = new Set();
     picked.forEach((fixture) => {
-      if (this.pooledIndexOf(fixture) === -1) fixture.highlight(true, true);
+      const item = itemFor(fixture);
+      const key = selectionKey(item);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (this.pooledIndexOf(item) === -1) item.highlight(true, true);
     });
     // Only a single-fixture selection names a primary. Naming one of many
     // routes the pool list to it, and the list answers by calling
@@ -648,9 +687,9 @@ class Controls {
       return;
     }
 
-    const fixture = this.pickFixtureAt(e);
-    if (fixture) {
-      this.selectFixture(fixture, additive);
+    const item = itemFor(this.pickFixtureAt(e));
+    if (item) {
+      this.selectItem(item, additive);
     } else if (!additive) {
       // A modified click that misses keeps whatever is already selected.
       this.deselectAll();
@@ -752,8 +791,8 @@ class Controls {
    * @return {Number} index in pooledInstances, or -1
    */
   pooledIndexOf(fixture) {
-    return this.pooledInstances.findIndex((f) => f === fixture
-      || (f.id === fixture.id && f.universe === fixture.universe));
+    const key = selectionKey(fixture);
+    return this.pooledInstances.findIndex((f) => f === fixture || selectionKey(f) === key);
   }
 
   /**
@@ -764,30 +803,43 @@ class Controls {
    * @param {Object} primary fixture the UI should route to, or null
    */
   emitSelection(primary) {
-    const selectedIds = this.pooledInstances.map((f) => f.id);
+    // Two channels, deliberately. `selectedItems` is the whole selection with
+    // its kinds intact; `selectedIds` is the fixtures in it and nothing else,
+    // because everything downstream resolves those against the fixture pool
+    // and a structure id sent that way comes back as an unrelated fixture.
+    const selectedItems = this.pooledInstances.map((item) => ({
+      kind: item.isStructure ? 'structure' : 'fixture',
+      id: item.id,
+    }));
+    const selectedIds = selectedItems
+      .filter((item) => item.kind === 'fixture')
+      .map((item) => item.id);
+    const primaryIsStructure = !!(primary && primary.isStructure);
     EventBus.emit('fixture_picked', {
-      universeId: primary ? primary.universe : undefined,
-      fixtureId: primary ? primary.id : undefined,
+      universeId: primary && !primaryIsStructure ? primary.universe : undefined,
+      fixtureId: primary && !primaryIsStructure ? primary.id : undefined,
+      structureId: primaryIsStructure ? primary.id : undefined,
+      selectedItems,
       selectedIds,
     });
   }
 
-  selectFixture(fixtureHandle, additive = false) {
-    const fixture = toRaw(fixtureHandle);
+  selectItem(itemHandle, additive = false) {
+    const item = toRaw(itemHandle);
     if (!additive) {
       // Whatever was highlighted before is no longer selected, whichever
       // renderer it belonged to.
       this.clearAllHighlighting();
-      fixture.highlightSingle(true, true);
+      item.highlightSingle(true, true);
       // Only a plain click drives the UI selection; extending the 3D selection
-      // must not re-route the fixture list to the fixture just added.
-      this.emitSelection(fixture);
+      // must not re-route the list to the item just added.
+      this.emitSelection(item);
       return;
     }
-    if (this.pooledIndexOf(fixture) > -1) {
-      this.removeFromSelection(fixture);
+    if (this.pooledIndexOf(item) > -1) {
+      this.removeFromSelection(item);
     } else {
-      fixture.highlight(true, true);
+      item.highlight(true, true);
       this.emitSelection(null);
     }
   }
@@ -1171,7 +1223,10 @@ class Controls {
    */
   syncGroupsFromGizmo() {
     this.pooledInstances.forEach((instance) => {
-      if (!instance.isGroup || !instance._3DModel) return;
+      // Structures move exactly as groups do: their members are not in the
+      // selection, so the transform is written to the item and the members
+      // follow through their own setters.
+      if ((!instance.isGroup && !instance.isStructure) || !instance._3DModel) return;
       const dummy = instance._3DModel._dummy;
       dummy.updateMatrixWorld(true);
       dummy.getWorldPosition(position);

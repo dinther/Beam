@@ -10,6 +10,12 @@
         @click="createGroup"
       />
       <uk-button
+        icon="structure"
+        style="margin-right: 8px"
+        label="structure"
+        @click="createStructure"
+      />
+      <uk-button
         icon="new"
         style="margin-right: 8px"
         label="new"
@@ -20,17 +26,19 @@
       deletable
       colored
       draggable
-      auto-select-first
       class="patch_bay_fixture_list"
       filterable
       :items="listable"
-      :highlight-ids="highlightedFixtureIds"
+      :highlight-ids="highlightedIds"
       @select="displayFixture"
       @highlight="highlightFixtures"
       @delete="deleteFixtures"
       @reparent="reparentItem"
     />
-    <patch-popup v-model="patchPopupDisplayState" />
+    <patch-popup
+      v-model="patchPopupDisplayState"
+      @placed="selectPlaced"
+    />
   </div>
 </template>
 
@@ -58,9 +66,11 @@ export default {
       show: this.$show,
       patchPopupDisplayState: false,
       /**
-       * Ids of fixtures selected in the 3D view, mirrored into the list.
+       * Ids of items selected in the 3D view, mirrored into the list. Mixed:
+       * a fixture is its numeric id, a structure the `structure:N` its row
+       * carries, since the two number themselves independently.
        */
-      highlightedFixtureIds: [],
+      highlightedIds: [],
     };
   },
   computed: {
@@ -74,9 +84,9 @@ export default {
      * @type {Array}
      */
     listable() {
-      const grouped = new Set();
+      const spokenFor = new Set();
       const groups = this.show.groups.map((group) => {
-        group.members.forEach((member) => grouped.add(member.id));
+        group.members.forEach((member) => spokenFor.add(member.id));
         // Its own icon rather than the selector's folder: a group is a thing
         // in the show, not a place to look in.
         return {
@@ -88,10 +98,18 @@ export default {
           unfold: group.members.map((member) => this.describeFixture(member)),
         };
       });
+      // Structures are flat rows with nothing to unfold. What they hold sits
+      // at coordinates relative to them, which makes those things not scene
+      // items -- they are reached through the structure's own widget, and
+      // putting them here would contradict what this list is.
+      const structures = this.show.structures.map((structure) => {
+        structure.members.forEach((member) => spokenFor.add(member.id));
+        return structure.listable;
+      });
       const loose = this.pool.fixtures
-        .filter((fixture) => !grouped.has(fixture.id))
+        .filter((fixture) => !spokenFor.has(fixture.id))
         .map((fixture) => this.describeFixture(fixture));
-      return [...groups, ...loose];
+      return [...structures, ...groups, ...loose];
     },
   },
   mounted() {
@@ -111,7 +129,7 @@ export default {
     describeFixture(fixture) {
       return {
         name: fixture.name,
-        icon: 'movinghead',
+        icon: fixture.isBar ? 'ledbar' : 'movinghead',
         id: fixture.id,
         universe: fixture.universe,
         address: fixture.address,
@@ -136,6 +154,41 @@ export default {
       Controls.attach(group);
     },
     /**
+     * Selects a structure in the 3D view, so the gizmo moves the whole thing.
+     *
+     * @public
+     * @param {Number} structureId id of the structure to select
+     */
+    selectStructure(structureId) {
+      const structure = this.$show.structures.find((s) => s.id === structureId);
+      if (!structure) return;
+      this.$router.push({ path: '/patch', query: { structureId } }).catch(() => {});
+      Controls.detachAll();
+      Controls.clearAllHighlighting();
+      structure.highlightSingle(true);
+      Controls.attach(structure);
+      // The route drives the group and fixture widgets, but a structure has no
+      // route of its own that the modifier watches, so it is announced.
+      Controls.emitSelection(structure);
+    },
+    /**
+     * Resolves a list row back to the thing it stands for.
+     *
+     * @public
+     * @param {Object} item list row
+     * @returns {Object|null} the structure, group or fixture it names
+     */
+    itemFromRow(item) {
+      if (!item) return null;
+      if (item.isStructure) {
+        return this.$show.structures.find((s) => s.id === item.structureId) || null;
+      }
+      if (item.isGroup) {
+        return this.$show.groups.find((g) => g.id === item.groupId) || null;
+      }
+      return this.pool.findFromId(item.id);
+    },
+    /**
      * Deletes any groups in a deletion, along with the fixtures they hold.
      *
      * @public
@@ -158,10 +211,27 @@ export default {
      * @public
      */
     createGroup() {
-      const members = this.highlightedFixtureIds
+      const members = this.highlightedIds
         .map((id) => this.pool.findFromId(id))
         .filter(Boolean);
       this.$show.createGroup(members);
+    },
+    /**
+     * Makes one structure out of the selected fixtures.
+     *
+     * Structures take fixtures and objects, not other structures, so a
+     * selection that already holds one contributes only its loose items.
+     *
+     * @public
+     */
+    createStructure() {
+      const members = this.highlightedIds
+        .map((id) => this.pool.findFromId(id))
+        .filter(Boolean)
+        .filter((fixture) => !fixture.structure);
+      if (!members.length) return;
+      const structure = this.$show.createStructure(members);
+      this.selectStructure(structure.id);
     },
     /**
      * Moves a dragged item into a group, or out to the root.
@@ -170,7 +240,10 @@ export default {
      * @param {Object} payload {item, target} from the list
      */
     reparentItem({ item, target }) {
-      if (!item || item.isGroup) return;
+      // A structure is one item, and what it holds is not in this list, so
+      // there is nothing to drag into or out of one.
+      if (!item || item.isGroup || item.isStructure) return;
+      if (target && target.isStructure) return;
       const fixture = this.pool.findFromId(item.id);
       if (!fixture) return;
       const group = target && target.isGroup
@@ -188,6 +261,10 @@ export default {
       if (!fixtureData) return;
       if (fixtureData.isGroup) {
         this.selectGroup(fixtureData.groupId);
+        return;
+      }
+      if (fixtureData.isStructure) {
+        this.selectStructure(fixtureData.structureId);
         return;
       }
       this.$router.push({ path: '/patch', query: { fixtureId: fixtureData.id } }).catch(() => {});
@@ -210,13 +287,17 @@ export default {
     highlightFixtures(fixtures) {
       if (!fixtures.length) return;
       Controls.clearAllHighlighting();
+      // Rows are resolved by kind rather than run through the fixture pool: a
+      // structure row's id is a string, and asking the pool for it used to
+      // return nothing, so structures dropped silently out of a mixed
+      // selection.
       fixtures.forEach((fixtureData, index) => {
-        const fixture = this.pool.findFromId(fixtureData.id);
-        if (!fixture) return;
+        const item = this.itemFromRow(fixtureData);
+        if (!item) return;
         if (index === 0) {
-          fixture.highlightSingle(false, false);
+          item.highlightSingle(false, false);
         }
-        fixture.highlight(true, true);
+        item.highlight(true, true);
       });
       // Highlighting attaches each fixture to the gizmo, but nothing has said
       // so out loud -- and anything watching the selection rather than the
@@ -235,10 +316,20 @@ export default {
      * @param {Array} fixtures listable entries of the fixtures to delete
      */
     deleteFixtures(fixtures) {
-      // Deleting a group takes its fixtures with it; the group widget's
-      // ungroup is what leaves them behind.
-      if (this.deleteGroups(fixtures)) return;
-      fixtures.forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
+      // Every kind in the selection is handled, rather than returning after
+      // the first one found: a selection holding a structure and a loose
+      // fixture used to delete the one and silently spare the other.
+      //
+      // Deleting a structure or a group takes its contents with it; explode
+      // and ungroup are what leave them behind.
+      this.deleteGroups(fixtures);
+      fixtures.filter((item) => item && item.isStructure).forEach((item) => {
+        const structure = this.$show.structures.find((s) => s.id === item.structureId);
+        if (structure) this.$show.deleteStructure(structure);
+      });
+      fixtures
+        .filter((item) => item && !item.isGroup && !item.isStructure)
+        .forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
     },
     /**
      * Reflects a selection made in the 3D view.
@@ -248,12 +339,35 @@ export default {
      */
     handleFixturePicked(payload) {
       if (!payload) {
-        this.highlightedFixtureIds = [];
+        this.highlightedIds = [];
         return;
       }
-      this.highlightedFixtureIds = payload.selectedIds || [];
+      // Built from the typed selection, so a structure highlights its own row
+      // rather than whichever fixture happens to share its number.
+      this.highlightedIds = (payload.selectedItems || []).map((item) => (
+        item.kind === 'structure' ? `structure:${item.id}` : item.id
+      ));
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
+    },
+    /**
+     * Selects what "+ New" just added.
+     *
+     * The list used to select its own first row on mount, which meant
+     * something looked selected that the user had never chosen. Selecting the
+     * thing they just created is the part that was actually wanted.
+     *
+     * @public
+     * @param {Object} placed {kind, id} of the first item added
+     */
+    selectPlaced(placed) {
+      if (!placed) return;
+      if (placed.kind === 'structure') {
+        this.selectStructure(placed.id);
+        return;
+      }
+      const fixture = this.pool.findFromId(placed.id);
+      if (fixture) this.displayFixture(this.describeFixture(fixture));
     },
     /**
      * Displays the patch popup

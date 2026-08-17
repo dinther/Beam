@@ -234,6 +234,16 @@ export default {
       default: null,
     },
     /**
+     * Id of the item to show as selected, driven from outside the list. Left
+     * undefined the list stays in charge of its own selection, which is what
+     * every existing caller relies on; passing it hands that over, so an owner
+     * that can drop a selection on its own account can say so.
+     */
+    selectedId: {
+      type: [String, Number],
+      default: undefined,
+    },
+    /**
      * Whether or not item highlighting is disabled
      */
     noHighlight: Boolean,
@@ -391,6 +401,9 @@ export default {
         this.applyExternalHighlight(ids);
       },
       deep: true,
+    },
+    selectedId(id) {
+      this.applyExternalSelection(id);
     },
     preventUnfocus() {
       this.unfocusElBlacklist.push(...this.preventUnfocus);
@@ -689,6 +702,30 @@ export default {
           this.highlightedItems.push(item);
         }
       });
+    },
+    /**
+     * Mirrors a selection made by the owner onto the list. Emits nothing: the
+     * owner already knows, and echoing it back would loop.
+     *
+     * @param {String|Number|null} id id of the item to mark selected, or null
+     *   for none
+     */
+    applyExternalSelection(id) {
+      if (this.selectedId === undefined) return;
+      let found = null;
+      this.tree.forEach((treeItem) => {
+        const matches = !!treeItem.value && treeItem.value.id === id;
+        treeItem.selected = matches;
+        if (matches) found = treeItem;
+        if (!treeItem.value || !treeItem.value.unfold) return;
+        treeItem.value.unfold.forEach((subItem) => {
+          const subMatches = !!subItem.value && subItem.value.id === id;
+          subItem.selected = subMatches;
+          if (subMatches) found = subItem;
+        });
+      });
+      this.selectedItem = found;
+      this.selectedIndex = found ? this.tree.indexOf(found) : -1;
     },
     handleMultiSelection(item) {
       item.highlighted = !item.highlighted;

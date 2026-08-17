@@ -223,7 +223,13 @@ class Fixture extends Proxify {
       this._3DModel = null;
       /** Owning group, or null when the fixture sits at the root. */
       this.group = null;
-      /** Transform relative to that group, held by the group itself. */
+      /**
+       * Owning structure, or null when the fixture is a scene item in its own
+       * right. A fixture inside one still holds absolute coordinates -- the
+       * structure writes them -- but they are the structure's to set.
+       */
+      this.structure = null;
+      /** Transform relative to that group or structure, held by the owner. */
       this.localTransform = null;
       this._rotation = {
         x: 0,
@@ -265,10 +271,24 @@ class Fixture extends Proxify {
     return this._model;
   }
 
+  /**
+   * Whether this fixture is an emitter bar rather than a head.
+   *
+   * Asked of the generated profile that carries the emitter geometry, the same
+   * test `prepare3DModelInstance` makes -- a category string like 'Matrix'
+   * says nothing about where the emitters actually are.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  get isBar() {
+    return !!(this.OFLData && this.OFLData.asls && this.OFLData.asls.bar);
+  }
+
   get listable() {
     return {
       name: this.name,
-      icon: 'movinghead',
+      icon: this.isBar ? 'ledbar' : 'movinghead',
       id: this.id,
       universe: this.universe,
       // chStart is 0-based internally; DMX addresses are shown 1-based.
@@ -293,10 +313,13 @@ class Fixture extends Proxify {
       universeAligned: this.universeAligned,
       universe: this.universe,
       chStart: this.chStart,
-      mode: this.modeNam,
+      // modeName, not modeNam: the typo meant every save wrote an undefined
+      // mode and every load fell back to the profile's first one.
+      mode: this.modeName,
       position: this.position,
       rotation: this.rotation,
       groupId: this.group ? this.group.id : undefined,
+      structureId: this.structure ? this.structure.id : undefined,
     };
   }
 

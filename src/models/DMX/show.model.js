@@ -12,6 +12,7 @@ import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
 import Group from './group.model';
+import Structure from './structure.model';
 import Live from './live.model';
 import { buildLedBarProfile } from './generic/led_bar';
 
@@ -62,8 +63,14 @@ class Show extends EventEmitter {
     this.fixturePool = new FixturePool();
     /** Groups, in list order. Membership is exclusive. */
     this.groups = [];
-    /** Saved arrangements, keyed by name, for placing again. */
-    this.structures = {};
+    /**
+     * Structures standing in the scene, in list order. These are placed
+     * items, not definitions: each holds real fixtures and objects and has no
+     * link back to whatever it was stamped from.
+     */
+    this.structures = [];
+    /** Saved structure definitions, keyed by name, for placing again. */
+    this.structureLibrary = {};
     /**
      * Manufacturer display names, keyed by the folder the library uses.
      *
@@ -135,6 +142,7 @@ class Show extends EventEmitter {
       // Addressing lives entirely on the fixtures now. Universe records are
       // kept only for the name and colour the patch bay displays.
       groups: this.groups.map((group) => group.showData),
+      structures: this.structures.map((structure) => structure.showData),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
     };
   }
@@ -236,6 +244,10 @@ class Show extends EventEmitter {
     // The address space outlives no show: drop every claim before loading.
     PatchSingleton.clearAll();
     this.fixturePool.clearAll(true);
+    // Their handles are Object3Ds in the scene, so dropping the array is not
+    // enough -- the old show's structures would keep a node each.
+    this.structures.forEach((structure) => structure.dispose());
+    this.structures = [];
     this.name = '';
     this.isSaved = true;
   }
@@ -474,6 +486,9 @@ class Show extends EventEmitter {
     this.loading.message = 'Restoring groups';
     this.prepareGroups(showData);
 
+    this.loading.message = 'Restoring structures';
+    this.prepareStructures(showData);
+
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
     this.name = showData.name;
@@ -684,7 +699,7 @@ class Show extends EventEmitter {
    */
   async preloadStructures() {
     if (typeof window === 'undefined' || !window.library) return;
-    this.structures = (await window.library.readAll('structures')) || {};
+    this.structureLibrary = (await window.library.readAll('structures')) || {};
   }
 
   /**
@@ -718,7 +733,7 @@ class Show extends EventEmitter {
         };
       }),
     };
-    this.structures[group.name] = structure;
+    this.structureLibrary[group.name] = structure;
     if (typeof window !== 'undefined' && window.library) {
       // Only this structure is written. Saving one used to re-serialise every
       // structure there was, so a bad write took the whole library with it.
@@ -742,8 +757,8 @@ class Show extends EventEmitter {
    *   unknown or none of its members could be resolved
    */
   async placeStructure(name, placement = {}) {
-    const structure = this.structures[name];
-    if (!structure) return null;
+    const definition = this.structureLibrary[name];
+    if (!definition) return null;
 
     const origin = new THREE.Matrix4().compose(
       new THREE.Vector3(
@@ -766,8 +781,8 @@ class Show extends EventEmitter {
     const euler = new THREE.Euler();
     const members = [];
 
-    for (let i = 0; i < structure.members.length; i += 1) {
-      const member = structure.members[i];
+    for (let i = 0; i < definition.members.length; i += 1) {
+      const member = definition.members[i];
       // eslint-disable-next-line no-await-in-loop
       const OFLData = await this.resolveProfile(member.manufacturer, member.model);
       if (OFLData) {
@@ -806,7 +821,12 @@ class Show extends EventEmitter {
     }
 
     if (!members.length) return null;
-    return this.createGroup(members, this.uniqueGroupName(structure.name));
+    // The placement origin, not the centre of mass: the definition's transforms
+    // were authored around it, so that is where the structure's handle belongs.
+    return this.createStructure(members, definition.name, {
+      position: placement.position,
+      rotation: placement.rotation,
+    });
   }
 
   /**
@@ -829,6 +849,128 @@ class Show extends EventEmitter {
     } catch (err) {
       return null;
     }
+  }
+
+  /**
+   * Rebuilds placed structures and their membership from a showfile.
+   *
+   * Runs after the fixtures exist, since a structure holds its members rather
+   * than their ids. A showfile without structures is simply one where nothing
+   * was structured, so this is safe on older files.
+   *
+   * Membership is re-taken with `add`, which recaptures each member's relative
+   * transform from where it now stands. That is deliberate: the members were
+   * saved at absolute coordinates, so the file already agrees with itself and
+   * the relative transforms fall straight back out of it.
+   *
+   * @public
+   * @param {Object} showData raw showfile contents
+   */
+  prepareStructures(showData) {
+    this.structures = (showData.structures || []).map((structureData) => {
+      const structure = new Structure(structureData);
+      (structureData.members || []).forEach((id) => {
+        // Resolved through the load index rather than the pool: addRaw hands
+        // out fresh ids, so a saved member id means nothing once a fixture has
+        // been deleted and the rest have shuffled down.
+        const fixture = this.loadedFixturesById.get(id);
+        if (fixture) structure.add(fixture);
+      });
+      return structure;
+    });
+  }
+
+  /**
+   * The nearest free structure name to the one asked for.
+   *
+   * Placing the same definition twice is normal, so a clash is expected rather
+   * than exceptional: the second one gains a number instead of being refused.
+   *
+   * @public
+   * @param {String} desired name the user asked for
+   * @param {Number} [ignoreId] id of the structure allowed to keep this name
+   * @returns {String} a name no other structure is using
+   */
+  uniqueStructureName(desired, ignoreId = null) {
+    const wanted = (desired || '').trim() || 'Structure';
+    const taken = new Set(
+      this.structures
+        .filter((structure) => structure.id !== ignoreId)
+        .map((structure) => structure.name),
+    );
+    if (!taken.has(wanted)) return wanted;
+    let n = 2;
+    while (taken.has(`${wanted} ${n}`)) n += 1;
+    return `${wanted} ${n}`;
+  }
+
+  /**
+   * Makes one scene item out of several.
+   *
+   * Without an origin the structure sits at the centre of what it holds, which
+   * is what making one out of a selection wants. Placing a saved definition
+   * passes the origin instead, so the stamp keeps the point its transforms
+   * were authored around rather than drifting to the centre of mass.
+   *
+   * @public
+   * @param {Array} [members] items to take ownership of
+   * @param {String} [name] display name
+   * @param {Object} [origin] {position, rotation} in metres and radians
+   * @returns {Object} the new structure
+   */
+  createStructure(members = [], name = undefined, origin = null) {
+    const structure = new Structure({
+      name: this.uniqueStructureName(name),
+      position: (origin || {}).position,
+      rotation: (origin || {}).rotation,
+    });
+    members.forEach((member) => structure.add(member));
+    if (members.length && !origin) structure.centreOnMembers();
+    this.structures.push(structure);
+    return structure;
+  }
+
+  /**
+   * Explodes a structure, leaving what it held in the scene.
+   *
+   * The members keep the coordinates they already occupied -- nothing moves,
+   * they simply become items in their own right. This is the only edit a
+   * placed structure has: there is no reaching into one to change a member,
+   * because a structure is a stamp rather than a live copy of a definition.
+   *
+   * @public
+   * @param {Object} structure structure to explode
+   * @returns {Array} the items it released
+   */
+  explodeStructure(structure) {
+    const index = this.structures.indexOf(structure);
+    if (index === -1) return [];
+    const released = structure.release();
+    structure.dispose();
+    this.structures.splice(index, 1);
+    return released;
+  }
+
+  /**
+   * Deletes a structure and everything in it.
+   *
+   * Keeping the contents is a different intention, and has its own word:
+   * `explodeStructure`.
+   *
+   * @public
+   * @param {Object} structure structure to remove
+   */
+  deleteStructure(structure) {
+    const index = this.structures.indexOf(structure);
+    if (index === -1) return;
+    structure.release().forEach((member) => {
+      const handle = this.fixturePool.findFromId(member.id);
+      if (!handle) return;
+      PatchSingleton.unpatchFixture(handle);
+      this.fixturePool.delete(handle, true);
+    });
+    structure.dispose();
+    this.structures.splice(index, 1);
   }
 
   /**

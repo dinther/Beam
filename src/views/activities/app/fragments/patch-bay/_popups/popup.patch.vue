@@ -354,6 +354,7 @@ export default {
       default: null,
     },
   },
+  emits: ['placed'],
   data() {
     return {
       headerData: { title: 'Add to show' },
@@ -583,9 +584,10 @@ export default {
       const base = { ...this.fixture.position };
       const spin = { ...this.fixture.rotation };
       const toRad = (deg) => (deg * Math.PI) / 180;
+      const placed = [];
       for (let i = 0; i < this.amount; i += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await this.$show.placeStructure(this.selectedStructure, {
+        const structure = await this.$show.placeStructure(this.selectedStructure, {
           position: {
             x: base.x + this.positionOffsets.x * i,
             y: base.y + this.positionOffsets.y * i,
@@ -597,8 +599,13 @@ export default {
             z: toRad(spin.z + this.rotationOffsets.z * i),
           },
         });
+        if (structure) placed.push(structure);
       }
       this.loading = false;
+      // What was just added is what the user is looking at, so it arrives
+      // selected. This is not the list picking a default -- that was wrong and
+      // is gone -- it is the outcome of an action they took.
+      if (placed.length) this.$emit('placed', { kind: 'structure', id: placed[0].id });
       // close(), not `state = false`. Setting the local copy alone leaves the
       // parent still holding true, so the next "+ New" assigns true to true,
       // the modelValue watcher never fires, and the dialog cannot be reopened
@@ -649,8 +656,12 @@ export default {
                 ),
               );
               this.$show.patchFixture(fixture);
+              // Collected rather than left empty: this list was already being
+              // returned, and something has to name what was added.
+              fixtures.push(fixture);
             }
             this.loading = false;
+            if (fixtures.length) this.$emit('placed', { kind: 'fixture', id: fixtures[0].id });
             this.close();
             return fixtures;
           } catch (err) {
@@ -670,15 +681,19 @@ export default {
      * @async
      */
     /**
-     * Icon for a list entry: generated fixtures read as a different kind of
-     * thing from library profiles, and unrendered ones from both.
+     * Icon for a list entry: bars read as a different kind of thing from
+     * library profiles, and unrendered ones from both.
+     *
+     * Generated is the test because generating one is how a bar comes to
+     * exist: OFL cannot describe an emitter array, so every generated profile
+     * is a bar and every bar is a generated profile.
      *
      * @public
      * @param {Object} entry fixture list entry
      * @returns {String} icon name
      */
     entryIcon(entry) {
-      if (entry.generated) return 'grid';
+      if (entry.generated) return 'ledbar';
       return entry.supported ? 'movinghead' : 'undef';
     },
     /**
@@ -715,7 +730,7 @@ export default {
     buildItems(id) {
       if (id === 'fixtures') return this.prepareFixtures();
       if (id === 'structures') {
-        const structures = this.$show.structures || {};
+        const structures = this.$show.structureLibrary || {};
         return Object.keys(structures).map((name) => ({
           name,
           icon: 'structure',

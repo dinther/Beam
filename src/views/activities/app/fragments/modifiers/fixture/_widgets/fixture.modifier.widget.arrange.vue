@@ -30,7 +30,7 @@
       <uk-flex class="arrange_count">
         <span>Selected</span>
         <span style="flex: 1" />
-        <b>{{ fixtures.length }} fixtures</b>
+        <b>{{ items.length }} {{ items.length === 1 ? 'item' : 'items' }}</b>
       </uk-flex>
 
       <!-- LINE -->
@@ -189,6 +189,7 @@
 </template>
 
 <script>
+import * as THREE from 'three';
 import Controls from '@/plugins/visualizer/controls';
 import {
   LAYOUT,
@@ -210,6 +211,20 @@ import {
  * @constant {String} ALIGN_KIND
  */
 const ALIGN_KIND = 'align';
+
+/**
+ * Scratch maths for previewing a structure. Reused rather than allocated
+ * because a preview runs on every keystroke, once per member.
+ */
+const previewMatrix = new THREE.Matrix4();
+const previewPosition = new THREE.Vector3();
+const previewQuaternion = new THREE.Quaternion();
+const previewEuler = new THREE.Euler();
+const previewScale = new THREE.Vector3(1, 1, 1);
+const memberMatrix = new THREE.Matrix4();
+const memberPosition = new THREE.Vector3();
+const memberQuaternion = new THREE.Quaternion();
+const memberEuler = new THREE.Euler();
 
 /**
  * uk-select-input works in indices rather than values, so every select needs
@@ -247,9 +262,14 @@ export default {
   },
   props: {
     /**
-     * Every fixture in the current selection.
+     * Every item in the current selection.
+     *
+     * An item is whatever was selected, at the granularity it was selected at:
+     * a fixture standing on its own, or a whole structure. A structure counts
+     * once, which is the difference between laying three trusses along a line
+     * and laying out every fixture inside them.
      */
-    fixtures: {
+    items: {
       type: Array,
       default: () => [],
     },
@@ -280,7 +300,7 @@ export default {
       order: 0,
       reverse: false,
       /**
-       * Where every fixture sat before the tool touched anything. Null means
+       * Where every item stood before the tool touched anything. Null means
        * nothing is being previewed.
        */
       baseline: null,
@@ -313,8 +333,8 @@ export default {
      */
     gridShape() {
       const columns = Math.max(1, Math.floor(this.grid.columns) || 1);
-      const rows = Math.ceil(this.fixtures.length / columns);
-      const spare = columns * rows - this.fixtures.length;
+      const rows = Math.ceil(this.items.length / columns);
+      const spare = columns * rows - this.items.length;
       return `${columns} × ${rows}${spare ? `, last row ${columns - spare} of ${columns}` : ''}`;
     },
     /**
@@ -333,7 +353,7 @@ export default {
      * @property {String} summary
      */
     summary() {
-      const n = this.fixtures.length;
+      const n = this.items.length;
       if (n < 2) return '';
       if (this.kind === LAYOUT.CIRCLE) {
         const sweep = Number(this.circle.sweep);
@@ -358,9 +378,9 @@ export default {
     },
   },
   watch: {
-    // A change of selection abandons the preview: the fixtures it was moving
-    // may not even be selected any more.
-    fixtures() {
+    // A change of selection abandons the preview: the items it was moving may
+    // not even be selected any more.
+    items() {
       this.restore();
       this.baseline = null;
     },
@@ -376,8 +396,8 @@ export default {
     this.kind = LAYOUT.LINE;
   },
   beforeUnmount() {
-    // Leaving with fixtures mid-preview would strand them somewhere the show
-    // has never heard of.
+    // Leaving with items mid-preview would strand them somewhere the show has
+    // never heard of.
     this.restore();
   },
   methods: {
@@ -411,10 +431,10 @@ export default {
       if (Controls.pooledInstances && Controls.pooledInstances.length) {
         Controls.applyTransformation();
       }
-      this.baseline = this.fixtures.map((fixture) => ({
-        fixture,
-        position: { ...fixture.position },
-        rotation: { ...fixture.rotation },
+      this.baseline = this.items.map((item) => ({
+        item,
+        position: { ...item.position },
+        rotation: { ...item.rotation },
       }));
     },
     /**
@@ -441,9 +461,9 @@ export default {
       if (Controls.pooledInstances && Controls.pooledInstances.length) {
         Controls.applyTransformation();
       }
-      this.baseline.forEach(({ fixture, position, rotation }) => {
-        fixture.position = position;
-        fixture.rotation = rotation;
+      this.baseline.forEach(({ item, position, rotation }) => {
+        item.position = position;
+        item.rotation = rotation;
       });
       // Cleared here rather than by each caller, so the invariant the preview
       // depends on holds everywhere: a baseline is only ever held while the
@@ -457,18 +477,60 @@ export default {
      * @public
      */
     preview() {
-      if (!this.kind || this.fixtures.length < 2) return;
+      if (!this.kind || this.items.length < 2) return;
       this.capture();
-      this.placements().forEach(({ fixture, position, rotation }) => {
-        if (!fixture._3DModel) return;
-        fixture._3DModel.position = position;
+      this.placements().forEach(({ item, position, rotation }) => {
+        if (item.isStructure) {
+          this.previewStructure(item, position, rotation);
+          return;
+        }
+        if (!item._3DModel) return;
+        item._3DModel.position = position;
         if (rotation) {
-          fixture._3DModel.rotation = {
+          item._3DModel.rotation = {
             x: (rotation.x * Math.PI) / 180,
             y: (rotation.y * Math.PI) / 180,
             z: (rotation.z * Math.PI) / 180,
           };
         }
+      });
+    },
+    /**
+     * Shows a structure where it would land, without moving it.
+     *
+     * A structure draws nothing itself -- its members are what is on screen --
+     * so previewing one means working out where each member would stand and
+     * writing that to the member's renderer. Writing to the structure instead
+     * would go through its setters into the model, and the whole point of a
+     * preview is that the show never hears about it.
+     *
+     * @public
+     * @param {Object} structure the structure being previewed
+     * @param {Object} position where its origin would be, in metres
+     * @param {Object} rotation where it would face, in degrees, or null
+     */
+    previewStructure(structure, position, rotation) {
+      const facing = rotation || structure.rotation;
+      previewMatrix.compose(
+        previewPosition.set(position.x, position.y, position.z),
+        previewQuaternion.setFromEuler(previewEuler.set(
+          THREE.MathUtils.degToRad(facing.x),
+          THREE.MathUtils.degToRad(facing.y),
+          THREE.MathUtils.degToRad(facing.z),
+        )),
+        previewScale.set(1, 1, 1),
+      );
+      structure.members.forEach((member) => {
+        if (!member.localTransform || !member._3DModel) return;
+        memberMatrix.multiplyMatrices(previewMatrix, member.localTransform);
+        memberMatrix.decompose(memberPosition, memberQuaternion, previewScale);
+        memberEuler.setFromQuaternion(memberQuaternion);
+        member._3DModel.position = {
+          x: memberPosition.x, y: memberPosition.y, z: memberPosition.z,
+        };
+        member._3DModel.rotation = {
+          x: memberEuler.x, y: memberEuler.y, z: memberEuler.z,
+        };
       });
     },
     /**
@@ -479,10 +541,10 @@ export default {
      *                 the layout leaves facing alone
      */
     placements() {
-      const baseline = this.baseline || this.fixtures.map((fixture) => ({
-        fixture,
-        position: { ...fixture.position },
-        rotation: { ...fixture.rotation },
+      const baseline = this.baseline || this.items.map((item) => ({
+        item,
+        position: { ...item.position },
+        rotation: { ...item.rotation },
       }));
 
       if (this.kind === ALIGN_KIND) {
@@ -493,7 +555,7 @@ export default {
           alignTo: ALIGN_TARGETS[this.align.to],
         });
         return baseline.map((entry, i) => ({
-          fixture: entry.fixture,
+          item: entry.item,
           position: moved[i],
           rotation: null,
         }));
@@ -502,16 +564,16 @@ export default {
       const centre = boundsCentre(baseline.map((entry) => entry.position));
       const transforms = arrangeTransforms(baseline.length, this.layoutOptions());
       const sequence = orderIndices(
-        baseline.map((entry) => entry.fixture),
+        baseline.map((entry) => entry.item),
         ORDERS[this.order],
         this.reverse,
       );
 
-      return sequence.map((fixtureIndex, place) => {
-        const entry = baseline[fixtureIndex];
+      return sequence.map((itemIndex, place) => {
+        const entry = baseline[itemIndex];
         const step = transforms[place];
         return {
-          fixture: entry.fixture,
+          item: entry.item,
           position: {
             x: centre.x + step.position.x,
             y: centre.y + step.position.y,
@@ -568,9 +630,16 @@ export default {
      */
     apply() {
       if (!this.previewing) return;
-      this.placements().forEach(({ fixture, position, rotation }) => {
-        fixture.position = position;
-        if (rotation) fixture.rotation = rotation;
+      this.placements().forEach(({ item, position, rotation }) => {
+        // Written through the item's own setter, whichever kind it is: a
+        // structure's fans the move out to its members, a fixture's just moves
+        // itself.
+        item.position = position;
+        if (rotation) item.rotation = rotation;
+        // A fixture in a group keeps a transform relative to that group. Move
+        // it without recapturing and the group still believes it is where it
+        // was, so the next time the group moves the fixture snaps back.
+        if (item.group && item.group.captureLocal) item.group.captureLocal(item);
       });
       // What was applied is the new truth, so the next edit starts from here
       // rather than from wherever the fixtures stood before.

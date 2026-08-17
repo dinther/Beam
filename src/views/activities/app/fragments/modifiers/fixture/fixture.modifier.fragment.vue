@@ -1,5 +1,17 @@
 <template>
   <uk-flex class="fixture_modifier">
+    <structure-widget
+      v-if="selectedStructure"
+      :structure="selectedStructure"
+      :selected-member-id="selectedFixture ? selectedFixture.id : null"
+      @select-member="selectMember"
+      @exploded="clearStructure"
+    />
+    <position-tool-widget
+      v-if="selectedStructure"
+      :fixture="selectedStructure"
+      title="Structure Position"
+    />
     <model-widget
       v-show="showsOneFixture"
       ref="model"
@@ -20,11 +32,11 @@
       :group="selectedGroup"
     />
     <arrange-widget
-      v-if="showsManyFixtures"
-      :fixtures="selectedFixtures"
+      v-if="showsManyItems"
+      :items="selectedItems"
     />
     <h3
-      v-if="!showsOneFixture && !showsManyFixtures && !selectedGroup"
+      v-if="!showsOneFixture && !showsManyItems && !selectedGroup && !selectedStructure"
       class="empty_text"
     >
       Nothing Selected
@@ -40,6 +52,7 @@ import PositionToolWidget from './_widgets/fixture.modifier.widget.position.tool
 import ModelWidget from './_widgets/fixture.modifier.widget.model.vue';
 import ArrangeWidget from './_widgets/fixture.modifier.widget.arrange.vue';
 import GroupWidget from '../group/group.modifier.widget.vue';
+import StructureWidget from '../structure/structure.modifier.widget.vue';
 
 export default {
   name: 'FixtureModifierFragment',
@@ -53,6 +66,7 @@ export default {
     PositionToolWidget,
     ArrangeWidget,
     GroupWidget,
+    StructureWidget,
   },
   data() {
     return {
@@ -73,6 +87,17 @@ export default {
        * for the tools that act on a whole selection.
        */
       selectedFixtures: [],
+      /**
+       * Currently selected structure, when a whole structure is what the pick
+       * resolved to. Its own widget is not built yet; this is here so the
+       * single-fixture widgets do not stay up showing a stale member.
+       */
+      selectedStructure: null,
+      /**
+       * The whole selection as items: a fixture standing on its own, or a
+       * structure, each counting once. What Arrange acts on.
+       */
+      selectedItems: [],
     };
   },
   computed: {
@@ -89,12 +114,16 @@ export default {
       return !!this.selectedFixture && !this.selectedGroup && this.selectedFixtures.length <= 1;
     },
     /**
-     * Whether a selection of two or more fixtures is live.
+     * Whether a selection of two or more items is live.
      *
-     * @property {Boolean} showsManyFixtures
+     * Items, not fixtures: three structures are three things to arrange, and
+     * counting the fixtures inside them is what put every one of them on a
+     * single line.
+     *
+     * @property {Boolean} showsManyItems
      */
-    showsManyFixtures() {
-      return !this.selectedGroup && this.selectedFixtures.length > 1;
+    showsManyItems() {
+      return !this.selectedGroup && !this.selectedStructure && this.selectedItems.length > 1;
     },
   },
   watch: {
@@ -111,6 +140,7 @@ export default {
     EventBus.on('fixture_picked', this.handleFixturePicked);
   },
   beforeUnmount() {
+    this.highlightMember(false);
     EventBus.off('fixture_picked', this.handleFixturePicked);
     if (this.selectedFixture && this.selectedFixture.id) {
       this.selectedFixture.highlightSingle(false);
@@ -132,6 +162,7 @@ export default {
         // the set alone would strand it, and dropping the group again would
         // bring back a selection of fixtures that are no longer selected.
         this.selectedFixtures = [];
+        this.selectedItems = [];
         return;
       }
       try {
@@ -140,9 +171,11 @@ export default {
         // in the patch bay list would leave a stale multi-selection standing
         // and the single-fixture widgets hidden behind it.
         this.selectedFixtures = [this.selectedFixture];
+        this.selectedItems = [this.selectedFixture];
       } catch (err) {
         this.selectedFixture = null;
         this.selectedFixtures = [];
+        this.selectedItems = [];
       }
     },
     /**
@@ -160,6 +193,56 @@ export default {
         .find((group) => group.id === Number(id)) || null;
     },
     /**
+     * Opens a structure member's own widgets, keeping the structure up.
+     *
+     * A member is reachable but not movable: its settings and patching are the
+     * point of picking it, and the position tool locks itself on the way in.
+     *
+     * @public
+     * @param {Number|null} id member fixture id, or null when there is none
+     */
+    selectMember(id) {
+      this.highlightMember(false);
+      // Null is "no member", not "no structure": clicking the picked member
+      // again drops it and leaves the structure showing, which is how you get
+      // back to placing the structure itself.
+      if (id === null || id === undefined) {
+        this.selectedFixture = null;
+        this.selectedFixtures = [];
+        return;
+      }
+      const fixture = this.$show.fixturePool.findFromId(id);
+      this.selectedFixture = fixture || null;
+      this.selectedFixtures = fixture ? [fixture] : [];
+      this.highlightMember(true);
+    },
+    /**
+     * Shows, or stops showing, which member is being looked at.
+     *
+     * `highlight(state, false)` and never true: the second argument is what
+     * attaches the gizmo, and a structure's member is not the user's to drag.
+     * The structure keeps the gizmo the whole time.
+     *
+     * @public
+     * @param {Boolean} state whether the member should be lit
+     */
+    highlightMember(state) {
+      if (!this.selectedStructure || !this.selectedFixture) return;
+      if (this.selectedFixture.highlight) this.selectedFixture.highlight(state, false);
+    },
+    /**
+     * Drops the structure entirely, once it has stopped being one item.
+     *
+     * @public
+     */
+    clearStructure() {
+      this.highlightMember(false);
+      this.selectedStructure = null;
+      this.selectedFixture = null;
+      this.selectedFixtures = [];
+      this.selectedItems = [];
+    },
+    /**
      * Follows the selection made anywhere else -- the 3D view or the patch bay
      * list, both of which announce through this one event.
      *
@@ -168,15 +251,40 @@ export default {
      * so there is nothing to route to and only the set changes here.
      *
      * @public
-     * @param {Object} payload {fixtureId, selectedIds}, or null when cleared
+     * @param {Object} payload {fixtureId, structureId, selectedItems,
+     *   selectedIds}, or null when cleared
      */
     handleFixturePicked(payload) {
       if (!payload) {
+        this.highlightMember(false);
         this.selectedFixture = null;
         this.selectedGroup = null;
+        this.selectedStructure = null;
+        this.selectedFixtures = [];
+        this.selectedItems = [];
+        return;
+      }
+      this.highlightMember(false);
+      // Resolved by kind. A structure id and a fixture id are different
+      // numbering spaces, so asking the pool for both would hand back an
+      // unrelated fixture wherever they happened to collide.
+      this.selectedItems = (payload.selectedItems || []).map((entry) => (
+        entry.kind === 'structure'
+          ? this.$show.structures.find((s) => s.id === entry.id)
+          : this.$show.fixturePool.findFromId(entry.id)
+      )).filter(Boolean);
+      // A structure is one item, not the fixtures inside it. Picking one has
+      // to clear the fixture selection outright, or the single-fixture widgets
+      // stay up editing whichever member was clicked last.
+      this.selectedStructure = payload.structureId === undefined
+        ? null
+        : this.$show.structures.find((s) => s.id === payload.structureId) || null;
+      if (this.selectedStructure) {
+        this.selectedFixture = null;
         this.selectedFixtures = [];
         return;
       }
+
       // findFromId rather than getFromId: a selection is allowed to name a
       // fixture that has since been deleted, and that is not worth throwing
       // over.

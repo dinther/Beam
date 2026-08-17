@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { toRaw } from 'vue';
 import SceneManager from './scene_manager';
 
 /**
@@ -58,15 +59,22 @@ class GroupHandle {
    * @public
    */
   sync() {
+    // Unwrapped first, and both sides of the test with it. Anything reached
+    // from $show arrives as a reactive proxy, and a proxied node's parent is a
+    // proxy of the scene -- never identical to the scene itself. That made the
+    // guard below true for every write, so the node silently stopped following
+    // its owner and the next gizmo flush wrote the stale position back.
+    const dummy = toRaw(this._dummy);
     // While the gizmo has hold of the node it is the one saying where the
     // group is; writing a world position into a node that now has a parent
     // would send it somewhere else entirely.
-    if (this._dummy.parent && this._dummy.parent !== SceneManager) return;
-    const { position } = this._group;
-    const rotation = this._group.rotationRad;
-    this._dummy.position.set(position.x, position.y, position.z);
-    this._dummy.rotation.set(rotation.x, rotation.y, rotation.z);
-    this._dummy.updateMatrixWorld();
+    if (dummy.parent && toRaw(dummy.parent) !== SceneManager) return;
+    const owner = toRaw(this._group);
+    const { position } = owner;
+    const rotation = owner.rotationRad;
+    dummy.position.set(position.x, position.y, position.z);
+    dummy.rotation.set(rotation.x, rotation.y, rotation.z);
+    dummy.updateMatrixWorld();
   }
 
   set highlighted(state) {

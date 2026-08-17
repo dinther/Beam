@@ -147,10 +147,16 @@ export default {
      * @type {String}
      */
     header() {
-      if (!this.fixture) return { title: 'Model', icon: 'grid' };
+      // The icon says which kind of fixture these settings belong to. It used
+      // to be `grid` either way, which is the uikit widget's own placeholder
+      // and meant nothing here.
+      if (!this.fixture) return { title: 'Model', icon: 'fixture' };
       const mode = this.fixture.mode ? ` — ${this.fixture.mode.name}` : '';
       const count = this.fixture.channels ? ` (${this.fixture.channels.length} ch)` : '';
-      return { title: `${this.fixture.model}${mode}${count}`, icon: 'grid' };
+      return {
+        title: `${this.fixture.model}${mode}${count}`,
+        icon: this.fixture.isBar ? 'ledbar' : 'movinghead',
+      };
     },
     /**
      * Key the overrides file is indexed by.
