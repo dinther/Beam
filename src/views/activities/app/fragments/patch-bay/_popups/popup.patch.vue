@@ -599,7 +599,11 @@ export default {
         });
       }
       this.loading = false;
-      this.state = false;
+      // close(), not `state = false`. Setting the local copy alone leaves the
+      // parent still holding true, so the next "+ New" assigns true to true,
+      // the modelValue watcher never fires, and the dialog cannot be reopened
+      // for the rest of the session.
+      this.close();
     },
     /**
      * Patch selected fixture using provided form parameters.

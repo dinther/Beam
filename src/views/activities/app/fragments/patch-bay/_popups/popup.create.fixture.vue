@@ -286,7 +286,9 @@ export default {
           universeAligned: this.universeAligned,
         },
       );
-      this.state = false;
+      // See popup.patch.vue: closing without emitting strands the parent's
+      // v-model at true and the dialog never opens again.
+      this.close();
       this.$emit('created', key);
     },
   },
