@@ -17,7 +17,7 @@ files:
 # asarUnpack:
 #   - resources/**
 win:
-  executableName: Beatline Beam
+  executableName: Beam
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

@@ -160,8 +160,11 @@ function setupFileExport() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron');
+  // Windows groups taskbar buttons and attributes notifications by this
+  // id, so it has to be ours rather than the toolkit's boilerplate default
+  // -- and it has to match the appId electron-builder installs under, or a
+  // pinned shortcut and the running window are treated as two apps.
+  electronApp.setAppUserModelId('com.beatline.beam');
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
