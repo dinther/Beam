@@ -1,5 +1,5 @@
 @echo off
-REM Start ASLS Studio in Electron dev mode (Vite dev server + Electron window).
+REM Start Beatline Beam in Electron dev mode (Vite dev server + Electron window).
 setlocal
 pushd "%~dp0"
 
@@ -22,7 +22,7 @@ echo Starting ASLS Studio...
 call npm run electron:start
 if errorlevel 1 (
     echo [ERROR] The app exited with an error.
-    goto :fail
+    goto :failProject 
 )
 
 popd
