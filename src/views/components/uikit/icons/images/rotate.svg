@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rotation about an axis, drawn in perspective so it cannot be taken for the
+     flat circular arrow the gobo and auto-rotate controls already use. -->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 24 24" xml:space="preserve">
+<rect x="10.6" y="1.4" width="2.8" height="14.4" rx="1.4"/>
+<path fill-rule="evenodd" d="M21.426,17.882 A10.4,5.4 0 1,1 17.966,11.176 L16.015,13.798 A7,2.2 0 1,0 18.344,16.53 Z"/>
+<polygon points="15.76,15.87 18.22,9.11 21.69,14.20"/>
+</svg>

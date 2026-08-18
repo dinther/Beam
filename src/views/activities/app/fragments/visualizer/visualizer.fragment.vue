@@ -11,6 +11,36 @@
       <h3>Visualizer</h3>
       <uk-button
         v-show="!hidden"
+        :key="`translate-${gizmoMode}-${modeTick}`"
+        square
+        icon-only
+        label="Move (T)"
+        :value="false"
+        toggleable
+        :model-value="gizmoMode === 'translate'"
+        icon="move"
+        color="var(--accent-blue)"
+        @click="setGizmoMode('translate')"
+      />
+      <uk-button
+        v-show="!hidden"
+        :key="`rotate-${gizmoMode}-${modeTick}`"
+        square
+        icon-only
+        label="Rotate (R)"
+        :value="false"
+        toggleable
+        :model-value="gizmoMode === 'rotate'"
+        icon="rotate"
+        color="var(--accent-blue)"
+        @click="setGizmoMode('rotate')"
+      />
+      <div
+        v-show="!hidden"
+        class="tool_divider"
+      />
+      <uk-button
+        v-show="!hidden"
         v-model="snapEnabled"
         square
         icon-only
@@ -155,6 +185,18 @@ export default {
       snapEnabled: true,
       houseLights: true,
       /**
+       * Which transform tool the gizmo is in, 'translate' or 'rotate'. Held
+       * here rather than read straight off the visualizer so the buttons have
+       * something reactive to light up from.
+       */
+      gizmoMode: 'translate',
+      /**
+       * Bumped on every mode click, purely to re-key the two mode buttons.
+       * uk-button flips its own toggle on click, so without a remount the
+       * active tool un-highlights when it is clicked again.
+       */
+      modeTick: 0,
+      /**
        * Auto rotation state
        */
       autoRotate: false,
@@ -174,8 +216,35 @@ export default {
     this.snapEnabled = this.$show.visualizerHandle.snapEnabled;
     this.houseLights = this.$show.visualizerHandle.houseLights;
     this.autoRotate = this.$show.visualizerHandle.autoRotate;
+    this.gizmoMode = this.$show.visualizerHandle.gizmoMode;
+    // T and R still switch tools, so the buttons follow the keys as well as
+    // drive them.
+    EventBus.on('gizmo_mode', this.setGizmoModeFromScene);
+  },
+  beforeUnmount() {
+    EventBus.off('gizmo_mode', this.setGizmoModeFromScene);
   },
   methods: {
+    /**
+     * Switches the transform gizmo between its two tools.
+     *
+     * @public
+     * @param {String} mode 'translate' or 'rotate'
+     */
+    setGizmoMode(mode) {
+      this.modeTick += 1;
+      this.gizmoMode = mode;
+      this.$show.visualizerHandle.gizmoMode = mode;
+    },
+    /**
+     * Follows a tool change the scene made on its own, from the keyboard.
+     *
+     * @public
+     * @param {String} mode 'translate' or 'rotate'
+     */
+    setGizmoModeFromScene(mode) {
+      this.gizmoMode = mode;
+    },
     /**
      * Opens visualizer in a popup window
      *

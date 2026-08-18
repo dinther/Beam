@@ -541,6 +541,25 @@ class Visualizer {
   }
 
   /**
+   * Which transform tool the gizmo shows: 'translate' or 'rotate'.
+   *
+   * A workspace state rather than a preference: it is switched constantly
+   * while laying a rig out, and starting every session on the arrows is what
+   * the keys already did.
+   *
+   * @type {String}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set gizmoMode(value) {
+    Controls.gizmoMode = value;
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get gizmoMode() {
+    return Controls.gizmoMode;
+  }
+
+  /**
    * Snap spacing, in metres. One number for all three axes.
    *
    * The drawn grid follows it, so the lines you see are the positions the

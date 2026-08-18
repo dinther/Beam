@@ -415,6 +415,33 @@ class Controls {
   }
 
   /**
+   * Which tool the transform gizmo shows: translation arrows or rotation
+   * rings.
+   *
+   * Anything that changes it goes through here -- the T and R keys as much as
+   * the toolbar -- so that the two can never disagree about which tool is in
+   * hand. The choice is remembered for the session, so picking a fixture
+   * brings back whichever was last worked with.
+   *
+   * @type {String}
+   */
+  set gizmoMode(value) {
+    const next = value === GIZMO_MODES.ROTATE ? GIZMO_MODES.ROTATE : GIZMO_MODES.TRANSLATE;
+    this.lastGizmoMode = next;
+    this.mode = CONTROL_MODES.NORMAL;
+    if (this.handle) this.handle.setMode(next);
+    this.showHelpers();
+    // Said out loud so a keypress lights the right toolbar button. Nothing
+    // here can read the component, and the component cannot watch a plain
+    // object.
+    EventBus.emit('gizmo_mode', next);
+  }
+
+  get gizmoMode() {
+    return this.lastGizmoMode;
+  }
+
+  /**
    * Initialises controls
    *
    * @param {Object} camera Handle to camera instance
@@ -515,15 +542,9 @@ class Controls {
       this.setFocus(false, { force: true });
       this.clearAllHighlighting();
     } else if (e.key.toLowerCase() === 't') {
-      this.mode = CONTROL_MODES.NORMAL;
-      this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
-      this.handle.setMode(GIZMO_MODES.TRANSLATE);
-      this.showHelpers();
+      this.gizmoMode = GIZMO_MODES.TRANSLATE;
     } else if (e.key.toLowerCase() === 'r') {
-      this.mode = CONTROL_MODES.NORMAL;
-      this.lastGizmoMode = GIZMO_MODES.ROTATE;
-      this.handle.setMode(GIZMO_MODES.ROTATE);
-      this.showHelpers();
+      this.gizmoMode = GIZMO_MODES.ROTATE;
     } else if (e.key.toLowerCase() === 'z' && e.ctrlKey) {
       this.applyTransformation();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
