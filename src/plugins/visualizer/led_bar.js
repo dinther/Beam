@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import LEDField from './led_field';
+import LEDField, { STANDOFF } from './led_field';
+import LEDPanel from './led_panel';
 import SceneManager from './scene_manager';
-import { gridPositions } from '../../models/DMX/generic/led_bar';
+import { gridPositions, gridPitch, gridSteps } from '../../models/DMX/generic/led_bar';
 
 /**
  * @file Renderer for a generic LED bar: a black body carrying a grid of
@@ -54,11 +55,18 @@ class LedBar {
    * @param {Object} data.params bar geometry, see led_bar model
    * @param {Array} data.components component letters in wire order
    * @param {Function} data.texelAt (pixel) => [r,g,b,w] absolute texel indices
+   * @param {Function} [data.addressingAt] () => the fixture's addressing as
+   *   plain numbers, for the panel path, which resolves addresses in the shader
    */
   constructor(data = {}) {
     this._params = data.params;
     this._components = data.components || [];
     this._texelAt = data.texelAt || (() => [-1, -1, -1, -1]);
+    this._addressingAt = data.addressingAt || null;
+    // Grids are drawn as one surface rather than as a swarm of billboards, and
+    // the surface owns a render target -- so unlike everything else here it
+    // survives a rebuild instead of being rebuilt. See led_panel.js.
+    this._panel = null;
     this._position = new THREE.Vector3();
     this._rotation = new THREE.Vector3();
     this.unsupported = false;
@@ -236,11 +244,48 @@ class LedBar {
       height: params.height,
     });
 
+    // A grid is a surface. Handing the panel a dozen numbers costs the same
+    // whether it is 16 x 16 or 256 x 256, where the loop below would build one
+    // object per pixel -- 65,536 of them, twice over, on every rebuild.
+    if (LEDPanel.isPanel(params) && this._addressingAt) {
+      this._panel = LEDPanel.sync(this._panel, {
+        params,
+        position: this._position,
+        quaternion: scratch.quaternion,
+        addressing: this._addressingAt(),
+      });
+      return;
+    }
+
+    // Editing a tile down to a single row moves it onto the billboard path,
+    // and the panel it used to have would otherwise go on drawing over it.
+    if (this._panel) {
+      LEDPanel.release(this._panel);
+      this._panel = null;
+    }
+
     // Grid cells are laid out in reading order; the wiring order lives in the
     // profile's channel list, so pixel N of the chain is whatever cell the scan
     // put there. Positions are indexed by cell, texels by chain position.
     const cells = gridPositions(params);
-    const surface = params.height / 2 + LEDField.STANDOFF;
+    // How close the neighbours are, so the field can keep each halo from
+    // swamping them. It is the same for every cell, but travels per emitter
+    // because a single call may carry more than one fixture's worth.
+    const pitch = gridPitch(params);
+
+    // The scattered glow is sampled on its own, coarser grid -- see
+    // `glowStride`. Both axes stride independently, so a wide, single-row bar
+    // thins out along its length and keeps its only row.
+    // An axis with one cell has no neighbour along it, so its step is the whole
+    // face rather than a spacing and striding by it would mean nothing.
+    const { stepX, stepY } = gridSteps(params);
+    const strideX = params.columns > 1 ? LEDField.glowStride(stepX) : 1;
+    const strideY = params.rows > 1 ? LEDField.glowStride(stepY) : 1;
+    const glowColumns = Math.ceil(params.columns / strideX);
+    const glowRows = Math.ceil(params.rows / strideY);
+    const glowWeight = (params.columns * params.rows) / (glowColumns * glowRows);
+
+    const surface = params.height / 2 + STANDOFF;
     const emitters = [];
 
     for (let pixel = 0; pixel < cells.length; pixel += 1) {
@@ -250,10 +295,16 @@ class LedBar {
         .applyQuaternion(scratch.quaternion)
         .add(this._position);
 
+      const column = pixel % params.columns;
+      const row = Math.floor(pixel / params.columns);
+      const carriesGlow = column % strideX === 0 && row % strideY === 0;
+
       emitters.push({
         position: scratch.world.clone(),
         quaternion: scratch.quaternion.clone(),
         size: params.emitterSize,
+        pitch,
+        glowWeight: carriesGlow ? glowWeight : 0,
         beamAngle: params.beamAngle,
         texels: this._texelAt(pixel),
       });
@@ -290,6 +341,10 @@ class LedBar {
   static deleteInstance(instance) {
     instances.delete(instance);
     if (instance._dummy) SceneManager.remove(instance._dummy);
+    // The field is rebuilt from scratch below, but a panel holds a render
+    // target that nothing else would ever free.
+    LEDPanel.release(instance._panel);
+    instance._panel = null;
     LedBar.rebuild();
   }
 

@@ -13,11 +13,26 @@ import ViewCube from './view_cube';
 import MovingHead from './moving_head';
 import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
+import LEDPanel from './led_panel';
 import DMXStore from './dmx_store';
 
 /** Room reserved for patched LED fixtures, on top of the scene's own bars. */
 const LED_FIXTURE_BAR_CAPACITY = 256;
-const LED_FIXTURE_LED_CAPACITY = 20000;
+/**
+ * Billboard capacity: one quad per LED, and nothing asks for any.
+ *
+ * Every LED fixture is built by `Fixture.prepare3DModelInstance`, which hands
+ * its bar an addressing function, and a bar with one draws through the panel
+ * renderer -- a single surface, whatever its pixel count. The billboard path
+ * that this number sizes is left with no callers, so 20,000 of them bought
+ * megabytes of instance matrices and attributes that were allocated at startup
+ * and never written to.
+ *
+ * Zero builds none of it. Raise it to bring the path back for anything that
+ * cannot be a surface -- a strip bent along a polyline is the case it was
+ * written for.
+ */
+const LED_FIXTURE_LED_CAPACITY = 0;
 
 /** How far a press may travel and still count as a click on the gizmo. */
 const VIEW_CUBE_CLICK_SLOP_PX = 4;
@@ -999,6 +1014,10 @@ class Visualizer {
     // Repeated when measuring: on a fast card a single pass finishes long
     // before vsync, so the cost is invisible until it suddenly is not.
     for (let pass = 0; pass < Perf.getPasses(); pass += 1) {
+      // Inside the loop, and inside Perf, because it is part of the frame:
+      // measuring the scene without it would report a cost nobody pays.
+      // Skips itself when no Art-Net has arrived and nothing has moved.
+      LEDPanel.refresh(this.renderer);
       if (finalComposer) {
         finalComposer.render();
       } else {

@@ -52,6 +52,23 @@ const NO_TEXEL = -1;
 const GLOW_SCALE = 7.0;
 
 /**
+ * How far a halo may reach, as a multiple of the spacing between emitters.
+ *
+ * `GLOW_SCALE` is a ratio to the die, which is right for a strip: a 5 mm die
+ * at 16 mm pitch draws a halo about two pitches wide and the run reads as a
+ * continuous line. On a tile at 2 mm pitch the same ratio reaches six pitches,
+ * so every point on it sums around forty halos and saturates to white -- and
+ * costs the fill rate to do so.
+ *
+ * A cap rather than a scale: the halo only ever shrinks. A real emitter's glow
+ * belongs to its die and does not grow because the neighbours moved further
+ * away, so a sparsely populated bar is left exactly as it was.
+ *
+ * @constant {Number} HALO_PITCH_LIMIT
+ */
+const HALO_PITCH_LIMIT = 2.0;
+
+/**
  * How far the emitters sit proud of the body, in metres.
  *
  * Depth precision, not clearance: the quads are depth-tested against the body,
@@ -68,6 +85,34 @@ const GLOW_BASE_GAIN = 0.8;
 
 /** How much of the glow's reach survives at zero haze. */
 const GLOW_SIZE_AT_ZERO_HAZE = 0.35;
+
+/**
+ * How far apart the scattered glow is sampled, as a fraction of its own size.
+ *
+ * The glow is a metre-wide soft blob, so the field it builds up has no detail
+ * finer than that. Drawing one per emitter samples it at the emitter pitch --
+ * on a tile, two millimetres, some five hundred times finer than anything it
+ * can represent. Every one of those is a full-size additive quad, so the cost
+ * is enormous and the picture identical.
+ *
+ * Sampling every eighth of a glow instead keeps the field smooth and lets the
+ * ones that are drawn carry the weight of the ones that are not.
+ *
+ * @constant {Number} GLOW_SAMPLE_SPACING
+ */
+const GLOW_SAMPLE_SPACING = 0.125;
+
+/**
+ * How many emitters to skip between glow samples, at a given pitch.
+ *
+ * @public
+ * @param {Number} pitch spacing between emitters, in metres
+ * @returns {Number} stride, at least 1
+ */
+function glowStride(pitch) {
+  if (!(pitch > 0) || !Number.isFinite(pitch)) return 1;
+  return Math.max(1, Math.round((GLOW_BASE_SIZE * GLOW_SAMPLE_SPACING) / pitch));
+}
 
 /** Emission cone of a 5050, full angle in degrees. */
 const DEFAULT_BEAM_ANGLE = 120;
@@ -122,15 +167,19 @@ const EMITTER_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
   uniform float dimStartDistance;
   uniform float dimFloor;
 
+  attribute float coreRadius;
+
   varying vec3 vColor;
   varying vec3 vNormalWorld;
   varying vec3 vToCamera;
   varying vec2 vQuadUv;
   varying float vDistanceScale;
   varying float vBeamCutoff;
+  varying float vCoreRadius;
 
   void main() {
     vQuadUv = uv;
+    vCoreRadius = coreRadius;
     vBeamCutoff = beamCutoff;
 
     vec4 worldPosition = modelMatrix * instanceMatrix * vec4(position, 1.0);
@@ -154,7 +203,9 @@ const EMITTER_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
 `;
 
 const EMITTER_FRAGMENT = /* glsl */`
-  uniform float coreRadius;
+  // The die's size arrives per emitter, from its physical size against the quad
+  // it is drawn on. This scales all of them together, for tuning the look.
+  uniform float coreScale;
   uniform float haloStrength;
   uniform float backScatter;
 
@@ -164,6 +215,7 @@ const EMITTER_FRAGMENT = /* glsl */`
   varying vec2 vQuadUv;
   varying float vDistanceScale;
   varying float vBeamCutoff;
+  varying float vCoreRadius;
 
   void main() {
     vec3 normal = normalize(vNormalWorld);
@@ -181,7 +233,8 @@ const EMITTER_FRAGMENT = /* glsl */`
     if (radius > 1.0) discard;
 
     // The die: a small, flat-topped disc at the physical LED size.
-    float die = 1.0 - smoothstep(coreRadius * 0.6, coreRadius, radius);
+    float dieRadius = vCoreRadius * coreScale;
+    float die = 1.0 - smoothstep(dieRadius * 0.6, dieRadius, radius);
 
     // The halo around it, reaching zero well before the quad edge so no square
     // boundary is ever visible.
@@ -201,6 +254,10 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
   uniform float hazeAmount;
   uniform float sizeAtZeroHaze;
 
+  // How many emitters this one stands in for. Zero means it stands in for none
+  // and is not drawn at all.
+  attribute float glowWeight;
+
   varying vec3 vGlowColor;
   varying vec2 vGlowUv;
   varying vec3 vGlowWorld;
@@ -217,11 +274,13 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
 
     // Scattered light is far less directional than the die, and needs
     // something to scatter off: in clear air this goes to zero, not to a floor.
-    vGlowColor = color * glowGain * hazeAmount * mix(backScatter, 1.0, facing);
+    vGlowColor = color * glowGain * hazeAmount * mix(backScatter, 1.0, facing) * glowWeight;
 
     // Denser air carries light further from its source, so the halo grows --
     // as a multiple of the authored size, which stays under manual control.
-    float size = glowSize * mix(sizeAtZeroHaze, 1.0, hazeAmount);
+    // A skipped sample collapses to a point rather than being drawn dim: a
+    // zero-area quad produces no fragments, which is the entire saving.
+    float size = glowSize * mix(sizeAtZeroHaze, 1.0, hazeAmount) * step(0.0001, glowWeight);
 
     // Camera-facing quad, built in view space so it is never edge-on and
     // reaches past the extrusion's silhouette.
@@ -293,6 +352,8 @@ const field = {
   maxLeds: 0,
   texelAttribute: null,
   cutoffAttribute: null,
+  coreAttribute: null,
+  glowWeightAttribute: null,
   baseBars: 0,
   baseLeds: 0,
 };
@@ -311,6 +372,12 @@ function syncEnvironment() {
   const { uniforms } = field.glow.material;
   uniforms.hazeAmount.value = SceneEnv.hazeAmount;
   uniforms.turbulence.value = SceneEnv.hazeTurbulence;
+  // Scattered light needs something to scatter off: the shader multiplies its
+  // colour by the haze, so in clear air every one of these quads rasterises to
+  // black. They are large -- a third of a metre even at zero haze -- and there
+  // is one per emitter, so drawing them anyway costs a great deal of fill for
+  // a guaranteed absence of light.
+  field.glow.visible = SceneEnv.hazeAmount > 0;
 }
 
 /**
@@ -343,22 +410,37 @@ function buildProfiles(maxBars) {
   return mesh;
 }
 
+/**
+ * The emitters' tunables, as one object per parameter.
+ *
+ * Module-scoped, and handed out by reference: `led_panel.js` builds its
+ * materials against these same objects, so a tile and a strip standing side by
+ * side are lit by literally the same numbers and one debug panel drives both.
+ * Built at module load rather than in `init`, so a panel created before the
+ * field is initialised still finds them.
+ *
+ * @constant {Object} EMITTER_UNIFORMS
+ */
+const EMITTER_UNIFORMS = {
+  dmxTexture: { value: DMXStore.texture },
+  gain: { value: 3.0 },
+  dimStartDistance: { value: 3.9 },
+  dimFloor: { value: 0.23 },
+  coreScale: { value: 1.0 },
+  haloStrength: { value: 1.46 },
+  backScatter: { value: 0.29 },
+};
+
 function buildEmitters(maxLeds) {
-  // Unit quad, scaled per instance: emitter size is a fixture property, and
-  // one shared geometry cannot carry more than one of them. coreRadius stays a
-  // uniform because it is a ratio of die to quad, which holds at any size.
+  // Unit quad, scaled per instance: emitter size is a fixture property, and one
+  // shared geometry cannot carry more than one of them. `coreRadius` used to be
+  // a uniform on the grounds that the die-to-quad ratio holds at any size --
+  // true until the quad started being capped to the pitch, after which the same
+  // ratio would have shrunk the die along with the halo.
   const geometry = new THREE.PlaneGeometry(1, 1);
 
   const material = new THREE.ShaderMaterial({
-    uniforms: {
-      dmxTexture: { value: DMXStore.texture },
-      gain: { value: 3.0 },
-      dimStartDistance: { value: 2.5 },
-      dimFloor: { value: 0.18 },
-      coreRadius: { value: 1.0 / GLOW_SCALE },
-      haloStrength: { value: 0.55 },
-      backScatter: { value: 0.12 },
-    },
+    uniforms: EMITTER_UNIFORMS,
     vertexShader: EMITTER_VERTEX,
     fragmentShader: EMITTER_FRAGMENT,
     side: THREE.DoubleSide,
@@ -373,22 +455,38 @@ function buildEmitters(maxLeds) {
   return mesh;
 }
 
+/**
+ * The scattered glow's tunables, as one object per parameter.
+ *
+ * Shared by reference with the panel path, exactly as `EMITTER_UNIFORMS` is:
+ * haze is a property of the room, so a tile and a strip standing in it must be
+ * scattering through the same air. It also means `syncEnvironment` and
+ * `update` reach both paths without knowing the second one exists.
+ *
+ * Note `backScatter` is far higher here than on the emitters. Scattered light
+ * is much less directional than a die, so a panel facing away still lights the
+ * air in front of it.
+ *
+ * @constant {Object} GLOW_UNIFORMS
+ */
+const GLOW_UNIFORMS = {
+  dmxTexture: { value: DMXStore.texture },
+  glowSize: { value: GLOW_BASE_SIZE },
+  glowGain: { value: GLOW_BASE_GAIN },
+  glowFalloff: { value: 500.0 },
+  backScatter: { value: 0.45 },
+  hazeAmount: { value: SceneEnv.hazeAmount },
+  sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
+  turbulence: { value: SceneEnv.hazeTurbulence },
+  turbulenceScale: { value: 4.8 },
+  time: { value: 0 },
+};
+
 function buildGlow(maxLeds) {
   const geometry = new THREE.PlaneGeometry(1, 1);
 
   const material = new THREE.ShaderMaterial({
-    uniforms: {
-      dmxTexture: { value: DMXStore.texture },
-      glowSize: { value: GLOW_BASE_SIZE },
-      glowGain: { value: GLOW_BASE_GAIN },
-      glowFalloff: { value: 500.0 },
-      backScatter: { value: 0.45 },
-      hazeAmount: { value: SceneEnv.hazeAmount },
-      sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
-      turbulence: { value: SceneEnv.hazeTurbulence },
-      turbulenceScale: { value: 1.2 },
-      time: { value: 0 },
-    },
+    uniforms: GLOW_UNIFORMS,
     vertexShader: GLOW_VERTEX,
     fragmentShader: GLOW_FRAGMENT,
     transparent: true,
@@ -443,20 +541,51 @@ function init({ scene, maxBars, maxLeds }) {
   field.baseLeds = 0;
 
   field.profiles = buildProfiles(maxBars);
-  field.emitters = buildEmitters(maxLeds);
-  field.glow = buildGlow(maxLeds);
+  field.emitters = null;
+  field.glow = null;
+  field.texelAttribute = null;
+  field.glowWeightAttribute = null;
+  field.cutoffAttribute = null;
+  field.coreAttribute = null;
 
-  // Both attributes serve emitter and glow alike: the same LEDs, drawn twice.
-  const texels = new Float32Array(maxLeds * 4).fill(NO_TEXEL);
-  field.texelAttribute = new THREE.InstancedBufferAttribute(texels, 4);
-  field.emitters.geometry.setAttribute('componentTexel', field.texelAttribute);
-  field.glow.geometry.setAttribute('componentTexel', field.texelAttribute);
+  // Bodies always; emitters only when a capacity is asked for.
+  //
+  // One quad per LED is what this module was, and every patched fixture now
+  // draws through the panel renderer instead -- which reads the same uniforms
+  // but rasterises one surface rather than tens of thousands of billboards.
+  // Sized for a capacity nothing claims, the two meshes and their four
+  // attributes are megabytes allocated at startup and never written to, so the
+  // capacity is what decides whether they exist at all.
+  if (maxLeds > 0) {
+    field.emitters = buildEmitters(maxLeds);
+    field.glow = buildGlow(maxLeds);
 
-  const cutoffs = new Float32Array(maxLeds);
-  field.cutoffAttribute = new THREE.InstancedBufferAttribute(cutoffs, 1);
-  field.emitters.geometry.setAttribute('beamCutoff', field.cutoffAttribute);
+    // Both attributes serve emitter and glow alike: the same LEDs, drawn twice.
+    const texels = new Float32Array(maxLeds * 4).fill(NO_TEXEL);
+    field.texelAttribute = new THREE.InstancedBufferAttribute(texels, 4);
+    field.emitters.geometry.setAttribute('componentTexel', field.texelAttribute);
+    field.glow.geometry.setAttribute('componentTexel', field.texelAttribute);
 
-  scene.add(field.profiles, field.emitters, field.glow);
+    // Glow only: how many emitters each drawn sample answers for. Emitters are
+    // drawn one for one, so this has no counterpart on that side.
+    const weights = new Float32Array(maxLeds).fill(1.0);
+    field.glowWeightAttribute = new THREE.InstancedBufferAttribute(weights, 1);
+    field.glow.geometry.setAttribute('glowWeight', field.glowWeightAttribute);
+
+    const cutoffs = new Float32Array(maxLeds);
+    field.cutoffAttribute = new THREE.InstancedBufferAttribute(cutoffs, 1);
+    field.emitters.geometry.setAttribute('beamCutoff', field.cutoffAttribute);
+
+    // The die's share of its quad. Constant while the quad is a fixed multiple
+    // of the die, and not once the quad is capped -- so it travels per emitter.
+    const cores = new Float32Array(maxLeds).fill(1.0 / GLOW_SCALE);
+    field.coreAttribute = new THREE.InstancedBufferAttribute(cores, 1);
+    field.emitters.geometry.setAttribute('coreRadius', field.coreAttribute);
+
+    scene.add(field.profiles, field.emitters, field.glow);
+  } else {
+    scene.add(field.profiles);
+  }
 
   SceneEnv.on('changed', syncEnvironment);
   syncEnvironment();
@@ -509,6 +638,9 @@ function addBar({
   componentOffsets = DEFAULT_COMPONENT_OFFSETS,
   texelAt = null,
 }) {
+  // No billboard capacity means no billboards. A bar that wanted them is a bar
+  // the panel renderer should have taken.
+  if (!field.emitters) return 0;
   if (body && field.barCount >= field.maxBars) return 0;
   if (field.ledCount + pixelCount > field.maxLeds) return 0;
 
@@ -549,10 +681,18 @@ function addBar({
   const pitch = span / pixelCount;
   const surface = (body ? height / 2 : 0) + standoff;
   const cutoff = Math.cos((beamAngle / 2) * (Math.PI / 180));
-  // The quad carries the halo, so it is drawn larger than the die by a fixed
-  // ratio; coreRadius is the reciprocal, which is why it stays a uniform.
-  const quadSize = emitterSize * GLOW_SCALE;
+  // The quad carries the halo, so it is drawn larger than the die -- but never
+  // so much larger that neighbouring halos pile up. The die keeps its own size
+  // either way, which is what the per-emitter core ratio is for.
+  const quadSize = Math.min(emitterSize * GLOW_SCALE, pitch * HALO_PITCH_LIMIT);
+  const coreRatio = Math.min(0.5, emitterSize / quadSize);
   scratch.scale.set(quadSize, quadSize, quadSize);
+
+  // Every stride'th LED carries the scattered glow for the run, and carries it
+  // for the whole stride, so the light the bar puts into the air is unchanged.
+  const stride = glowStride(pitch);
+  const glowSamples = Math.ceil(pixelCount / stride);
+  const glowWeight = pixelCount / glowSamples;
 
   for (let i = 0; i < pixelCount; i += 1) {
     const instance = field.ledCount + i;
@@ -576,6 +716,8 @@ function addBar({
       : packedTexels(pixel, channelsPerPixel, componentOffsets);
     field.texelAttribute.array.set(texels, instance * 4);
     field.cutoffAttribute.array[instance] = cutoff;
+    field.coreAttribute.array[instance] = coreRatio;
+    field.glowWeightAttribute.array[instance] = i % stride === 0 ? glowWeight : 0;
   }
 
   field.ledCount += pixelCount;
@@ -587,6 +729,8 @@ function addBar({
   field.glow.instanceMatrix.needsUpdate = true;
   field.texelAttribute.needsUpdate = true;
   field.cutoffAttribute.needsUpdate = true;
+  field.coreAttribute.needsUpdate = true;
+  field.glowWeightAttribute.needsUpdate = true;
 
   return pixelCount;
 }
@@ -659,13 +803,19 @@ function addBody({
  * @returns {Number} how many were added
  */
 function addEmitters(emitters) {
+  if (!field.emitters) return 0;
   const room = field.maxLeds - field.ledCount;
   const count = Math.min(emitters.length, Math.max(room, 0));
 
   for (let i = 0; i < count; i += 1) {
     const emitter = emitters[i];
     const instance = field.ledCount + i;
-    const quadSize = emitter.size * GLOW_SCALE;
+    // Capped against the neighbours exactly as `addBar` does: on a tile the
+    // uncapped halo reaches six pitches and every pixel is then blended
+    // through some three dozen of its neighbours' halos, which is both a white
+    // sheet to look at and a great deal of fill to pay for.
+    const limit = emitter.pitch > 0 ? emitter.pitch * HALO_PITCH_LIMIT : Infinity;
+    const quadSize = Math.min(emitter.size * GLOW_SCALE, limit);
     scratch.scale.set(quadSize, quadSize, quadSize);
     scratch.matrix.compose(emitter.position, emitter.quaternion, scratch.scale);
 
@@ -675,6 +825,10 @@ function addEmitters(emitters) {
     field.cutoffAttribute.array[instance] = Math.cos(
       (emitter.beamAngle / 2) * (Math.PI / 180),
     );
+    field.coreAttribute.array[instance] = Math.min(0.5, emitter.size / quadSize);
+    field.glowWeightAttribute.array[instance] = emitter.glowWeight != null
+      ? emitter.glowWeight
+      : 1;
   }
 
   field.ledCount += count;
@@ -684,6 +838,8 @@ function addEmitters(emitters) {
   field.glow.instanceMatrix.needsUpdate = true;
   field.texelAttribute.needsUpdate = true;
   field.cutoffAttribute.needsUpdate = true;
+  field.coreAttribute.needsUpdate = true;
+  field.glowWeightAttribute.needsUpdate = true;
   return count;
 }
 
@@ -692,14 +848,15 @@ function addEmitters(emitters) {
  *
  * There is one of each, not one per fixture, so nothing can drift.
  *
- * @returns {Object|null}
+ * The objects themselves, not the meshes' copies of them: the panel renderer
+ * binds these same uniforms, so they still steer what is on screen when the
+ * billboard meshes were never built. Reaching them through the emitter mesh is
+ * what used to take the whole debug panel away with it.
+ *
+ * @returns {Object}
  */
 function tunables() {
-  if (!field.emitters) return null;
-  return {
-    emitter: field.emitters.material.uniforms,
-    glow: field.glow.material.uniforms,
-  };
+  return { emitter: EMITTER_UNIFORMS, glow: GLOW_UNIFORMS };
 }
 
 /** @returns {Object} how much has been built */
@@ -707,11 +864,32 @@ function stats() {
   return { bars: field.barCount, leds: field.ledCount };
 }
 
+export {
+  /** The emitters' tunables, shared by reference with the panel path. */
+  EMITTER_UNIFORMS,
+  /** The scattered glow's tunables, likewise. */
+  GLOW_UNIFORMS,
+  /** The glow's look, so the panel path can source colour differently and
+   *  still draw the identical blob. */
+  GLOW_FRAGMENT,
+  /** How much larger the drawn quad is than the die, to carry the halo. */
+  GLOW_SCALE,
+  /** How far a halo may reach, as a multiple of the emitter spacing. */
+  HALO_PITCH_LIMIT,
+  /** Base reach of the scattered glow at full haze, in metres. */
+  GLOW_BASE_SIZE,
+  /** How far apart the glow is sampled, as a fraction of its own size. */
+  GLOW_SAMPLE_SPACING,
+  /** How far the emitters sit proud of the body, in metres. */
+  LED_STANDOFF as STANDOFF,
+};
+
 export default {
   init,
   addBar,
   addBody,
   addEmitters,
+  glowStride,
   reset,
   mark,
   update,

@@ -115,25 +115,73 @@ export function scanOrder({
 /**
  * Where each pixel sits on the emitter face, in bar-local metres.
  *
- * The face is length x width, with the emitters standing proud of it through
- * the height. Margins are measured from the body's own edges inwards, and the
- * pixels are then spread evenly across what is left; a lone pixel is centred
- * between its margins rather than parked against one.
+/**
+ * The spacing between emitter centres, per axis, and where the first one sits.
+ *
+ * Each emitter owns one cell of the span and sits in the middle of it, so on a
+ * 100 mm face with no margin and ten columns the pitch is 10 mm and the outer
+ * emitters stand 5 mm -- half a pitch -- from the edges. Dividing by the gaps
+ * between emitters instead would put the outer ones hard against the margins
+ * and stretch the pitch to 11.1 mm, which is neither how a tile is built nor
+ * what `addBar` does for a single run.
+ *
+ * A lone pixel then centres itself without a special case: its cell is the
+ * whole span, and the middle of the whole span is the middle of the face.
  *
  * @param {Object} params bar parameters
- * @returns {Array} `{ x, y }` per grid cell, indexed `row * columns + column`
+ * @returns {Object} `{ stepX, stepY, originX, originY }`
  */
-export function gridPositions(params) {
+export function gridSteps(params) {
   const {
     length, width, marginEnds, marginSides, columns, rows,
   } = params;
 
   const spanX = Math.max(length - marginEnds * 2, 0);
   const spanY = Math.max(width - marginSides * 2, 0);
-  const stepX = columns > 1 ? spanX / (columns - 1) : 0;
-  const stepY = rows > 1 ? spanY / (rows - 1) : 0;
-  const originX = columns > 1 ? -spanX / 2 : 0;
-  const originY = rows > 1 ? -spanY / 2 : 0;
+  const stepX = spanX / Math.max(columns, 1);
+  const stepY = spanY / Math.max(rows, 1);
+
+  return {
+    stepX,
+    stepY,
+    originX: (stepX - spanX) / 2,
+    originY: (stepY - spanY) / 2,
+  };
+}
+
+/**
+ * The closest an emitter sits to its neighbour, across both axes.
+ *
+ * An axis with a single emitter has no neighbour along it and so constrains
+ * nothing -- a one-row bar is not dense in Y however narrow it is. With no
+ * neighbours at all there is nothing to crowd, hence Infinity.
+ *
+ * @public
+ * @param {Object} params bar parameters
+ * @returns {Number} metres, or Infinity when unconstrained
+ */
+export function gridPitch(params) {
+  const { stepX, stepY } = gridSteps(params);
+  const steps = [];
+  if (params.columns > 1) steps.push(stepX);
+  if (params.rows > 1) steps.push(stepY);
+  return steps.length ? Math.min(...steps) : Infinity;
+}
+
+/**
+ * The face is length x width, with the emitters standing proud of it through
+ * the height. Margins are measured from the body's own edges inwards, and the
+ * pixels are then spread evenly across what is left, each in the middle of its
+ * own cell -- see `gridSteps`.
+ *
+ * @param {Object} params bar parameters
+ * @returns {Array} `{ x, y }` per grid cell, indexed `row * columns + column`
+ */
+export function gridPositions(params) {
+  const { columns, rows } = params;
+  const {
+    stepX, stepY, originX, originY,
+  } = gridSteps(params);
 
   const positions = [];
   for (let row = 0; row < rows; row += 1) {

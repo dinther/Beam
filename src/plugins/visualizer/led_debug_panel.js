@@ -1,6 +1,7 @@
 // eslint-disable-next-line import/extensions, import/no-unresolved
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import LEDField from './led_field';
+import LEDPanel from './led_panel';
 import Perf from './perf_overlay';
 
 /**
@@ -12,19 +13,34 @@ import Perf from './perf_overlay';
  */
 
 /**
+ * Every tunable uniform, by group.
+ *
+ * `halo` belongs to the panel path -- the marched glow volume -- and is kept
+ * apart from `glow`, which is the billboard blob. They mean different things by
+ * a falloff, so one control cannot serve both.
+ *
+ * @returns {Object|null} `{ emitter, glow, halo }`
+ */
+function tunableGroups() {
+  const field = LEDField.tunables();
+  if (!field) return null;
+  return { ...field, halo: LEDPanel.tunables() };
+}
+
+/**
  * Writes a shared uniform.
  *
  * There is exactly one of each across the whole field, so this is a single
  * assignment rather than a loop over fixtures.
  *
- * @param {String} group 'emitter' or 'glow'
+ * @param {String} group 'emitter', 'glow' or 'halo'
  * @param {String} name uniform name
  * @param {Number} value
  */
 function setUniform(group, name, value) {
-  const uniforms = LEDField.tunables();
-  if (!uniforms) return;
-  const uniform = uniforms[group][name];
+  const groups = tunableGroups();
+  if (!groups || !groups[group]) return;
+  const uniform = groups[group][name];
   if (uniform) uniform.value = value;
 }
 
@@ -35,7 +51,7 @@ function setUniform(group, name, value) {
  * @returns {Object|null} the GUI instance
  */
 export default function createLEDDebugPanel(visualizer, host) {
-  const uniforms = LEDField.tunables();
+  const uniforms = tunableGroups();
   if (!uniforms) return null;
 
   // Anchored inside the 3D viewport rather than the window, so it stays clear
@@ -54,22 +70,22 @@ export default function createLEDDebugPanel(visualizer, host) {
   gui.domElement.style.top = '';
   gui.domElement.style.zIndex = '100';
 
-  const { emitter, glow } = uniforms;
+  const { emitter, glow, halo } = uniforms;
 
   const state = {
     // Emitter die
     gain: emitter.gain.value,
     haloStrength: emitter.haloStrength.value,
     backScatter: emitter.backScatter.value,
-    coreRadius: emitter.coreRadius.value,
+    coreScale: emitter.coreScale.value,
     // Distance dimming
     dimStartDistance: emitter.dimStartDistance.value,
     dimFloor: emitter.dimFloor.value,
     // Scattered glow
     glowSize: glow.glowSize.value,
-    glowGain: glow.glowGain.value,
-    glowFalloff: glow.glowFalloff.value,
-    glowBackScatter: glow.backScatter.value,
+    haloFalloff: halo.haloFalloff.value,
+    haloRadiance: halo.haloRadiance.value,
+    haloBackScatter: halo.haloBackScatter.value,
     turbulenceScale: glow.turbulenceScale.value,
     // Scene
     hazeDensity: visualizer.globalFoggingDensity,
@@ -84,9 +100,9 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => setUniform('emitter', 'gain', v));
   die.add(state, 'haloStrength', 0, 2, 0.01)
     .onChange((v) => setUniform('emitter', 'haloStrength', v));
-  die.add(state, 'coreRadius', 0.02, 0.6, 0.005)
-    .name('die size')
-    .onChange((v) => setUniform('emitter', 'coreRadius', v));
+  die.add(state, 'coreScale', 0.25, 4, 0.05)
+    .name('die size x')
+    .onChange((v) => setUniform('emitter', 'coreScale', v));
   die.add(state, 'backScatter', 0, 1, 0.01)
     .name('back scatter')
     .onChange((v) => setUniform('emitter', 'backScatter', v));
@@ -100,18 +116,28 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => setUniform('emitter', 'dimFloor', v));
 
   const scatter = gui.addFolder('Scattered glow');
-  scatter.add(state, 'glowSize', 0.01, 1.0, 0.005)
-    .name('size at full haze (m)')
-    .onChange((v) => setUniform('glow', 'glowSize', v));
-  scatter.add(state, 'glowGain', 0, 3, 0.01)
-    .name('strength')
-    .onChange((v) => setUniform('glow', 'glowGain', v));
-  scatter.add(state, 'glowFalloff', 0.5, 500, 0.5)
+  // Falloff first: it is the one that decides whether the glow reads as air or
+  // as a wash, and the one worth reaching for before anything else.
+  scatter.add(state, 'haloFalloff', 1, 24, 0.25)
     .name('falloff sharpness')
-    .onChange((v) => setUniform('glow', 'glowFalloff', v));
-  scatter.add(state, 'glowBackScatter', 0, 1, 0.01)
+    .onChange((v) => setUniform('halo', 'haloFalloff', v));
+  // The volume's only brightness. There used to be a second, `strength`, which
+  // multiplied the same result -- two controls for one quantity, so a value
+  // reached through them could not be read back off either.
+  scatter.add(state, 'haloRadiance', 0, 4, 0.01)
+    .name('brightness')
+    .onChange((v) => setUniform('halo', 'haloRadiance', v));
+  // Reach is authored per fixture from its own size; this scales all of them
+  // together, against the size the look was built at. Stops at 1.5 because the
+  // marched box is built with exactly that much headroom -- past it the shader
+  // clamps, and a slider that goes on moving while nothing changes is worse
+  // than one that stops.
+  scatter.add(state, 'glowSize', 0.01, 1.5, 0.005)
+    .name('reach x')
+    .onChange((v) => setUniform('glow', 'glowSize', v));
+  scatter.add(state, 'haloBackScatter', 0, 1, 0.01)
     .name('omnidirectional')
-    .onChange((v) => setUniform('glow', 'backScatter', v));
+    .onChange((v) => setUniform('halo', 'haloBackScatter', v));
   scatter.add(state, 'turbulenceScale', 0.1, 8, 0.1)
     .name('turbulence scale (m)')
     .onChange((v) => setUniform('glow', 'turbulenceScale', v));

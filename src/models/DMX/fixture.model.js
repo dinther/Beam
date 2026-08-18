@@ -1065,6 +1065,30 @@ class Fixture extends Proxify {
   }
 
   /**
+   * The same addressing as `pixelTexels`, as numbers rather than as answers.
+   *
+   * `pixelTexels` resolves one pixel at a time, which is the right shape for a
+   * strip and the wrong one for a tile: a 256 x 256 grid would ask it 65,536
+   * times per rebuild. The rule it applies is closed-form integer arithmetic
+   * over these four values, so handing them over lets the panel shader derive
+   * any pixel's address itself and the CPU derive none of them.
+   *
+   * @public
+   * @returns {Object} `{ address, pixelSize, channelsPerPixel, componentOffsets }`
+   */
+  get pixelAddressing() {
+    const components = (this.OFLData.asls || {}).components || [];
+    return {
+      address: this.address,
+      pixelSize: this.alignmentPixelSize,
+      channelsPerPixel: components.length,
+      // Offsets from the pixel's first channel, -1 for a component it lacks --
+      // the wire order, which is the fixture's own business.
+      componentOffsets: ['R', 'G', 'B', 'W'].map((letter) => components.indexOf(letter)),
+    };
+  }
+
+  /**
    * Handles instanciation of 3D model to be bound to fixture instance
    *
    * @pulic
@@ -1082,6 +1106,9 @@ class Fixture extends Proxify {
         params: this.OFLData.asls.bar,
         components: this.OFLData.asls.components,
         texelAt: this.pixelTexels.bind(this),
+        // Read rather than bound: a repatch changes the address, and the panel
+        // has to see the new one on the rebuild that follows.
+        addressingAt: () => this.pixelAddressing,
       }));
       this._3DModel.fixtureHandle = this;
       this._3DModel.position = this._position;
