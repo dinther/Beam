@@ -18,13 +18,20 @@
           label="Type"
           :options="kinds"
         />
+        <!-- auto-update, because these two decide whether the name is taken
+             and whether Create is allowed. Left to emit on blur, the warning
+             described the previous name while the box showed the new one:
+             type a unique model over a taken one and it still insisted the
+             name existed until focus moved. -->
         <uk-txt-input
           v-model="manufacturer"
+          auto-update
           style="flex: 1"
           label="Manufacturer"
         />
         <uk-txt-input
           v-model="model"
+          auto-update
           style="flex: 1"
           label="Model"
         />
@@ -76,7 +83,7 @@
           class="field"
           label="Rows"
           :min="1"
-          :max="200"
+          :max="2000"
         />
         <uk-num-input
           v-model="marginEnds"
@@ -96,11 +103,15 @@
 
       <span class="create_section">Emitters</span>
       <uk-flex :gap="8">
+        <!-- Tenths, because emitters are small: a 3535 package is 3.5 mm and
+             whole millimetres cannot say so. The steppers move by 0.1 to
+             match, since they step one unit of the precision. -->
         <uk-num-input
           v-model="emitterSize"
           class="field"
           label="Size (mm)"
-          :min="1"
+          :precision="1"
+          :min="0.1"
           :max="100"
         />
         <uk-num-input
@@ -259,13 +270,46 @@ export default {
         && this.channelCount > 0;
     },
   },
+  watch: {
+    state(open) {
+      // The dialog keeps its geometry between visits on purpose -- one bar is
+      // usually followed by a variant of it -- but the name of the thing just
+      // created is taken by definition, so reopening met a warning about a
+      // name the user had not typed. Numbering it is what the rest of the app
+      // does when a name collides.
+      if (open) this.model = this.freeName();
+    },
+  },
   methods: {
+    /**
+     * The current model name, or the nearest free numbering of it.
+     *
+     * @public
+     * @returns {String} a name no profile of this manufacturer is using
+     */
+    freeName() {
+      const maker = this.manufacturer.trim();
+      const wanted = this.model.trim() || 'LED Bar';
+      const taken = (name) => !!this.$show.generatedProfiles[`${maker}/${name}`];
+      if (!taken(wanted)) return wanted;
+      // A trailing number is stripped first, so opening the dialog five times
+      // gives "LED Bar 5" rather than "LED Bar 2 2 2 2".
+      const base = wanted.replace(/\s+\d+$/, '');
+      let n = 2;
+      while (taken(`${base} ${n}`)) n += 1;
+      return `${base} ${n}`;
+    },
     /**
      * Builds the profile and hands it to the show, which owns the library.
      *
      * @public
      */
     async create() {
+      // Closed before the profile is written, not after. Writing it makes the
+      // name in these very fields taken, so the duplicate warning appeared for
+      // the thing being created -- a red line and a jump as the dialog grew,
+      // in the instant before it went away.
+      this.state = false;
       const key = await this.$show.createGeneratedProfile(
         this.manufacturer.trim(),
         this.model.trim(),
@@ -286,9 +330,10 @@ export default {
           universeAligned: this.universeAligned,
         },
       );
-      // See popup.patch.vue: closing without emitting strands the parent's
-      // v-model at true and the dialog never opens again.
-      this.close();
+      // `state` is a computed over the parent's v-model, and its setter above
+      // is what announces the change -- this dialog has no popup mixin and so
+      // no close(). Calling one threw after the profile had been written,
+      // leaving the dialog open holding the name it had just taken.
       this.$emit('created', key);
     },
   },

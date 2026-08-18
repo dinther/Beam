@@ -2,6 +2,7 @@
   <Transition name="bounce">
     <uk-flex
       v-if="displayed"
+      ref="popup"
       col
       class="popup"
     >
@@ -250,13 +251,30 @@ export default {
      * Prepare popup dragging procedure
      *
      */
+    /**
+     * The popup's own element, once there is one.
+     *
+     * `$el` is not dependable here: the root is a transition around a `v-if`,
+     * so while the popup is hidden it is a comment placeholder -- and mounted()
+     * moves that placeholder to the body as the anchor this component uses in
+     * place of a teleport. Dragging a popup that had ever been hidden asked a
+     * comment node for its bounding box.
+     *
+     * @public
+     * @returns {Object|null} the element, or null when nothing is rendered
+     */
+    popupElement() {
+      const el = (this.$refs.popup && this.$refs.popup.$el) || this.$el;
+      return el && typeof el.getBoundingClientRect === 'function' ? el : null;
+    },
     startDrag(e) {
-      if (this.movable) {
-        window.addEventListener('mousemove', this.drag);
-        window.addEventListener('mouseup', this.stopDrag);
-        const bb = this.$el.getBoundingClientRect();
-        this.offsetX = bb.left - e.clientX + bb.width / 2;
-      }
+      if (!this.movable) return;
+      const el = this.popupElement();
+      if (!el) return;
+      window.addEventListener('mousemove', this.drag);
+      window.addEventListener('mouseup', this.stopDrag);
+      const bb = el.getBoundingClientRect();
+      this.offsetX = bb.left - e.clientX + bb.width / 2;
     },
     /**
      * Drag popup element
@@ -264,9 +282,11 @@ export default {
      * @param {Object} e mousemove event
      */
     drag(e) {
-      const box = this.$el.getBoundingClientRect();
-      this.$el.style.left = `${Math.min(Math.max(e.clientX + this.offsetX, box.width / 2), window.innerWidth - box.width / 2)}px`;
-      this.$el.style.top = `${Math.min(Math.max(e.clientY + box.height / 2 - 15, box.height / 2), window.innerHeight - box.height / 2)}px`;
+      const el = this.popupElement();
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      el.style.left = `${Math.min(Math.max(e.clientX + this.offsetX, box.width / 2), window.innerWidth - box.width / 2)}px`;
+      el.style.top = `${Math.min(Math.max(e.clientY + box.height / 2 - 15, box.height / 2), window.innerHeight - box.height / 2)}px`;
     },
     /**
      * End popup dragging procedure
