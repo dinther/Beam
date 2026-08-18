@@ -82,15 +82,31 @@
       </uk-flex>
       <uk-flex center-h>
         <div>
-          <h4>Global Brightness:</h4>
+          <h4>House lights up:</h4>
           <p class="subtitle">
-            Global scene brightness.
+            Brightness with the house lights on, for looking at the rig.
           </p>
         </div>
         <uk-spacer />
         <uk-num-input
-          v-model="$show.visualizerHandle.globalBrightness"
-          :min="25"
+          v-model="houseLightsUp"
+          :min="0"
+          :max="200"
+          style="width: 100px"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>House lights down:</h4>
+          <p class="subtitle">
+            Brightness with them off, for watching the show. The toolbar swaps
+            between the two.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-num-input
+          v-model="houseLightsDown"
+          :min="0"
           :max="200"
           style="width: 100px"
         />
@@ -166,6 +182,7 @@
 
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
+import Preferences from '@/plugins/visualizer/preferences';
 
 export default {
   name: 'VisualizerPopup',
@@ -183,6 +200,54 @@ export default {
     };
   },
   computed: {
+    /**
+     * Brightness with the house lights up.
+     *
+     * Both settings are stored, but only the one in force is on the light --
+     * so editing the other writes the preference and leaves the scene alone,
+     * and editing the live one goes through the visualizer so the scene
+     * follows immediately.
+     *
+     * @type {Number}
+     */
+    houseLightsUp: {
+      get() {
+        return Preferences.get('globalBrightness');
+      },
+      set(value) {
+        if (this.houseLights) {
+          this.$show.visualizerHandle.globalBrightness = value;
+          return;
+        }
+        Preferences.set('globalBrightness', Number(value));
+      },
+    },
+    /**
+     * Brightness with the house lights down.
+     *
+     * @type {Number}
+     */
+    houseLightsDown: {
+      get() {
+        return Preferences.get('brightnessHouseOff');
+      },
+      set(value) {
+        if (!this.houseLights) {
+          this.$show.visualizerHandle.globalBrightness = value;
+          return;
+        }
+        Preferences.set('brightnessHouseOff', Number(value));
+      },
+    },
+    /**
+     * Which of the two is in force.
+     *
+     * @type {Boolean}
+     */
+    houseLights() {
+      const visualizer = this.$show.visualizerHandle;
+      return visualizer ? visualizer.houseLights : true;
+    },
     /**
      * Floor image, as the index the select works in.
      *
@@ -229,7 +294,17 @@ export default {
       this.$show.visualizerHandle.globalFoggingDensity = this.initialValues.globalFoggingDensity;
       // eslint-disable-next-line max-len
       this.$show.visualizerHandle.globalFoggingTurbulences = this.initialValues.globalFoggingTurbulences;
-      this.$show.visualizerHandle.globalBrightness = this.initialValues.globalBrightness;
+      // Whichever room is in force is the one the live brightness belongs to,
+      // so it is restored through the visualizer; the other is just a stored
+      // number and goes straight back.
+      this.$show.visualizerHandle.globalBrightness = this.houseLights
+        ? this.initialValues.globalBrightness
+        : this.initialValues.brightnessHouseOff;
+      const storedKey = this.houseLights ? 'brightnessHouseOff' : 'globalBrightness';
+      const storedValue = this.houseLights
+        ? this.initialValues.brightnessHouseOff
+        : this.initialValues.globalBrightness;
+      Preferences.set(storedKey, storedValue);
       this.$show.visualizerHandle.showFloor = this.initialValues.showFloor;
       this.$show.visualizerHandle.showGrid = this.initialValues.showGrid;
       this.$show.visualizerHandle.showAxes = this.initialValues.showAxes;

@@ -58,12 +58,19 @@
         label="Mode"
         :options="fixture.modeNames"
       />
+      <uk-checkbox
+        v-if="canCastShadow"
+        v-model="castsShadow"
+        :disabled="shadowBudgetSpent"
+        :label="shadowLabel"
+      />
     </uk-flex>
   </uk-widget>
 </template>
 
 <script>
 import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
+import { MAX_SHADOW_CASTERS } from '@/plugins/visualizer/moving_head';
 
 export default {
   name: 'FixtureModifierWidgetSettings',
@@ -92,6 +99,61 @@ export default {
     };
   },
   computed: {
+    /**
+     * Whether this fixture can cast a shadow at all. An emitter bar has no
+     * beam behind which to cast one, so it is not offered the choice.
+     *
+     * @type {Boolean}
+     */
+    canCastShadow() {
+      return !!(this.fixture && this.fixture.canCastShadow);
+    },
+    /**
+     * Whether this fixture's beam casts a shadow.
+     *
+     * Per fixture and off by default. Shadow maps come out of a small fixed
+     * pool the whole scene shares -- around sixteen on a typical GPU, counting
+     * everything else that samples a texture -- so this is a few fixtures'
+     * worth of budget to spend where it reads, not a switch to leave on.
+     *
+     * @type {Boolean}
+     */
+    castsShadow: {
+      get() {
+        return !!(this.fixture && this.fixture.castsShadow);
+      },
+      set(state) {
+        if (this.fixture) this.fixture.castsShadow = state;
+      },
+    },
+    /**
+     * How many fixtures in the show are casting shadows.
+     *
+     * @type {Number}
+     */
+    shadowCasters() {
+      return this.$show.fixturePool.fixtures.filter((f) => f.castsShadow).length;
+    },
+    /**
+     * Whether the budget is gone.
+     *
+     * A fixture that is already casting is never blocked -- that would be a
+     * tick you could not untick -- so this only ever stops the next one.
+     *
+     * @type {Boolean}
+     */
+    shadowBudgetSpent() {
+      return !this.castsShadow && this.shadowCasters >= MAX_SHADOW_CASTERS;
+    },
+    /**
+     * The label carries the count, so the limit is visible before it is hit
+     * rather than appearing as a checkbox that mysteriously will not tick.
+     *
+     * @type {String}
+     */
+    shadowLabel() {
+      return `Casts shadows (${this.shadowCasters}/${MAX_SHADOW_CASTERS})`;
+    },
     /**
      * Universe the fixture starts in. Setting it slides the fixture by whole
      * universes, keeping its channel.

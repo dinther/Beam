@@ -275,6 +275,27 @@ const FIT_FILL = 0.92;
  * @constant {Number}
  */
 const MIN_FRAME_RADIUS = 0.6;
+/**
+ * The volume an empty scene is framed as, in metres, and where it sits.
+ *
+ * A unit cube at the origin straddled the floor and was small enough that the
+ * camera ended up kneeling on the grid, looking at a point underfoot. A room
+ * standing *on* the floor is what an empty show is really showing, so that is
+ * what gets framed.
+ *
+ * @constant {Object} EMPTY_SCENE_SIZE
+ */
+const EMPTY_SCENE_SIZE = new THREE.Vector3(8, 8, 4);
+/**
+ * How far above the floor the camera is always kept.
+ *
+ * Framing puts the camera on a line through the subject's centre, and a
+ * subject sitting low with a shallow view direction puts that line underground
+ * -- where the floor is drawn from beneath and nothing reads.
+ *
+ * @constant {Number} MIN_CAMERA_HEIGHT
+ */
+const MIN_CAMERA_HEIGHT = 0.4;
 
 /**
  * Axis-aligned viewing directions, as the vector from the subject towards the
@@ -457,6 +478,11 @@ class Controls {
     this.handle.addEventListener('objectChange', () => {
       this.clampToFloor();
       this.syncGroupsFromGizmo();
+      // Said out loud so the coordinate fields can follow a drag. They cannot
+      // watch for it themselves: a fixture's model is deliberately not written
+      // until the drag ends, and what a structure writes goes to raw objects
+      // that Vue's reactivity never sees.
+      EventBus.emit('transform_changed');
     });
     this.handle.addEventListener('mouseUp', () => { // Listening for mouseup events on control helpers
       this.controlHandle.enabled = true; // Enabling camera control
@@ -782,6 +808,37 @@ class Controls {
    * @param {Object} fixture handle to the Fixture instance to select
    */
   /**
+   * Where an item stands right now, mid-drag.
+   *
+   * While the gizmo has hold of something, its transform node is parented
+   * under the gizmo's own group and the truth is in that node rather than in
+   * the model. Null once the node is back in the scene, which is the caller's
+   * cue to read the model again.
+   *
+   * @public
+   * @param {Object} item fixture or structure
+   * @returns {Object|null} `{ position, rotation }` in metres and degrees
+   */
+  // eslint-disable-next-line class-methods-use-this
+  liveTransform(item) {
+    const model = item ? toRaw(item._3DModel) : null;
+    const dummy = model ? toRaw(model._dummy) : null;
+    if (!dummy || !dummy.parent || toRaw(dummy.parent) === SceneManager) return null;
+    dummy.updateMatrixWorld(true);
+    dummy.getWorldPosition(position);
+    dummy.getWorldQuaternion(quaternion);
+    euler.setFromQuaternion(quaternion);
+    return {
+      position: { x: position.x, y: position.y, z: position.z },
+      rotation: {
+        x: THREE.MathUtils.radToDeg(euler.x),
+        y: THREE.MathUtils.radToDeg(euler.y),
+        z: THREE.MathUtils.radToDeg(euler.z),
+      },
+    };
+  }
+
+  /**
    * Index of a fixture in the current selection. Fixtures reach the pool both
    * raw (from a 3D pick) and wrapped in Vue's reactive proxy (from the list),
    * so identity alone is not a safe test; ids are.
@@ -1013,8 +1070,9 @@ class Controls {
     this.cameraHandle.updateMatrixWorld();
     const from = new THREE.Vector3().setFromMatrixPosition(this.cameraHandle.matrixWorld);
     const direction = this.framingDirection(from, this.controlHandle.target).clone();
+    const distance = this.framingDistance(sceneBox, FIT_FILL);
     this.flyTo(
-      centre.clone().addScaledVector(direction, this.framingDistance(sceneBox, FIT_FILL)),
+      this.aboveFloor(centre.clone().addScaledVector(direction, distance)),
       centre,
     );
   }
@@ -1044,17 +1102,34 @@ class Controls {
   setViewDirection(direction) {
     if (!this.cameraHandle) return;
     this.sceneBounds(sceneBox);
-    // An empty scene still deserves a sensible viewpoint, so fall back to a
-    // unit box at the origin rather than refusing to move.
+    // An empty scene still deserves a sensible viewpoint, so fall back to an
+    // empty room resting on the floor rather than refusing to move.
     if (sceneBox.isEmpty()) {
-      sceneBox.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+      sceneBox.setFromCenterAndSize(
+        new THREE.Vector3(0, 0, EMPTY_SCENE_SIZE.z / 2),
+        EMPTY_SCENE_SIZE,
+      );
     }
     const centre = sceneBox.getCenter(new THREE.Vector3());
     const unit = direction.clone().normalize();
+    const distance = this.framingDistance(sceneBox, FIT_FILL);
     this.flyTo(
-      centre.clone().addScaledVector(unit, this.framingDistance(sceneBox, FIT_FILL)),
+      this.aboveFloor(centre.clone().addScaledVector(unit, distance)),
       centre,
     );
+  }
+
+  /**
+   * Lifts a camera position that framing has put at or below the floor.
+   *
+   * @public
+   * @param {Object} place where the camera would go
+   * @returns {Object} the same vector, never below MIN_CAMERA_HEIGHT
+   */
+  // eslint-disable-next-line class-methods-use-this
+  aboveFloor(place) {
+    place.z = Math.max(place.z, MIN_CAMERA_HEIGHT);
+    return place;
   }
 
   /**
@@ -1193,10 +1268,13 @@ class Controls {
     let endTarget;
     if (state) {
       endTarget = this.boundingBox.getCenter(new THREE.Vector3());
-      endPos = endTarget.clone().addScaledVector(
+      // Clamped like every other framing path: a selection sitting on the
+      // floor, looked at from a shallow angle, puts this line underground --
+      // and from beneath, the floor slab hides the whole scene.
+      endPos = this.aboveFloor(endTarget.clone().addScaledVector(
         this.framingDirection(startPos, startTPos),
         this.framingDistance(),
-      );
+      ));
     } else {
       endPos = DEFAULT_ZOOM_OUT_ENDPOS;
       endTarget = DEFAULT_ZOOM_OUT_TARGET;
@@ -1289,6 +1367,9 @@ class Controls {
       }
     }
     this.hideHelpers();
+    // The drag is over and the model now holds the answer; anything showing
+    // the live one needs to go back to reading the model.
+    EventBus.emit('transform_changed');
   }
 
   /**

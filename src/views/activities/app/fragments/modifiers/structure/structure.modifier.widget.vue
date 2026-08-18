@@ -236,6 +236,14 @@ export default {
   align-items: center;
 }
 .structure_mappings {
-  flex-wrap: wrap;
+  /* Two rows, filled downwards, so the opposite faces pair up: Front above
+     Back, Left above Right, Top above Bottom, and the two unwraps together.
+     Column flow rather than a fixed column count keeps it two rows whatever
+     the projection list grows to. */
+  display: grid;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column;
+  justify-content: start;
+  column-gap: 12px;
 }
 </style>

@@ -131,6 +131,23 @@ let camera_handle = null;
 let scene_handle = null;
 
 const instances = [];
+
+/**
+ * How many fixtures may cast a shadow at once.
+ *
+ * Each shadow-casting light costs one fragment texture image unit, and a GPU
+ * offers few of them -- 16 is common. Past that the standard material's
+ * program fails to validate and everything drawn with it stops rendering, the
+ * floor most visibly. Half the pool is kept back for the maps materials
+ * themselves need, which leaves this.
+ *
+ * Exported because the limit is a fact about the renderer but has to be
+ * enforced where the choice is made.
+ *
+ * @constant {Number} MAX_SHADOW_CASTERS
+ */
+export const MAX_SHADOW_CASTERS = 8;
+
 let instanceCount = 0;
 
 /**
@@ -384,6 +401,24 @@ class MovingHead {
 
   get tiltFine() {
     return this._tiltFine || 0.0;
+  }
+
+  /**
+   * Whether this head casts a shadow.
+   *
+   * Off by default and never granted automatically: shadow maps are a fixed,
+   * small budget shared by the whole scene, and which few fixtures are worth
+   * spending it on is a judgement about the rig, not one this can make.
+   *
+   * @type {Boolean}
+   */
+  set castsShadow(state) {
+    this._castsShadow = !!state;
+    if (this._spotLight) this._spotLight.castShadow = this._castsShadow;
+  }
+
+  get castsShadow() {
+    return !!this._castsShadow;
   }
 
   /**
@@ -735,7 +770,14 @@ class MovingHead {
     // The light sits ahead of the head (see the translation below), so the
     // fixture's own body stays behind the shadow frustum and cannot black out
     // its own beam. Shadow camera fov tracks the cone angle automatically.
-    this._spotLight.castShadow = true;
+    //
+    // Off unless asked for. Each shadow-casting light costs one fragment
+    // texture image unit and a GPU offers few of them -- 16 is common -- so a
+    // head that claimed one on sight meant two dozen movers exhausted the pool,
+    // the standard material's program failed to validate, and everything drawn
+    // with it stopped rendering. The floor going missing is what that looks
+    // like from the outside.
+    this._spotLight.castShadow = !!this._castsShadow;
     this._spotLight.shadow.mapSize.width = SPOTLIGHT_SHADOW_MAP_SIZE;
     this._spotLight.shadow.mapSize.height = SPOTLIGHT_SHADOW_MAP_SIZE;
     this._spotLight.shadow.camera.near = SPOTLIGHT_SHADOW_NEAR;

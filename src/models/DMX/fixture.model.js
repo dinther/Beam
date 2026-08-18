@@ -229,6 +229,11 @@ class Fixture extends Proxify {
        * structure writes them -- but they are the structure's to set.
        */
       this.structure = null;
+      /**
+       * Whether this fixture's beam casts a shadow. Off unless asked for --
+       * see MovingHead's own accessor for why it is not given away freely.
+       */
+      this._castsShadow = !!data.castsShadow;
       /** Transform relative to that group or structure, held by the owner. */
       this.localTransform = null;
       this._rotation = {
@@ -320,6 +325,7 @@ class Fixture extends Proxify {
       rotation: this.rotation,
       groupId: this.group ? this.group.id : undefined,
       structureId: this.structure ? this.structure.id : undefined,
+      castsShadow: this._castsShadow,
     };
   }
 
@@ -1117,6 +1123,9 @@ class Fixture extends Proxify {
         this._3DModel = markRaw(movingHead); // Binding moving head instance to this fixture instance
         // Reverse link, so a ray hitting the 3D model can name its fixture.
         movingHead.fixtureHandle = this;
+        // Pushed down after building: a fixture reloaded from a show carries
+        // its own answer, and the renderer starts every head with shadows off.
+        movingHead.castsShadow = this._castsShadow;
         break;
       }
       default: {
@@ -1196,6 +1205,39 @@ class Fixture extends Proxify {
         });
       }
     });
+  }
+
+  /**
+   * Whether this fixture casts a shadow, where its renderer can draw one.
+   *
+   * Kept on the fixture rather than only on the renderer so it survives a
+   * save, and so the widget has something to bind to before the 3D model for
+   * a fixture has been built.
+   *
+   * @type {Boolean}
+   */
+  set castsShadow(state) {
+    this._castsShadow = !!state;
+    if (this._3DModel && 'castsShadow' in this._3DModel) {
+      this._3DModel.castsShadow = this._castsShadow;
+    }
+  }
+
+  get castsShadow() {
+    return !!this._castsShadow;
+  }
+
+  /**
+   * Whether this fixture is able to cast one at all.
+   *
+   * An emitter bar has no beam and no spotlight behind it, so the choice would
+   * be offered and do nothing.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  get canCastShadow() {
+    return !!(this._3DModel && 'castsShadow' in this._3DModel);
   }
 
   /**

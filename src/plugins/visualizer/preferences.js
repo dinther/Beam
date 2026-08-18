@@ -18,7 +18,16 @@ const DEFAULTS = {
   globalFoggingState: 1,
   globalFoggingDensity: 18,
   globalFoggingTurbulences: 50,
+  /**
+   * Global brightness with the house lights up. The scene keeps two, because
+   * looking at a rig and looking at a show want different rooms, and the one
+   * you are not in should not have to be dialled back every time.
+   */
   globalBrightness: 60,
+  /** Global brightness with the house lights down. */
+  brightnessHouseOff: 2,
+  /** Which of the two is in force. */
+  houseLights: true,
   showGrid: true,
   showAxes: true,
   showFloor: true,

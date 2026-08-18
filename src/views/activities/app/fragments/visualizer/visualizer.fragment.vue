@@ -18,7 +18,7 @@
         :value="false"
         toggleable
         icon="snap"
-        color="var(--accent-sea-green)"
+        color="var(--accent-blue)"
         @click="toggleSnap"
       />
       <uk-button
@@ -28,6 +28,18 @@
         label="Fit to view"
         icon="fit"
         @click="$show.visualizerHandle.frameAll()"
+      />
+      <uk-button
+        v-show="!hidden"
+        v-model="houseLights"
+        square
+        icon-only
+        label="House lights"
+        :value="false"
+        toggleable
+        icon="lightbulb"
+        color="var(--accent-blue)"
+        @click="toggleHouseLights"
       />
       <uk-spacer />
       <uk-button
@@ -141,6 +153,7 @@ export default {
        */
       autoFocus: false,
       snapEnabled: true,
+      houseLights: true,
       /**
        * Auto rotation state
        */
@@ -159,6 +172,7 @@ export default {
     EventBus.emit('visualizer_loaded', true);
     this.autoFocus = this.$show.visualizerHandle.autoFocus;
     this.snapEnabled = this.$show.visualizerHandle.snapEnabled;
+    this.houseLights = this.$show.visualizerHandle.houseLights;
     this.autoRotate = this.$show.visualizerHandle.autoRotate;
   },
   methods: {
@@ -241,6 +255,19 @@ export default {
     },
     toggleAutoFocus(value) {
       this.$show.visualizerHandle.autoFocus = value;
+    },
+    /**
+     * Swaps between the two global light settings.
+     *
+     * Not a dimmer: the scene keeps a brightness for the room lit and another
+     * for it dark, and each is tuned in the visualizer preferences.
+     *
+     * @public
+     * @param {Boolean} value new state
+     */
+    toggleHouseLights(value) {
+      this.houseLights = value;
+      this.$show.visualizerHandle.houseLights = value;
     },
     /**
      * Start canvas recording process

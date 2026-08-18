@@ -138,6 +138,7 @@ const DEFAULT_PREFERENCES = {
   FOGGING_DENSITY: 18,
   GLOBAL_FOGGING_TURBULENCES: 0,
   GLOBAL_BRIGHTNESS: 80,
+  BRIGHTNESS_HOUSE_OFF: 2,
 };
 
 /**
@@ -197,7 +198,10 @@ class Visualizer {
     // Falls back to the stored preferences, which is how the visualizer dresses
     // itself on startup without a show being involved.
     const source = preferences || Preferences.all();
-    this.globalBrightness = source.globalBrightness;
+    // The switch first: it decides which of the two brightnesses is the one
+    // to dress the scene with.
+    Preferences.set('houseLights', source.houseLights !== false);
+    this.globalBrightness = Preferences.get(this.brightnessKey);
     this.globalFoggingDensity = source.globalFoggingDensity;
     this.globalFoggingState = source.globalFoggingState;
     this.globalFoggingTurbulences = source.globalFoggingTurbulences;
@@ -380,13 +384,54 @@ class Visualizer {
     // The fallback is a percentage like the value it stands in for, so it has
     // to be scaled the same way. Assigned raw it made a show that named no
     // brightness a hundred times brighter than one that asked for full.
-    this._globalBrightness = value
-      ? value / 100
+    //
+    // Tested for a number rather than for truthiness: zero is a brightness a
+    // user can legitimately ask for -- house lights fully down -- and a falsy
+    // test turned it into the default, which is very nearly full.
+    const asked = Number(value);
+    this._globalBrightness = Number.isFinite(asked)
+      ? asked / 100
       : DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS / 100;
-    Preferences.set('globalBrightness', this._globalBrightness * 100);
+    // Written to whichever of the two settings is in force, so the brightness
+    // slider tunes the room you are actually looking at rather than one shared
+    // number that the toggle then overwrites.
+    Preferences.set(this.brightnessKey, this._globalBrightness * 100);
     if (this.globalLightHandle) {
       this.globalLightHandle.intensity = this._globalBrightness * 0.25;
     }
+  }
+
+  /**
+   * Which stored brightness the scene is currently showing.
+   *
+   * @readonly
+   * @type {String}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  get brightnessKey() {
+    return Preferences.get('houseLights') ? 'globalBrightness' : 'brightnessHouseOff';
+  }
+
+  /**
+   * Whether the house lights are up.
+   *
+   * Two settings rather than one dimmer: a rig is inspected with the room lit
+   * and watched with it dark, and each wants its own brightness kept.
+   *
+   * @type {Boolean}
+   */
+  set houseLights(on) {
+    Preferences.set('houseLights', !!on);
+    // Read after the switch, so it is the incoming room's own brightness.
+    const stored = Preferences.get(this.brightnessKey);
+    this.globalBrightness = stored === undefined
+      ? DEFAULT_PREFERENCES.BRIGHTNESS_HOUSE_OFF
+      : stored;
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get houseLights() {
+    return !!Preferences.get('houseLights');
   }
 
   get globalBrightness() {

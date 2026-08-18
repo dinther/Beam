@@ -1,31 +1,42 @@
 <template>
   <div class="patch_bay">
-    <div class="patch_bay_header">
+    <div
+      ref="header"
+      class="patch_bay_header"
+    >
       <h3>Patch Bay</h3>
       <span style="flex: 1" />
       <uk-button
         icon="grid"
         style="margin-right: 8px"
         label="group"
+        :icon-only="compactButtons"
+        title="group"
         @click="createGroup"
       />
       <uk-button
         icon="structure"
         style="margin-right: 8px"
         label="structure"
+        :icon-only="compactButtons"
+        title="structure"
         @click="createStructure"
       />
       <uk-button
         icon="move"
         style="margin-right: 8px"
         label="arrange"
+        :icon-only="compactButtons"
+        title="arrange"
         :disabled="!canArrange"
         @click="toggleArrange"
       />
       <uk-button
         icon="new"
         style="margin-right: 8px"
-        label="new"
+        label="add"
+        :icon-only="compactButtons"
+        title="add"
         @click="displayPatchPopup"
       />
     </div>
@@ -86,6 +97,14 @@ export default {
        * is made for plenty of reasons that are not "lay these out again".
        */
       arrangeOpen: false,
+      /**
+       * Whether the header buttons are down to their icons.
+       *
+       * The patch bay sits in a column the user can drag narrower than the
+       * four labels need, and a squashed row of half-words is worse than four
+       * icons with tooltips.
+       */
+      compactButtons: false,
     };
   },
   computed: {
@@ -137,11 +156,37 @@ export default {
   },
   mounted() {
     EventBus.on('fixture_picked', this.handleFixturePicked);
+    this.watchHeaderWidth();
   },
   beforeUnmount() {
     EventBus.off('fixture_picked', this.handleFixturePicked);
+    if (this.headerObserver) this.headerObserver.disconnect();
   },
   methods: {
+    /**
+     * Drops the header buttons to icons when their labels no longer fit.
+     *
+     * The full width is measured once, on the first paint, while the labels
+     * are still showing -- measuring afterwards would read the compact width
+     * and the row would never expand again. Comparing against that fixed
+     * number is also what stops the two states flapping into each other, since
+     * switching to icons does not change what is being compared.
+     *
+     * @public
+     */
+    watchHeaderWidth() {
+      const { header } = this.$refs;
+      if (!header || typeof ResizeObserver === 'undefined') return;
+      this.$nextTick(() => {
+        // scrollWidth, not clientWidth: the row overflows rather than shrinks,
+        // so this is what the labels actually ask for.
+        this.headerFullWidth = header.scrollWidth;
+        this.headerObserver = new ResizeObserver(() => {
+          this.compactButtons = header.clientWidth < this.headerFullWidth;
+        });
+        this.headerObserver.observe(header);
+      });
+    },
     /**
      * One fixture as a list entry.
      *
@@ -439,15 +484,39 @@ export default {
 .patch_bay_header {
   display: flex;
   flex-direction: row;
-  min-height: 28px;
+  /* Fixed, not a minimum. An icon-only button is taller than a labelled one,
+     so a row free to grow changed height the moment the labels dropped out. */
+  height: 30px;
+  min-height: 30px;
   width: 100%;
   padding: 0 8px;
   align-items: center;
   border-bottom: 1px solid var(--primary-dark);
 }
+.patch_bay_header :deep(.uikit_button.icon_only) {
+  /* Sized to sit inside the row with a little air above and below, rather
+     than filling it edge to edge as the default 30px square would. */
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+}
+.patch_bay_header :deep(.uikit_button) {
+  /* Held at their natural width so the row genuinely overflows when the
+     labels do not fit. Allowed to shrink they would squash into each other
+     instead, and there would be nothing to measure. */
+  flex-shrink: 0;
+}
+.patch_bay_header h3 {
+  /* The title yields first: it is the one thing here that is only a label. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .patch_bay_fixture_list {
   display: flex;
   width: 100%;
-  height: calc(100% - 29px);
+  /* The header and the hairline under it. */
+  height: calc(100% - 31px);
 }
 </style>

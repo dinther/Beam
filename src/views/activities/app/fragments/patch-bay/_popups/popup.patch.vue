@@ -38,6 +38,7 @@
         </h4>
         <uk-flex
           v-if="activeKind !== 'structures'"
+          :gap="8"
           class="fixture_list_actions"
         >
           <!-- Structures need no action here: they are made by saving a group,
@@ -901,6 +902,9 @@ export default {
   padding: 8px;
   border-top: 1px solid var(--primary-dark);
   border-right: 1px solid var(--primary-dark);
+  /* Two labelled buttons side by side is what the column is sized for; if a
+     label ever grows past it they wrap rather than squashing into each other. */
+  flex-wrap: wrap;
 }
 .patch_popup {
   height: 100%;
@@ -913,7 +917,10 @@ export default {
 }
 .fixture_list {
   height: 350px;
-  width: 300px;
+  /* Wide enough for the two actions underneath -- "create generic" beside
+     "to MadMapper" -- rather than for the list alone, which left them cramped
+     against each other. */
+  width: 380px;
   max-height: 350px;
   overflow: hidden;
   border-right: 1px solid var(--primary-dark);

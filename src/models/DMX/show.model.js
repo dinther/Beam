@@ -15,6 +15,7 @@ import Group from './group.model';
 import Structure from './structure.model';
 import Live from './live.model';
 import { buildLedBarProfile } from './generic/led_bar';
+import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
 const DEFAULT_PROJECT_NAME = 'new_project.json';
 
@@ -483,6 +484,8 @@ class Show extends EventEmitter {
     this.loading.percentage = 60;
     await this.prepareFixtures(showData);
 
+    this.capShadowCasters();
+
     this.loading.message = 'Restoring groups';
     this.prepareGroups(showData);
 
@@ -642,6 +645,27 @@ class Show extends EventEmitter {
       // Kept on the raw profile too, so a fixture rebuilt from it agrees.
       fixture.OFLData[key] = value;
       fixture[key] = value;
+    });
+  }
+
+  /**
+   * Holds the show to the shadow budget it can actually render.
+   *
+   * The checkbox refuses to spend more than there is, but a showfile is not
+   * the checkbox: one written by hand, or by a build where the limit was
+   * different, can ask for more shadow-casting fixtures than the GPU has
+   * texture units -- and the result is not a slow scene, it is a scene missing
+   * everything drawn with the standard material. The ones beyond the budget
+   * lose their shadow rather than the show losing its floor.
+   *
+   * @public
+   */
+  capShadowCasters() {
+    let spent = 0;
+    this.fixturePool.fixtures.forEach((fixture) => {
+      if (!fixture.castsShadow) return;
+      spent += 1;
+      if (spent > MAX_SHADOW_CASTERS) fixture.castsShadow = false;
     });
   }
 

@@ -16,7 +16,7 @@
           :gap="8"
         >
           <uk-num-input
-            v-model="fixture.posX"
+            v-model="posX"
             :disabled="locked"
             color="var(--axis-x-field)"
             :precision="1"
@@ -25,7 +25,7 @@
             label="Position X"
           />
           <uk-num-input
-            v-model="fixture.posY"
+            v-model="posY"
             :disabled="locked"
             color="var(--axis-y-field)"
             :precision="1"
@@ -34,7 +34,7 @@
             label="Position Y"
           />
           <uk-num-input
-            v-model="fixture.posZ"
+            v-model="posZ"
             :disabled="locked"
             color="var(--axis-z-field)"
             :precision="1"
@@ -48,7 +48,7 @@
           :gap="8"
         >
           <uk-num-input
-            v-model="fixture.rotX"
+            v-model="rotX"
             :disabled="locked"
             color="var(--axis-x-field)"
             :min="-360"
@@ -56,7 +56,7 @@
             label="Rotation X"
           />
           <uk-num-input
-            v-model="fixture.rotY"
+            v-model="rotY"
             :disabled="locked"
             color="var(--axis-y-field)"
             :min="-360"
@@ -64,7 +64,7 @@
             label="Rotation Y"
           />
           <uk-num-input
-            v-model="fixture.rotZ"
+            v-model="rotZ"
             :disabled="locked"
             color="var(--axis-z-field)"
             :min="-360"
@@ -84,6 +84,19 @@
 </template>
 
 <script>
+import EventBus from '@/plugins/eventbus';
+import Controls from '@/plugins/visualizer/controls';
+
+/** Axis fields, and which side of the transform each belongs to. */
+const AXES = {
+  posX: ['position', 'x'],
+  posY: ['position', 'y'],
+  posZ: ['position', 'z'],
+  rotX: ['rotation', 'x'],
+  rotY: ['rotation', 'y'],
+  rotZ: ['rotation', 'z'],
+};
+
 export default {
   name: 'FixtureModifierWidgetPositionTool',
   compatConfig: {
@@ -116,9 +129,40 @@ export default {
         title: 'Fixture Settings',
         icon: 'move',
       },
+      /**
+       * Bumped whenever the gizmo moves something, purely to make the fields
+       * re-read. What a drag changes is not reactive -- the model is not
+       * written until the drag ends, and the node that is moving is raw three
+       * -- so there is nothing for Vue to track but this.
+       */
+      liveTick: 0,
+      /** Whether a re-read is already queued for the next frame. */
+      liveQueued: false,
     };
   },
   computed: {
+    ...Object.keys(AXES).reduce((fields, name) => ({
+      ...fields,
+      /**
+       * One axis field. Reads whatever is on screen -- the dragged node while
+       * a drag is running, the model otherwise -- and always writes the model.
+       */
+      [name]: {
+        get() {
+          // Touched so this recomputes when the gizmo says something moved.
+          // eslint-disable-next-line no-unused-expressions
+          this.liveTick;
+          if (!this.fixture) return 0;
+          const [side, axis] = AXES[name];
+          const live = Controls.liveTransform(this.fixture);
+          if (live) return Number(live[side][axis].toFixed(2));
+          return this.fixture[name];
+        },
+        set(value) {
+          if (this.fixture) this.fixture[name] = value;
+        },
+      },
+    }), {}),
     /**
      * Whether this fixture's transform belongs to something else.
      *
@@ -130,6 +174,31 @@ export default {
      */
     locked() {
       return !!(this.fixture && this.fixture.structure);
+    },
+  },
+  mounted() {
+    EventBus.on('transform_changed', this.queueLiveRead);
+  },
+  beforeUnmount() {
+    EventBus.off('transform_changed', this.queueLiveRead);
+  },
+  methods: {
+    /**
+     * Schedules one re-read per frame.
+     *
+     * The gizmo reports every pointer move, which is more often than a number
+     * can be read; coalescing to a frame keeps the fields honest without
+     * re-rendering the panel dozens of times a second.
+     *
+     * @public
+     */
+    queueLiveRead() {
+      if (this.liveQueued) return;
+      this.liveQueued = true;
+      requestAnimationFrame(() => {
+        this.liveQueued = false;
+        this.liveTick += 1;
+      });
     },
   },
 };
