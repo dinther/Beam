@@ -30,3 +30,6 @@ yarn-error.log*
 **/.vitepress/cache
 
 **/bin/
+
+# Electron-builder output, second output folder
+/release2
