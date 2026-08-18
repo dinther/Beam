@@ -157,7 +157,7 @@ Contributions of all kinds are welcome — bug reports, feature requests, fixtur
 2. Make your changes and test them locally (`npm start`).
 3. Open a **Pull Request** against `develop` with a clear description of the change and why.
 
-For larger changes or new features, opening a [Discussion](https://github.com/dinther/Beam/discussions) first is encouraged to align on direction before writing code.
+For larger changes or new features, come and say so on [Discord](https://discord.gg/9EJqb4Kpwf) first — it is easier to align on direction there than in a pull request that has already been written.
 
 ---
 
