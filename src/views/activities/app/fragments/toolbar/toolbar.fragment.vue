@@ -203,7 +203,7 @@ export default {
               name: 'Manual',
               icon: 'help',
               callback: () => {
-                window.open('https://github.com/dinther/Beam/blob/main/manual.md', '_blank');
+                window.open('https://github.com/dinther/Beam/blob/master/manual.md', '_blank');
               },
             },
             {
