@@ -313,7 +313,7 @@
 
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
-import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
+import { DMX_UNIVERSE_LENGTH, channelAddress } from '@/models/DMX/patch.model';
 import { buildMadMapperFixture } from '@/models/DMX/generic/madmapper';
 import Fixture from '@/models/DMX/fixture.model';
 import CreateFixturePopup from './popup.create.fixture.vue';
@@ -634,8 +634,18 @@ export default {
             const autoName = this.fixture.name === profileName;
             Object.assign(position_tmp, this.fixture.position);
             Object.assign(rotation_tmp, this.fixture.rotation);
+            // Asked for rather than multiplied out: a fixture keeping its
+            // pixels whole occupies more address space than its channel count,
+            // so spacing the batch by that count alone puts every fixture past
+            // the first universe boundary inside the one before it.
+            const run = this.$show.patch.addressRun(
+              this.patchAddress,
+              chCount,
+              this.amount,
+              this.alignmentPixelSize,
+            );
             for (let i = 0; i < this.amount; i++) {
-              this.fixture.address = i * chCount + this.patchAddress;
+              this.fixture.address = run[i];
               this.fixture.position = {
                 x: position_tmp.x + this.positionOffsets.x * i,
                 y: position_tmp.y + this.positionOffsets.y * i,
@@ -825,11 +835,29 @@ export default {
         this.alignmentPixelSize,
       )) {
         this.patchError = false;
-        this.chStop = chCount * this.amount + this.patchAddress;
+        this.chStop = this.runStop(this.patchAddress, chCount);
         return true;
       }
       this.patchError = true;
       return false;
+    },
+    /**
+     * One past the last channel a batch would occupy.
+     *
+     * Read off where the fixtures really land rather than multiplied out: a
+     * run that keeps its pixels whole steps over the tail of each universe it
+     * fills, so it ends later than its channel count says.
+     *
+     * @public
+     * @param {Number} address absolute start address
+     * @param {Number} chCount per-fixture channel count
+     * @return {Number} absolute address one past the run's last channel
+     */
+    runStop(address, chCount) {
+      const pixelSize = this.alignmentPixelSize;
+      const run = this.$show.patch.addressRun(address, chCount, this.amount, pixelSize);
+      if (!run.length) return address;
+      return channelAddress(run[run.length - 1], chCount - 1, pixelSize) + 1;
     },
     /**
      * Finds the first free run in the show's address space. A run that crosses
@@ -850,12 +878,13 @@ export default {
         this.startAddress || 0,
         this.alignmentPixelSize,
       );
-      this.chStop = chCount * this.amount + address;
       if (address > -1) {
         this.patchError = false;
         this.patchAddress = address;
+        this.chStop = this.runStop(address, chCount);
       } else {
         this.patchError = true;
+        this.chStop = 0;
       }
     },
     /**

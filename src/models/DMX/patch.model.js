@@ -79,6 +79,25 @@ function channelIndexAt(start, address, pixelSize = 1) {
 }
 
 /**
+ * The lowest address at or after `address` that a fixture may start on.
+ *
+ * A fixture keeping its pixels whole cannot begin so late in a universe that
+ * its first pixel would not fit in what is left: the tail is dead space and
+ * the fixture starts at the next universe instead. Everything else, including
+ * a pixel too wide to ever be kept whole, starts exactly where it is put.
+ *
+ * @param {Number} address absolute address to start looking from
+ * @param {Number} [pixelSize] channels per pixel
+ * @return {Number} first legal start address at or after it
+ */
+function alignedStart(address, pixelSize = 1) {
+  if (!(pixelSize > 1) || pixelSize > DMX_UNIVERSE_LENGTH) return address;
+  const offset = address % DMX_UNIVERSE_LENGTH;
+  if (DMX_UNIVERSE_LENGTH - offset >= pixelSize) return address;
+  return address + (DMX_UNIVERSE_LENGTH - offset);
+}
+
+/**
  * @class PatchMap
  * @classdesc The show's DMX address space, as one continuous run of channels
  * rather than a set of 512-channel islands.
@@ -183,16 +202,57 @@ class PatchMap {
   }
 
   /**
-   * Whether a set of N identical fixtures, laid end to end, is patchable.
+   * Start addresses for a set of N identical fixtures laid end to end.
+   *
+   * Each one begins where the one before it really ended, which is not its
+   * start plus its channel count: a fixture keeping its pixels whole steps
+   * over the tail of a universe, so it reaches further than counting suggests.
+   * Spacing a batch by channel count alone therefore lands every fixture after
+   * the first boundary crossing inside its predecessor.
+   *
+   * The first address is returned as given, dead space or not, so that an
+   * address the user typed is validated rather than silently moved.
    *
    * @public
    * @param {Number} address absolute start address
    * @param {Number} chCount per-instance channel count
    * @param {Number} amount how many instances
+   * @param {Number} [pixelSize] channels per pixel
+   * @return {Array<Number>} one absolute start address per instance
+   */
+  // eslint-disable-next-line class-methods-use-this
+  addressRun(address, chCount, amount, pixelSize = 1) {
+    const run = [];
+    if (address < 0 || chCount <= 0 || amount <= 0) return run;
+    let start = address;
+    for (let i = 0; i < amount; i += 1) {
+      run.push(start);
+      start = alignedStart(channelAddress(start, chCount - 1, pixelSize) + 1, pixelSize);
+    }
+    return run;
+  }
+
+  /**
+   * Whether a set of N identical fixtures, laid end to end, is patchable.
+   *
+   * Each instance is tested where it will actually be addressed, rather than
+   * the batch being collapsed into one long fixture: the two are laid out
+   * differently once pixels are kept whole, and the long-fixture answer said
+   * yes to batches that could not then be patched.
+   *
+   * @public
+   * @param {Number} address absolute start address
+   * @param {Number} chCount per-instance channel count
+   * @param {Number} amount how many instances
+   * @param {Number} [pixelSize] channels per pixel
    * @return {Boolean} whether the whole run can be patched
    */
   canPatchMany(address, chCount, amount, pixelSize = 1) {
-    return this.canPatch(address, chCount * amount, null, pixelSize);
+    const run = this.addressRun(address, chCount, amount, pixelSize);
+    if (!run.length || run.length !== amount) return false;
+    const last = channelAddress(run[run.length - 1], chCount - 1, pixelSize);
+    if (last >= this.addressSpaceLength) return false;
+    return run.every((start) => this.canPatch(start, chCount, null, pixelSize));
   }
 
   /**
@@ -210,9 +270,11 @@ class PatchMap {
   findFreeAddress(chCount, amount = 1, from = 0, pixelSize = 1) {
     const total = chCount * amount;
     if (total <= 0) return -1;
+    // A run occupies at least its channel count, so nothing can start later
+    // than this even when the layout stretches it further.
     const limit = this.addressSpaceLength - total;
-    for (let i = from; i <= limit; i++) {
-      if (this.canPatch(i, total, null, pixelSize)) return i;
+    for (let i = Math.max(from, 0); i <= limit; i++) {
+      if (this.canPatchMany(i, chCount, amount, pixelSize)) return i;
       // Skip past whatever blocked us rather than retesting its every channel.
       const occupant = this._addressMap.get(i);
       if (occupant !== undefined) {
