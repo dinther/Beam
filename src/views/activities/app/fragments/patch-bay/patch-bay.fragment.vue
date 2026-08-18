@@ -6,14 +6,12 @@
     >
       <h3>Patch Bay</h3>
       <span style="flex: 1" />
-      <uk-button
-        icon="grid"
-        style="margin-right: 8px"
-        label="group"
-        :icon-only="compactButtons"
-        title="group"
-        @click="createGroup"
-      />
+      <!-- Hidden rather than removed. A group is on its way to being a saved
+           selection set for control, not a thing that moves in the scene --
+           structures do that now -- so making one from here offers a concept
+           the app is in the middle of retiring. `createGroup` stays: the
+           groups in existing shows still load, and this comes back the day
+           groups mean something again. -->
       <uk-button
         icon="structure"
         style="margin-right: 8px"

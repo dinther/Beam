@@ -46,6 +46,9 @@ nsis:
   # installerHeader.bmp, installerSidebar.bmp and uninstallerSidebar.bmp are
   # picked up by name from buildResources, which is `public`.
   runAfterFinish: true
+  # The blockmap exists so an updater can download only the changed parts of a
+  # new installer. With no update channel there is nothing to serve it.
+  differentialPackage: false
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -68,6 +71,7 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+# No update channel. Nothing in the app checks for updates -- electron-updater
+# is not even a dependency -- and left unset the build still writes a manifest
+# and a differential blockmap describing a channel that does not exist.
+publish: null
