@@ -29,6 +29,17 @@ const EOL = '\r\n';
 const POINT_FIXTURE_HALF = 0.14;
 
 /**
+ * The widest line MadMapper will read.
+ *
+ * Its importer refuses the whole file over one value -- "thickness value must
+ * be in range 0-1000" -- so a wide fixture on a closely scaled island took the
+ * layout down with it rather than merely looking wrong.
+ *
+ * @constant {Number} MAX_THICKNESS
+ */
+const MAX_THICKNESS = 1000;
+
+/**
  * Shortest line worth drawing, in metres.
  *
  * A bar pointing straight at the viewer projects to a point, and MadMapper
@@ -536,8 +547,14 @@ export function buildMadMapperLayout({
     const originY = Math.floor(index / columns) * step;
     const toX = (x) => round(originX + island.padX + (x - island.minX) * island.scale);
     const toY = (y) => round(originY + island.padY + (y - island.minY) * island.scale);
-    // Thickness is a width on the canvas, so it follows the island's own scale.
-    const toThickness = (t) => round((t / UNITS_PER_METRE) * island.scale);
+    // Thickness is a width on the canvas, so it follows the island's own scale
+    // -- and is held to what the importer accepts. A fixture drawn thicker than
+    // this is drawn at the limit, which is a fixture that looks slightly wrong
+    // rather than a file that will not open.
+    const toThickness = (t) => {
+      const scaled = round((t / UNITS_PER_METRE) * island.scale);
+      return Math.min(MAX_THICKNESS, Math.max(0, scaled));
+    };
 
     body.push(`    <g id="${escapeAttribute(`${island.prefix} ${island.name}`)}">`);
     island.entries.forEach((entry) => {
