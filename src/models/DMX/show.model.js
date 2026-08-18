@@ -14,7 +14,9 @@ import FixturePool from './fixture.pool.model';
 import Group from './group.model';
 import Structure from './structure.model';
 import Live from './live.model';
-import { buildLedBarProfile } from './generic/led_bar';
+import {
+  buildLedBarProfile, expandLedBarProfile, withoutLedBarChannels,
+} from './generic/led_bar';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
 const DEFAULT_PROJECT_NAME = 'new_project.json';
@@ -24,6 +26,33 @@ const SHOWFILE_EXTENSIONS = {
 };
 
 const fixtureDataCache = {};
+
+/**
+ * Fetches a library profile, or null if there is not one to be had.
+ *
+ * Validated rather than merely fetched. The dev server answers an unknown path
+ * with index.html and a cheerful 200, so a deleted profile arrives as a page of
+ * HTML -- and the first thing to touch it dies of a type error several layers
+ * away from anything that could name which profile was missing.
+ *
+ * @param {String} profileKey `manufacturer/model`
+ * @returns {Object|null} an OFL-shaped profile, or null
+ */
+async function fetchProfile(profileKey) {
+  try {
+    const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${profileKey}.json`);
+    const profile = res.data;
+    // The least a profile needs for the parser to survive it. A 404 served as
+    // HTML has none of these, which is the point.
+    const usable = profile
+      && typeof profile === 'object'
+      && Array.isArray(profile.categories)
+      && Array.isArray(profile.modes);
+    return usable ? profile : null;
+  } catch (err) {
+    return null;
+  }
+}
 
 /**
  * Storage for show definitions
@@ -528,6 +557,7 @@ class Show extends EventEmitter {
      * this to find it again.
      */
     this.loadedFixturesById = new Map();
+    this.missingProfiles = [];
     for (let i = 0; i < showData.fixtures.length; i++) {
       const fixtureData = showData.fixtures[i];
       const profileKey = `${fixtureData.manufacturer}/${fixtureData.model}`;
@@ -535,17 +565,35 @@ class Show extends EventEmitter {
         ? JSON.parse(JSON.stringify(this.generatedProfiles[profileKey]))
         : JSON.parse(fixtureDataCache[profileKey] || null);
       if (!fixtureData.OFLData) {
-        const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${profileKey}.json`);
-        fixtureData.OFLData = res.data;
-        fixtureDataCache[profileKey] = JSON.stringify(fixtureData.OFLData);
+        // A profile the user has since deleted is an ordinary thing to meet in
+        // an old show, not an error worth losing the rest of the rig over.
+        // Guarded rather than trusted, because the dev server answers an
+        // unknown path with index.html and a cheerful 200 -- so what arrives is
+        // a page of HTML, and the first thing to touch it dies of a type error
+        // several layers from anything that names the profile.
+        fixtureData.OFLData = await fetchProfile(profileKey);
+        if (fixtureData.OFLData) {
+          fixtureDataCache[profileKey] = JSON.stringify(fixtureData.OFLData);
+        } else {
+          this.missingProfiles.push(profileKey);
+        }
       }
-      // Applied after caching, so the cache keeps the library profile untouched
-      // and an edited overrides file takes effect on the next load.
-      if (this.fixtureOverrides[profileKey]) {
-        merge(fixtureData.OFLData, this.fixtureOverrides[profileKey]);
+      if (fixtureData.OFLData) {
+        // Applied after caching, so the cache keeps the library profile
+        // untouched and an edited overrides file takes effect on the next load.
+        if (this.fixtureOverrides[profileKey]) {
+          merge(fixtureData.OFLData, this.fixtureOverrides[profileKey]);
+        }
+        const created = this.fixturePool.addRaw(fixtureData);
+        if (fixtureData.id !== undefined) this.loadedFixturesById.set(fixtureData.id, created);
       }
-      const created = this.fixturePool.addRaw(fixtureData);
-      if (fixtureData.id !== undefined) this.loadedFixturesById.set(fixtureData.id, created);
+    }
+    if (this.missingProfiles.length) {
+      // Named once, with the count, rather than per fixture: thirty bars off
+      // one deleted profile is one problem, not thirty.
+      // eslint-disable-next-line no-console
+      console.warn(`[show] ${this.missingProfiles.length} fixture(s) skipped, profile not found: `
+        + `${[...new Set(this.missingProfiles)].join(', ')}`);
     }
   }
 
@@ -904,12 +952,10 @@ class Show extends EventEmitter {
     if (this.generatedProfiles[key]) {
       return JSON.parse(JSON.stringify(this.generatedProfiles[key]));
     }
-    try {
-      const res = await axios.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${key}.json`);
-      return res.data;
-    } catch (err) {
-      return null;
-    }
+    // Validated, not merely fetched -- see `fetchProfile`. Callers test this
+    // for null and skip; a page of HTML would pass that test and then die
+    // somewhere with no idea which profile it was looking at.
+    return fetchProfile(key);
   }
 
   /**
@@ -1117,7 +1163,12 @@ class Show extends EventEmitter {
   async preloadGeneratedProfiles() {
     if (typeof window === 'undefined' || !window.library) return;
     const stored = await window.library.readAll('profiles');
-    this.generatedProfiles = stored || {};
+    // Bars are stored without the channels their geometry implies; the parser
+    // needs them, so they are rebuilt here. Profiles that carry their own --
+    // anything written before this -- come back untouched.
+    this.generatedProfiles = Object.fromEntries(
+      Object.entries(stored || {}).map(([key, profile]) => [key, expandLedBarProfile(profile)]),
+    );
   }
 
   /**
@@ -1136,7 +1187,15 @@ class Show extends EventEmitter {
     profile.name = model;
     this.generatedProfiles[key] = profile;
     if (typeof window !== 'undefined' && window.library) {
-      await window.library.write('profiles', key, JSON.stringify(profile, null, 2));
+      // Written without its channel list. Every entry is the same capability
+      // under a different name, and `asls.bar` already says what they are: a
+      // 256 x 256 tile is 196,608 of them, which is 33 MB of file saying
+      // nothing the geometry has not said already.
+      await window.library.write(
+        'profiles',
+        key,
+        JSON.stringify(withoutLedBarChannels(profile), null, 2),
+      );
     }
     this.refreshFixtureList();
     return key;

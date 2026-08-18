@@ -197,20 +197,23 @@ export function gridPositions(params) {
 }
 
 /**
- * Builds an OFL-shaped profile for a bar.
+ * The channel list a bar's geometry implies.
  *
- * @param {Object} [overrides] parameters replacing the defaults
- * @returns {Object} profile, with its parameters kept under `asls.bar`
+ * One channel per emitter per colour, which is what OFL wants and what the
+ * fixture parser reads. It is also entirely derivable: every entry is the same
+ * capability, and only the name and colour differ. That is why it is built
+ * here on demand rather than kept -- see `expandLedBarProfile`.
+ *
+ * @public
+ * @param {Object} params bar parameters
+ * @returns {Object} `{ availableChannels, modes }`
  */
-export function buildLedBarProfile(overrides = {}) {
-  const params = { ...DEFAULT_BAR_PARAMS, ...overrides };
+export function ledBarChannels(params) {
   const components = params.order.toUpperCase().split('')
     .filter((letter) => COMPONENTS[letter]);
-  const pixels = scanOrder(params);
-
   const availableChannels = {};
-  const modeChannels = [];
-  pixels.forEach((cell, index) => {
+  const channels = [];
+  scanOrder(params).forEach((cell, index) => {
     components.forEach((letter) => {
       const name = `P${index + 1} ${COMPONENTS[letter]}`;
       availableChannels[name] = {
@@ -221,9 +224,56 @@ export function buildLedBarProfile(overrides = {}) {
           brightnessEnd: '100%',
         },
       };
-      modeChannels.push(name);
+      channels.push(name);
     });
   });
+  return { availableChannels, modes: [{ name: 'Default', channels }] };
+}
+
+/**
+ * The same profile without the channels its geometry implies.
+ *
+ * What gets written to the library. A 256 x 256 tile is 196,608 channels, each
+ * an identical capability under a different name: 33 MB of file describing
+ * what `asls.bar` already says in a dozen numbers.
+ *
+ * @public
+ * @param {Object} profile a built profile
+ * @returns {Object} the profile without `availableChannels` or `modes`
+ */
+export function withoutLedBarChannels(profile) {
+  if (!profile || !profile.asls || !profile.asls.bar) return profile;
+  const { availableChannels, modes, ...rest } = profile;
+  return rest;
+}
+
+/**
+ * Puts the channels back, for a profile stored without them.
+ *
+ * Safe on anything: a profile that carries its own channels is returned as it
+ * is, so the libraries written before this still load.
+ *
+ * @public
+ * @param {Object} profile a stored profile
+ * @returns {Object} a profile the fixture parser can read
+ */
+export function expandLedBarProfile(profile) {
+  if (!profile || !profile.asls || !profile.asls.bar) return profile;
+  if (profile.availableChannels && Object.keys(profile.availableChannels).length) return profile;
+  return { ...profile, ...ledBarChannels(profile.asls.bar) };
+}
+
+/**
+ * Builds an OFL-shaped profile for a bar.
+ *
+ * @param {Object} [overrides] parameters replacing the defaults
+ * @returns {Object} profile, with its parameters kept under `asls.bar`
+ */
+export function buildLedBarProfile(overrides = {}) {
+  const params = { ...DEFAULT_BAR_PARAMS, ...overrides };
+  const components = params.order.toUpperCase().split('')
+    .filter((letter) => COMPONENTS[letter]);
+  const { availableChannels, modes } = ledBarChannels(params);
 
   return {
     name: `LED Bar ${params.columns}x${params.rows} ${params.order}`,
@@ -234,10 +284,19 @@ export function buildLedBarProfile(overrides = {}) {
       bulb: { type: 'LED' },
     },
     availableChannels,
-    modes: [{ name: 'Default', channels: modeChannels }],
+    modes,
     // Everything OFL cannot express: where the emitters actually are.
     asls: { bar: params, components },
   };
 }
 
-export default { buildLedBarProfile, scanOrder, gridPositions };
+export default {
+  buildLedBarProfile,
+  scanOrder,
+  gridPositions,
+  gridPitch,
+  gridSteps,
+  ledBarChannels,
+  withoutLedBarChannels,
+  expandLedBarProfile,
+};
