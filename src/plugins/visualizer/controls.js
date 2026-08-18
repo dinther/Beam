@@ -526,6 +526,18 @@ class Controls {
       this.showHelpers();
     } else if (e.key.toLowerCase() === 'z' && e.ctrlKey) {
       this.applyTransformation();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Asked for rather than done here: what a fixture or a structure means
+      // when it is deleted -- addresses released, members taken with it -- is
+      // the show's business, and the show is not something the visualizer
+      // reaches into. Nothing is emitted for an empty selection, so the key
+      // stays free for whatever else has focus.
+      if (this.pooledInstances.length) {
+        EventBus.emit('delete_requested', this.pooledInstances.map((item) => ({
+          kind: item.isStructure ? 'structure' : 'fixture',
+          id: item.id,
+        })));
+      }
     } else if (e.key.toLowerCase() === 'h') {
       this.mode = CONTROL_MODES.DISCRETE;
       this.showHelpers();

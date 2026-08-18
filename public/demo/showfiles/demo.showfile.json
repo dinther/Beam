@@ -74,11 +74,5 @@
       "master": 255
     }
   ],
-  "visualizer": {
-    "globalFoggingState": 1,
-    "globalFoggingDensity": 18,
-    "globalFoggingTurbulences": 50,
-    "globalBrightness": 60
-  },
   "selectedOutputs": []
 }

@@ -23,11 +23,19 @@ const DEFAULTS = {
    * looking at a rig and looking at a show want different rooms, and the one
    * you are not in should not have to be dialled back every time.
    */
-  globalBrightness: 60,
+  globalBrightness: 100,
   /** Global brightness with the house lights down. */
-  brightnessHouseOff: 2,
+  brightnessHouseOff: 30,
   /** Which of the two is in force. */
   houseLights: true,
+  /**
+   * Grid spacing, in metres, and the distance the gizmo snaps by. One number
+   * for all three axes: a grid that reads as squares and a snap that lands on
+   * the lines you can see are the same setting wearing two hats.
+   */
+  snapSpacing: 0.5,
+  /** Whether the gizmo snaps at all. */
+  snapEnabled: true,
   showGrid: true,
   showAxes: true,
   showFloor: true,
@@ -61,6 +69,33 @@ async function load() {
   return values;
 }
 
+/**
+ * What is worth writing down: everything that differs from the default.
+ *
+ * Writing the merged set instead meant that the first time anything was saved,
+ * every default was written with it -- and a stored value always beats a
+ * default, so from then on no default could ever reach that installation
+ * again. Changing one in a new version did nothing for anybody who had ever
+ * touched a setting.
+ *
+ * A value the user chose that happens to equal the default is left out too, so
+ * it would follow the default if that ever moved. That is the trade for a file
+ * that only records decisions.
+ *
+ * Keys the defaults do not know about are kept as they are: they belong to a
+ * version that did know, and dropping them would lose that setting on a
+ * downgrade.
+ *
+ * @returns {Object} the settings to store
+ */
+function departures() {
+  const changed = {};
+  Object.keys(values).forEach((key) => {
+    if (values[key] !== DEFAULTS[key]) changed[key] = values[key];
+  });
+  return changed;
+}
+
 /** Queues a write, collapsing rapid changes into one. */
 function save() {
   // Before the first load a write would persist defaults over whatever is on
@@ -69,7 +104,7 @@ function save() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    window.jsonStore.write(STORE_NAME, JSON.stringify(values, null, 2));
+    window.jsonStore.write(STORE_NAME, JSON.stringify(departures(), null, 2));
   }, SAVE_DELAY);
 }
 

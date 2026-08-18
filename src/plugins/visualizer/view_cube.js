@@ -21,7 +21,18 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
  */
 
 /** Size of the gizmo's square, in pixels. */
-const DIM = 170;
+/** Side of the gizmo's square viewport, in pixels. */
+const DIM = 130;
+/**
+ * How far the gizmo is held off the corner, in pixels.
+ *
+ * Applied to both edges: inset from one and flush against the other reads as
+ * a mistake rather than a margin. Whatever this is, `locate` has to agree with
+ * `update` about it -- the hit test and the render are two descriptions of the
+ * same square, and a gizmo you can see but not hit is worse than one in the
+ * corner.
+ */
+const MARGIN = 14;
 
 const OPTIONS = {
   resolution: 512,
@@ -264,9 +275,9 @@ class ViewCube {
    */
   locate(event) {
     const rect = this.domElement.getBoundingClientRect();
-    const left = rect.left + this.domElement.offsetWidth - DIM;
+    const left = rect.left + this.domElement.offsetWidth - DIM - MARGIN;
     const x = (event.clientX - left) / DIM;
-    const y = (event.clientY - rect.top) / DIM;
+    const y = (event.clientY - rect.top - MARGIN) / DIM;
     if (x < 0 || x > 1 || y < 0 || y > 1) return false;
     this.pointer.set(x * 2 - 1, -(y * 2) + 1);
     return true;
@@ -356,10 +367,11 @@ class ViewCube {
     this.root.quaternion.copy(this.camera.quaternion).invert();
     this.root.updateMatrixWorld();
 
-    const x = this.domElement.offsetWidth - DIM;
+    const x = this.domElement.offsetWidth - DIM - MARGIN;
     // Viewport coordinates run from the bottom-left, so the top of the canvas
-    // is its height less the gizmo's own size.
-    const y = this.domElement.offsetHeight - DIM;
+    // is its height less the gizmo's own size, and the margin comes off that
+    // rather than being added to it.
+    const y = this.domElement.offsetHeight - DIM - MARGIN;
 
     renderer.getViewport(this.viewport);
     renderer.clearDepth();

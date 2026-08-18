@@ -217,6 +217,8 @@ const MAX_STEP_SECONDS = 0.1;
 
 /** Half-extent of a head's selection box, in metres. */
 const SELECTION_HALF_EXTENT = 0.51;
+/** Scratch box for measuring one part of a head against the world. */
+const partBounds = new THREE.Box3();
 
 /** Scratch corner, reused while growing a selection box. */
 const boundsCorner = new THREE.Vector3();
@@ -898,6 +900,35 @@ class MovingHead {
    * @public
    * @param {Object} box THREE.Box3 to expand, in world space
    */
+  /**
+   * Grows a box to contain the fixture's actual body.
+   *
+   * `expandBounds` reports a nominal cube, which is the right thing for a
+   * selection outline -- it is stable whichever way the head is pointing. It
+   * is the wrong thing for asking how low a fixture reaches, which is a
+   * question about the model. Each part's geometry box is transformed by the
+   * node that poses it, so the answer follows pan and tilt.
+   *
+   * The box of a rotated box is bigger than the shape inside it, so this errs
+   * outward: a structure placed from it may sit a centimetre high, never
+   * buried.
+   *
+   * @public
+   * @param {Object} box THREE.Box3 to expand
+   */
+  expandGeometryBounds(box) {
+    this._dummy.updateMatrixWorld();
+    this._yokeDummy.updateMatrixWorld();
+    this._headDummy.updateMatrixWorld();
+    [[baseGeo, this._dummy], [yokeGeo, this._yokeDummy], [headGeo, this._headDummy]]
+      .forEach(([geometry, node]) => {
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        if (!geometry.boundingBox) return;
+        partBounds.copy(geometry.boundingBox).applyMatrix4(node.matrixWorld);
+        box.union(partBounds);
+      });
+  }
+
   expandBounds(box) {
     boundsCorner.set(
       this._position.x - SELECTION_HALF_EXTENT,

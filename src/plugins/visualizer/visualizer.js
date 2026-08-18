@@ -137,8 +137,8 @@ const DEFAULT_PREFERENCES = {
   FOGGING_STATE: true,
   FOGGING_DENSITY: 18,
   GLOBAL_FOGGING_TURBULENCES: 0,
-  GLOBAL_BRIGHTNESS: 80,
-  BRIGHTNESS_HOUSE_OFF: 2,
+  GLOBAL_BRIGHTNESS: 100,
+  BRIGHTNESS_HOUSE_OFF: 30,
 };
 
 /**
@@ -200,11 +200,21 @@ class Visualizer {
     const source = preferences || Preferences.all();
     // The switch first: it decides which of the two brightnesses is the one
     // to dress the scene with.
-    Preferences.set('houseLights', source.houseLights !== false);
-    this.globalBrightness = Preferences.get(this.brightnessKey);
+    this._houseLights = source.houseLights !== false;
+    this._brightnessUp = Visualizer.asBrightness(
+      source.globalBrightness,
+      DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS,
+    );
+    this._brightnessDown = Visualizer.asBrightness(
+      source.brightnessHouseOff,
+      DEFAULT_PREFERENCES.BRIGHTNESS_HOUSE_OFF,
+    );
+    this.applyBrightness();
     this.globalFoggingDensity = source.globalFoggingDensity;
     this.globalFoggingState = source.globalFoggingState;
     this.globalFoggingTurbulences = source.globalFoggingTurbulences;
+    this.snapEnabled = source.snapEnabled !== false;
+    this.snapSpacing = source.snapSpacing;
     this.showGrid = source.showGrid;
     this.showAxes = source.showAxes;
     this.showFloor = source.showFloor;
@@ -380,25 +390,20 @@ class Visualizer {
    *
    * @type {Number}
    */
+  /**
+   * The brightness in force, as a percentage.
+   *
+   * Kept as the one name the rest of the app already used; it writes whichever
+   * of the two rooms is showing.
+   *
+   * @type {Number}
+   */
   set globalBrightness(value) {
-    // The fallback is a percentage like the value it stands in for, so it has
-    // to be scaled the same way. Assigned raw it made a show that named no
-    // brightness a hundred times brighter than one that asked for full.
-    //
-    // Tested for a number rather than for truthiness: zero is a brightness a
-    // user can legitimately ask for -- house lights fully down -- and a falsy
-    // test turned it into the default, which is very nearly full.
-    const asked = Number(value);
-    this._globalBrightness = Number.isFinite(asked)
-      ? asked / 100
-      : DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS / 100;
-    // Written to whichever of the two settings is in force, so the brightness
-    // slider tunes the room you are actually looking at rather than one shared
-    // number that the toggle then overwrites.
-    Preferences.set(this.brightnessKey, this._globalBrightness * 100);
-    if (this.globalLightHandle) {
-      this.globalLightHandle.intensity = this._globalBrightness * 0.25;
+    if (this._houseLights) {
+      this.houseLightsUp = value;
+      return;
     }
+    this.houseLightsDown = value;
   }
 
   /**
@@ -407,9 +412,44 @@ class Visualizer {
    * @readonly
    * @type {String}
    */
-  // eslint-disable-next-line class-methods-use-this
   get brightnessKey() {
-    return Preferences.get('houseLights') ? 'globalBrightness' : 'brightnessHouseOff';
+    return this._houseLights ? 'globalBrightness' : 'brightnessHouseOff';
+  }
+
+  /**
+   * Brightness with the house lights up, as a percentage.
+   *
+   * Held on the instance rather than read from Preferences on every access.
+   * Preferences is a plain module, so nothing watching it can be told when it
+   * changes -- a settings panel bound to it read once and then showed that
+   * first answer for ever. The instance is reached through the reactive show,
+   * so a change here is seen.
+   *
+   * @type {Number}
+   */
+  set houseLightsUp(value) {
+    this._brightnessUp = Visualizer.asBrightness(value, DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS);
+    Preferences.set('globalBrightness', this._brightnessUp);
+    if (this._houseLights) this.applyBrightness();
+  }
+
+  get houseLightsUp() {
+    return this._brightnessUp;
+  }
+
+  /**
+   * Brightness with the house lights down, as a percentage.
+   *
+   * @type {Number}
+   */
+  set houseLightsDown(value) {
+    this._brightnessDown = Visualizer.asBrightness(value, DEFAULT_PREFERENCES.BRIGHTNESS_HOUSE_OFF);
+    Preferences.set('brightnessHouseOff', this._brightnessDown);
+    if (!this._houseLights) this.applyBrightness();
+  }
+
+  get houseLightsDown() {
+    return this._brightnessDown;
   }
 
   /**
@@ -421,17 +461,42 @@ class Visualizer {
    * @type {Boolean}
    */
   set houseLights(on) {
-    Preferences.set('houseLights', !!on);
-    // Read after the switch, so it is the incoming room's own brightness.
-    const stored = Preferences.get(this.brightnessKey);
-    this.globalBrightness = stored === undefined
-      ? DEFAULT_PREFERENCES.BRIGHTNESS_HOUSE_OFF
-      : stored;
+    this._houseLights = !!on;
+    Preferences.set('houseLights', this._houseLights);
+    this.applyBrightness();
   }
 
-  // eslint-disable-next-line class-methods-use-this
   get houseLights() {
-    return !!Preferences.get('houseLights');
+    return !!this._houseLights;
+  }
+
+  /**
+   * Puts whichever brightness is in force onto the light.
+   *
+   * @public
+   */
+  applyBrightness() {
+    this._globalBrightness = (this._houseLights ? this._brightnessUp : this._brightnessDown) / 100;
+    if (this.globalLightHandle) {
+      this.globalLightHandle.intensity = this._globalBrightness * 0.25;
+    }
+  }
+
+  /**
+   * Reads a brightness percentage, falling back when there is not one.
+   *
+   * Tested for a number rather than for truthiness: zero is a brightness a
+   * user can legitimately ask for -- house lights fully down -- and a falsy
+   * test turned it into the default, which is very nearly full.
+   *
+   * @static
+   * @param {*} value candidate percentage
+   * @param {Number} fallback used when the candidate is not a number
+   * @returns {Number} a percentage
+   */
+  static asBrightness(value, fallback) {
+    const asked = Number(value);
+    return Number.isFinite(asked) ? asked : fallback;
   }
 
   get globalBrightness() {
@@ -461,7 +526,11 @@ class Visualizer {
   }
 
   /**
-   * Snap spacing, in metres.
+   * Snap spacing, in metres. One number for all three axes.
+   *
+   * The drawn grid follows it, so the lines you see are the positions the
+   * gizmo will land on -- a grid at one spacing and a snap at another is worse
+   * than no grid at all.
    *
    * @type {Number}
    */
@@ -469,6 +538,7 @@ class Visualizer {
   set snapSpacing(value) {
     Controls.snapSpacing = value;
     Preferences.set('snapSpacing', Controls.snapSpacing);
+    if (helpers.grid && helpers.grid.setSpacing) helpers.grid.setSpacing(Controls.snapSpacing);
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -631,7 +701,17 @@ class Visualizer {
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(8, 8);
 
-    const gridHelper = new InfiniteGridHelper(5, 100, new THREE.Color('white'), 100);
+    // Read from Preferences rather than from Controls: this runs unawaited
+    // from init(), so it may get here before the stored settings have been
+    // pushed onto the visualizer -- but Preferences.load() is the first thing
+    // init() waits for, so the number is already in hand.
+    const spacing = Preferences.get('snapSpacing') || 1;
+    const gridHelper = new InfiniteGridHelper(
+      spacing,
+      spacing * 10,
+      new THREE.Color('white'),
+      100,
+    );
     gridHelper.rotateX(Math.PI / 2.0);
     gridHelper.position.setZ(-0.3);
     helpers.grid = gridHelper;

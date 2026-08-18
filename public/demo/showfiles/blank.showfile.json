@@ -29,11 +29,5 @@
     }
   ],
   "groups": [],
-  "visualizer": {
-    "globalFoggingState": 0,
-    "globalFoggingDensity": 80,
-    "globalFoggingTurbulences": 50,
-    "globalBrightness": 60
-  },
   "selectedOutputs": []
 }

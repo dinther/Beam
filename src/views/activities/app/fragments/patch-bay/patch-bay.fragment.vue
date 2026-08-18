@@ -156,10 +156,12 @@ export default {
   },
   mounted() {
     EventBus.on('fixture_picked', this.handleFixturePicked);
+    EventBus.on('delete_requested', this.requestDeletion);
     this.watchHeaderWidth();
   },
   beforeUnmount() {
     EventBus.off('fixture_picked', this.handleFixturePicked);
+    EventBus.off('delete_requested', this.requestDeletion);
     if (this.headerObserver) this.headerObserver.disconnect();
   },
   methods: {
@@ -421,6 +423,25 @@ export default {
       ));
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
+    },
+    /**
+     * Deletes what the 3D view has selected, there and then.
+     *
+     * Resolved to list rows first so this goes through the one deletion path
+     * the list already uses -- a structure taking its members with it, a
+     * fixture releasing its addresses -- rather than a second one that would
+     * drift from it.
+     *
+     * @public
+     * @param {Array} selection `{kind, id}` entries from the 3D view
+     */
+    requestDeletion(selection) {
+      const rows = this.listable.filter((row) => (selection || []).some((entry) => (
+        entry.kind === 'structure'
+          ? row.isStructure && row.structureId === entry.id
+          : !row.isStructure && !row.isGroup && row.id === entry.id
+      )));
+      if (rows.length) this.deleteFixtures(rows);
     },
     /**
      * Opens or closes the Arrange panel for the current selection.

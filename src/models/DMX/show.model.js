@@ -847,10 +847,47 @@ class Show extends EventEmitter {
     if (!members.length) return null;
     // The placement origin, not the centre of mass: the definition's transforms
     // were authored around it, so that is where the structure's handle belongs.
-    return this.createStructure(members, definition.name, {
+    const structure = this.createStructure(members, definition.name, {
       position: placement.position,
       rotation: placement.rotation,
     });
+    this.seatStructure(structure, placement.position || {});
+    return structure;
+  }
+
+  /**
+   * Moves a freshly placed structure so it stands on the point it was given.
+   *
+   * A definition is authored around its centre of mass, because that is where
+   * a group puts its handle for dragging. Placed from there, anything with
+   * height arrives half underground -- a dodecahedron reaching 1.17 m either
+   * side of its origin loses its lower half to the floor.
+   *
+   * So the insertion point is the bottom of the geometry, centred in X and Y:
+   * ask for z 0 and it stands on the floor, ask for z 6 and it hangs with its
+   * underside at 6 m. Derived rather than stored, so structures saved before
+   * any of this place correctly without being saved again.
+   *
+   * @public
+   * @param {Object} structure the structure to seat
+   * @param {Object} at where its base should end up
+   */
+  // eslint-disable-next-line class-methods-use-this
+  seatStructure(structure, at) {
+    const box = new THREE.Box3();
+    structure.members.forEach((member) => {
+      const model = member._3DModel;
+      if (model && model.expandGeometryBounds) model.expandGeometryBounds(box);
+    });
+    if (box.isEmpty()) return;
+    const centre = box.getCenter(new THREE.Vector3());
+    const origin = structure.position;
+    // The gap between where the base sits and where it was asked to sit.
+    structure.position = {
+      x: origin.x + ((at.x || 0) - centre.x),
+      y: origin.y + ((at.y || 0) - centre.y),
+      z: origin.z + ((at.z || 0) - box.min.z),
+    };
   }
 
   /**

@@ -89,7 +89,7 @@
         </div>
         <uk-spacer />
         <uk-num-input
-          v-model="houseLightsUp"
+          v-model="$show.visualizerHandle.houseLightsUp"
           :min="0"
           :max="200"
           style="width: 100px"
@@ -105,7 +105,7 @@
         </div>
         <uk-spacer />
         <uk-num-input
-          v-model="houseLightsDown"
+          v-model="$show.visualizerHandle.houseLightsDown"
           :min="0"
           :max="200"
           style="width: 100px"
@@ -131,6 +131,23 @@
         </div>
         <uk-spacer />
         <uk-checkbox v-model="$show.visualizerHandle.showFloor" />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Grid size:</h4>
+          <p class="subtitle">
+            Metres between grid lines, and the distance the gizmo snaps by.
+            The same on all three axes.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-num-input
+          v-model="$show.visualizerHandle.snapSpacing"
+          :precision="2"
+          :min="0.01"
+          :max="100"
+          style="width: 100px"
+        />
       </uk-flex>
       <uk-flex center-h>
         <div>
@@ -182,7 +199,6 @@
 
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
-import Preferences from '@/plugins/visualizer/preferences';
 
 export default {
   name: 'VisualizerPopup',
@@ -200,54 +216,6 @@ export default {
     };
   },
   computed: {
-    /**
-     * Brightness with the house lights up.
-     *
-     * Both settings are stored, but only the one in force is on the light --
-     * so editing the other writes the preference and leaves the scene alone,
-     * and editing the live one goes through the visualizer so the scene
-     * follows immediately.
-     *
-     * @type {Number}
-     */
-    houseLightsUp: {
-      get() {
-        return Preferences.get('globalBrightness');
-      },
-      set(value) {
-        if (this.houseLights) {
-          this.$show.visualizerHandle.globalBrightness = value;
-          return;
-        }
-        Preferences.set('globalBrightness', Number(value));
-      },
-    },
-    /**
-     * Brightness with the house lights down.
-     *
-     * @type {Number}
-     */
-    houseLightsDown: {
-      get() {
-        return Preferences.get('brightnessHouseOff');
-      },
-      set(value) {
-        if (!this.houseLights) {
-          this.$show.visualizerHandle.globalBrightness = value;
-          return;
-        }
-        Preferences.set('brightnessHouseOff', Number(value));
-      },
-    },
-    /**
-     * Which of the two is in force.
-     *
-     * @type {Boolean}
-     */
-    houseLights() {
-      const visualizer = this.$show.visualizerHandle;
-      return visualizer ? visualizer.houseLights : true;
-    },
     /**
      * Floor image, as the index the select works in.
      *
@@ -273,15 +241,14 @@ export default {
   },
   watch: {
     state(state) {
-      if (state && !this.initialValues && this.$show.visualizerHandle) {
+      // Re-read on every opening, not only the first. Kept once, Cancel undid
+      // everything back to however the scene stood when the dialog was first
+      // opened this session -- including changes from an earlier visit that
+      // had already been accepted with OK.
+      if (state && this.$show.visualizerHandle) {
         this.initialValues = this.$show.visualizerHandle.showData;
       }
     },
-  },
-  mounted() {
-    if (!this.initialValues && this.$show.visualizerHandle) {
-      this.initialValues = this.$show.visualizerHandle.showData;
-    }
   },
   methods: {
     /**
@@ -294,17 +261,9 @@ export default {
       this.$show.visualizerHandle.globalFoggingDensity = this.initialValues.globalFoggingDensity;
       // eslint-disable-next-line max-len
       this.$show.visualizerHandle.globalFoggingTurbulences = this.initialValues.globalFoggingTurbulences;
-      // Whichever room is in force is the one the live brightness belongs to,
-      // so it is restored through the visualizer; the other is just a stored
-      // number and goes straight back.
-      this.$show.visualizerHandle.globalBrightness = this.houseLights
-        ? this.initialValues.globalBrightness
-        : this.initialValues.brightnessHouseOff;
-      const storedKey = this.houseLights ? 'brightnessHouseOff' : 'globalBrightness';
-      const storedValue = this.houseLights
-        ? this.initialValues.brightnessHouseOff
-        : this.initialValues.globalBrightness;
-      Preferences.set(storedKey, storedValue);
+      this.$show.visualizerHandle.houseLightsUp = this.initialValues.globalBrightness;
+      this.$show.visualizerHandle.houseLightsDown = this.initialValues.brightnessHouseOff;
+      this.$show.visualizerHandle.snapSpacing = this.initialValues.snapSpacing;
       this.$show.visualizerHandle.showFloor = this.initialValues.showFloor;
       this.$show.visualizerHandle.showGrid = this.initialValues.showGrid;
       this.$show.visualizerHandle.showAxes = this.initialValues.showAxes;

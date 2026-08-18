@@ -152,6 +152,18 @@ class LedBar {
    * @public
    * @param {Object} box THREE.Box3 to expand, in world space
    */
+  /**
+   * A bar's selection box is already its body, so measuring it for placement
+   * asks the same question. Named alongside the head's so a caller can ask
+   * either kind of fixture how far it reaches.
+   *
+   * @public
+   * @param {Object} box THREE.Box3 to expand
+   */
+  expandGeometryBounds(box) {
+    this.expandBounds(box);
+  }
+
   expandBounds(box) {
     const params = this._params;
     if (!params) return;

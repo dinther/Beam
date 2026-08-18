@@ -209,6 +209,21 @@ if (parseInt(THREE.REVISION, 10) > 126) {
 
       this.frustumCulled = false;
     }
+
+    /**
+     * Re-spaces the grid.
+     *
+     * The fine lines are the spacing asked for and the heavy ones every tenth,
+     * which is what makes a metre grid readable from across a room without
+     * counting squares.
+     *
+     * @param {Number} spacing metres between fine lines
+     */
+    setSpacing(spacing) {
+      const fine = Number(spacing) > 0 ? Number(spacing) : 1;
+      this.material.uniforms.uSize1.value = fine;
+      this.material.uniforms.uSize2.value = fine * 10;
+    }
   }
 
   Object.assign(InfiniteGridHelperClass.prototype, InfiniteGridHelper.prototype);
