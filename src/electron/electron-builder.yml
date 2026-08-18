@@ -31,6 +31,21 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # An assisted install rather than one click. One click has no pages at all --
+  # just a progress window -- so there is nowhere to choose a folder and nowhere
+  # to put the artwork. The pages cost a few clicks and buy both.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Not forced either way: the install-mode page offers both, and this decides
+  # which arrives selected. All users is the default, so the suggested folder is
+  # Program Files rather than a folder inside AppData that nobody browses to.
+  # Choosing it asks for an administrator, which is what writing there costs;
+  # anyone who would rather not can drop to a per-user install on the same page.
+  perMachine: false
+  selectPerMachineByDefault: true
+  # installerHeader.bmp, installerSidebar.bmp and uninstallerSidebar.bmp are
+  # picked up by name from buildResources, which is `public`.
+  runAfterFinish: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

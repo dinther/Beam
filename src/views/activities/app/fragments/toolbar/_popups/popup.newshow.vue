@@ -44,6 +44,7 @@
 </template>
 <script>
 import PopupMixin from '@/views/mixins/popup.mixin';
+import Preferences from '@/plugins/visualizer/preferences';
 
 export default {
   name: 'UkPopupNewshow',
@@ -122,6 +123,12 @@ export default {
       // below, or the session would hand back the project they just left.
       await this.$show.setDocument(null);
       await this.$show.loadFromUrl(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/${this.selectedTemplate.showfile}`);
+      // A new project is for building a rig, and a rig is built with the room
+      // lit. Whatever the last show was watched under, this starts up.
+      if (this.$show.visualizerHandle) this.$show.visualizerHandle.houseLights = true;
+      // Written before the reload rather than left to the save debounce, which
+      // the reload below would otherwise cut short.
+      await Preferences.flush();
       // Yeah it sucks... But cleaning up everything from the view was a nightmare so for now:
       window.location.reload();
     },

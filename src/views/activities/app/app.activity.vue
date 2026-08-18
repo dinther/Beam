@@ -28,8 +28,9 @@
       <modifier />
     </div>
     <popup-splash
-      v-model="loader.state"
+      v-model="splashState"
       :loader="loader"
+      :dismissable="!loader.state"
     />
     <error-popup
       v-model="errPopup.state"
@@ -99,9 +100,33 @@ export default {
        * Handle to show loading property
        */
       loader: this.$show.loading,
+      /**
+       * Whether the splash is up because the user asked to see it, rather
+       * than because something is loading.
+       */
+      aboutOpen: false,
       /** Drops the launched-with-a-project subscription on unmount. */
       stopListeningForDocuments: null,
     };
+  },
+  computed: {
+    /**
+     * Whether the splash is on screen, for either reason.
+     *
+     * Setting it only ever means dismissing, and a load is not the user's to
+     * dismiss -- so a false lands on the About flag and leaves the loader
+     * alone.
+     *
+     * @type {Boolean}
+     */
+    splashState: {
+      get() {
+        return this.loader.state || this.aboutOpen;
+      },
+      set(open) {
+        if (!open) this.aboutOpen = false;
+      },
+    },
   },
   watch: {
     '$show.loading': {
@@ -115,6 +140,7 @@ export default {
     this.$router._appReayState = false;
     EventBus.on('visualizer_loaded', this.setup);
     EventBus.on('app_error', this.handleAppError);
+    EventBus.on('show_about', this.showAbout);
     // Someone double-clicked a project while Beam was already running.
     if (window.documentStore) {
       this.stopListeningForDocuments = window.documentStore.onRequested((target) => {
@@ -131,9 +157,18 @@ export default {
   beforeUnmount() {
     EventBus.off('visualizer_loaded', this.setup);
     EventBus.off('app_error', this.handleAppError);
+    EventBus.off('show_about', this.showAbout);
     if (this.stopListeningForDocuments) this.stopListeningForDocuments();
   },
   methods: {
+    /**
+     * Puts the splash up because the user asked for it.
+     *
+     * @public
+     */
+    showAbout() {
+      this.aboutOpen = true;
+    },
     /**
      * Surfaces a load error in the popup.
      *

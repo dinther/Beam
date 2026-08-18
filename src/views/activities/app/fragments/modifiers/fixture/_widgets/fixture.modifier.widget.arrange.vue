@@ -658,6 +658,20 @@ export default {
       // rather than from wherever the fixtures stood before.
       this.baseline = null;
       Controls.showHelpers();
+      this.dismiss();
+    },
+    /**
+     * Closes the panel, the way clicking empty scene would.
+     *
+     * Both buttons are the end of the job, so both let go of the selection
+     * rather than leaving the panel open over work that is already finished.
+     * Dropping the selection is what closes it: the panel is only ever up for
+     * two or more selected items.
+     *
+     * @public
+     */
+    dismiss() {
+      Controls.deselectAll();
     },
     /**
      * Abandons the preview and puts every fixture back.
@@ -667,6 +681,7 @@ export default {
     cancel() {
       this.restore();
       this.baseline = null;
+      this.dismiss();
     },
   },
 };

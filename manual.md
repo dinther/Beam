@@ -145,8 +145,8 @@ Grab the installer for your platform from the releases page, run it, done. It's 
 You'll need [Node.js](https://nodejs.org/) 18 or newer.
 
 ```bash
-git clone https://github.com/dinther/lightyard
-cd lightyard
+git clone https://github.com/dinther/Beam
+cd Beam
 npm install
 ```
 

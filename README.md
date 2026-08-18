@@ -1,7 +1,6 @@
 <div align="center">
 
-<img src="./Beatline_Beam_logo_master.png" alt="Beatline Beam" width="160"/>
-<br><img src="./Beam.png" alt="Beatline Beam" width="260"/>
+<img src="./Beam_Splash.png" alt="Beatline Beam" width="512"/>
 
 **A real-time 3D sandbox for lighting rigs, driven by Art-Net**
 
@@ -9,7 +8,7 @@
 
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#what-is-beatline-beam)
 
-[Issues](https://github.com/dinther/lightyard/issues) - [Manual](./manual.md)
+[Issues](https://github.com/dinther/Beam/issues) - [Manual](./manual.md)
 
 </div>
 
@@ -17,7 +16,7 @@
 
 > **Alpha.** Beam is early software under active development. Things move,
 > break and get renamed. Please report anything odd on the
-> [issue tracker](https://github.com/dinther/lightyard/issues).
+> [issue tracker](https://github.com/dinther/Beam/issues).
 
 ---
 
@@ -82,8 +81,8 @@ Beam is packaged as a native desktop application via Electron. Distribution targ
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/dinther/lightyard
-cd lightyard
+git clone https://github.com/dinther/Beam
+cd Beam
 ```
 
 ### 2. Install dependencies
@@ -158,7 +157,7 @@ Contributions of all kinds are welcome — bug reports, feature requests, fixtur
 2. Make your changes and test them locally (`npm start`).
 3. Open a **Pull Request** against `develop` with a clear description of the change and why.
 
-For larger changes or new features, opening a [Discussion](https://github.com/dinther/lightyard/discussions) first is encouraged to align on direction before writing code.
+For larger changes or new features, opening a [Discussion](https://github.com/dinther/Beam/discussions) first is encouraged to align on direction before writing code.
 
 ---
 

@@ -191,10 +191,19 @@ export default {
           selected: false,
           items: [
             {
+              // The version is worth reading without opening anything, so it
+              // is the label; clicking shows the splash it comes from.
+              name: `Version ${import.meta.env.VITE_APP_VERSION || 'unknown'}`,
+              icon: 'bulb',
+              callback: () => {
+                EventBus.emit('show_about');
+              },
+            },
+            {
               name: 'Manual',
               icon: 'help',
               callback: () => {
-                window.open('https://github.com/dinther/lightyard/blob/main/manual.md', '_blank');
+                window.open('https://github.com/dinther/Beam/blob/main/manual.md', '_blank');
               },
             },
             {
@@ -215,7 +224,7 @@ export default {
               name: 'Contact',
               icon: 'contact',
               callback: () => {
-                window.open('https://github.com/dinther/lightyard', '_blank');
+                window.open('https://beatline.xyz/contact/', '_blank');
               },
             },
           ],

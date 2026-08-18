@@ -18,11 +18,11 @@ if not exist "node_modules" (
     )
 )
 
-echo Starting ASLS Studio...
+echo Starting Beatline Beam...
 call npm run electron:start
 if errorlevel 1 (
     echo [ERROR] The app exited with an error.
-    goto :failProject 
+    goto :fail
 )
 
 popd

@@ -109,6 +109,26 @@ function save() {
 }
 
 /**
+ * Writes any pending change immediately.
+ *
+ * Saving is debounced because these are driven by sliders, which is right
+ * until something is about to take the page away -- reloading for a new
+ * project throws away a queued write, and the setting silently reverts. Anyone
+ * changing a preference and then reloading has to wait for this.
+ *
+ * @async
+ * @returns {Promise} resolved once the file is written
+ */
+async function flush() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (!loaded || !available()) return;
+  await window.jsonStore.write(STORE_NAME, JSON.stringify(departures(), null, 2));
+}
+
+/**
  * @param {String} key
  * @returns {*} the stored value, or its default
  */
@@ -132,5 +152,5 @@ function all() {
 }
 
 export default {
-  load, get, set, all, DEFAULTS,
+  load, get, set, all, flush, DEFAULTS,
 };
