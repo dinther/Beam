@@ -156,41 +156,6 @@
         label="patch fixture"
       /> -->
     </div>
-    <uk-popup
-      ref="popup"
-      v-model="deletePopupState"
-      :header="{ title: 'Delete items ?' }"
-      backdrop
-      @submit="handleDeletion"
-    >
-      <uk-flex
-        col
-        style="max-width: 350px;min-width:350px"
-      >
-        <p style="padding: 16px; flex-direction: column; align-items: start;gap:10px">
-          <b>
-            Are you sure you want to delete the following
-            {{ highlightedItems.length || '' }}
-            item(s)?
-          </b>
-          <uk-flex col>
-            <p
-              v-for="(item, key) in
-                highlightedItems.length
-                  ? highlightedItems.slice(0,5)
-                  : [selectedItem]
-              "
-              :key="key"
-            >
-              {{ item.value.name }} {{ item.value.more ? `(${item.value.more})` : '' }}
-            </p>
-            <p v-show="highlightedItems.length > 5">
-              ...{{ highlightedItems.length - 5 }} additional items are not shown
-            </p>
-          </uk-flex>
-        </p>
-      </uk-flex>
-    </uk-popup>
   </div>
 </template>
 <script>
@@ -321,7 +286,6 @@ export default {
       /**
        * Delete popup display state flag
        */
-      deletePopupState: false,
       /**
        * DOM element list which wont be affected by focusout event
        * useful when seleting multiple items in order to set their value commonly from
@@ -407,12 +371,6 @@ export default {
     },
     preventUnfocus() {
       this.unfocusElBlacklist.push(...this.preventUnfocus);
-    },
-    deletePopupState(value) {
-      if (!value) {
-        this.unfocusElBlacklist.pop();
-        this.handleFocusOut();
-      }
     },
     autoSelect(index) {
       const item = this.tree[parseInt(index, 10)];
@@ -569,26 +527,26 @@ export default {
       }
     },
     /**
-     * Deletion popup validation handler
+     * Deletes what is selected, there and then.
+     *
+     * No confirmation: the same key in the 3D view does not ask either, and a
+     * list that stopped to check while the scene did not would be the odd one
+     * out rather than the careful one.
+     *
+     * @public
      */
-    async handleDeletion() {
+    handleDeletion() {
+      if (!this.deletable) return;
+      if (!this.hasFocus || (!this.selectedItem && !this.highlightedItems.length)) return;
       /**
        * Item(s) deletion event
        *
        * @property {Array} -List of references to highlighted items values
        */
-      this.$emit('delete', this.highlightedItems.length ? this.highlightedItems.map((i) => i.value) : [this.selectedItem.value]);
-      this.deletePopupState = false;
+      this.$emit('delete', this.highlightedItems.length
+        ? this.highlightedItems.map((i) => i.value)
+        : [this.selectedItem.value]);
       this.clearHighlighted();
-    },
-    /**
-     * Displays deletion popup
-     *
-     */
-    displayDeletionPopup() {
-      if (this.hasFocus && (this.selectedItem || this.highlightedItems.length) && this.deletable) {
-        this.deletePopupState = true;
-      }
     },
     /**
      *
@@ -599,7 +557,7 @@ export default {
     keydownListener(e) {
       const { key } = e;
       if (key === 'Backspace' || key === 'Delete') {
-        this.displayDeletionPopup();
+        this.handleDeletion();
       } else if (key === 'Escape') {
         this.clearHighlighted(true);
         this.hasFocus = false;

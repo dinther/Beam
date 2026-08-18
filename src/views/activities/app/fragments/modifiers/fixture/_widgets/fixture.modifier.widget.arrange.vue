@@ -3,7 +3,6 @@
     class="arrange_tool"
     dockable
     :header="{ title: 'Arrange', icon: 'move' }"
-    :action="{ text: 'Apply', icon: 'tick', callback: apply }"
   >
     <uk-flex
       col
@@ -179,11 +178,25 @@
       <uk-spacer />
 
       <span class="arrange_note">{{ summary }}</span>
-      <uk-button
-        label="Cancel"
-        :disabled="!previewing"
-        @click="cancel"
-      />
+      <!-- Together, and cancel first, as every popup in the app puts it: one
+           throws the preview away and the other commits it, so they are two
+           answers to the same question and belong side by side. Apply used to
+           sit in the widget's header, a panel's length from what undoes it. -->
+      <uk-flex :gap="6">
+        <uk-button
+          label="Cancel"
+          style="flex: 1"
+          :disabled="!previewing"
+          @click="cancel"
+        />
+        <uk-button
+          icon="tick"
+          label="Apply"
+          style="flex: 1"
+          :disabled="!previewing"
+          @click="apply"
+        />
+      </uk-flex>
     </uk-flex>
   </uk-widget>
 </template>

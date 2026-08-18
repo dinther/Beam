@@ -243,8 +243,10 @@ function gridTransforms(count, options = {}) {
   for (let i = 0; i < count; i += 1) {
     const row = Math.floor(i / columns);
     const raw = i % columns;
-    // Snaking is how a blinder wall is usually cabled: the data runs to the end
-    // of one row and comes back along the next.
+    // Snaking reverses every other row, so consecutive fixtures stay adjacent
+    // where the rows meet instead of jumping back to the far side. That is how
+    // a pixel panel's emitters are usually indexed, and it is what you want
+    // when the running order is going to be mapped to content.
     const col = snake && row % 2 === 1 ? columns - 1 - raw : raw;
     out.push({
       position: {

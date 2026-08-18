@@ -111,9 +111,16 @@ class Structure extends Proxify {
    * The address an ordering treats this as having.
    *
    * A structure has no address of its own, but arranging by address has to put
-   * one somewhere in the running order, and the lowest address it contains is
-   * where a cable would reach it first. Offered here rather than special-cased
-   * in the ordering, so `arrangement.js` keeps knowing nothing about kinds.
+   * one somewhere in the running order, so it answers with the lowest address
+   * it contains -- the same fixture that would come first if its members were
+   * ordered on their own. Nothing to do with cabling: DMX is a broadcast bus,
+   * every fixture on a universe receives the whole frame, and the daisy chain
+   * can run in any order regardless of what anything is addressed to. Address
+   * order is useful here because it is the order the rig was patched in, which
+   * is how a programmer numbers it.
+   *
+   * Offered here rather than special-cased in the ordering, so `arrangement.js`
+   * keeps knowing nothing about kinds.
    *
    * @readonly
    * @type {Number}

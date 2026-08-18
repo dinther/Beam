@@ -17,24 +17,6 @@ class FixturePool extends Proxify {
   }
 
   /**
-   * Pool's listable data
-   *
-   * @todo remove this ? Am I even using it ?
-   * @readonly
-   * @type {Array}
-   */
-  get listable() {
-    return this.fixtures.map((fixture) => ({
-      name: fixture.name,
-      icon: 'movinghead',
-      id: fixture.id,
-      universe: fixture.universe,
-      address: fixture.address,
-      more: `U${fixture.universe} - CH${fixture.chStart + 1}`,
-    }));
-  }
-
-  /**
    * Fixtures pool's exportable show data chunk
    *
    * @readonly
