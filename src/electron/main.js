@@ -184,6 +184,9 @@ function setupFileExport() {
  * The user's fixture library, one file per item.
  */
 function setupLibrary() {
+  // Before the renderer can ask for anything: a show that names a demo
+  // structure has to find it on the first load, not the second.
+  library.seedDefaults();
   ipcMain.handle('library:readAll', (_event, kind) => library.readAll(kind));
   ipcMain.handle('library:write', (_event, kind, key, json) => library.writeItem(kind, key, json));
   ipcMain.handle('library:remove', (_event, kind, key) => library.removeItem(kind, key));

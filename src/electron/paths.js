@@ -29,4 +29,19 @@ function beamRoot() {
   return path.join(app.getPath('documents'), 'Beatline', 'Beam');
 }
 
-export default { beamRoot };
+/**
+ * Library items shipped with the app, to be seeded into the user's own.
+ *
+ * Kept beside the packaged app rather than inside its archive, so that a
+ * curious user can open the demo files where they are installed as well as
+ * where they land.
+ *
+ * @returns {String} absolute path
+ */
+function seedRoot() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'library')
+    : path.join(app.getAppPath(), 'resources', 'library');
+}
+
+export default { beamRoot, seedRoot };

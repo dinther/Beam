@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "kind": "profiles",
+  "key": "Beatline/60 LED Bar GRB",
+  "data": {
+    "name": "60 LED Bar GRB",
+    "categories": [
+      "Matrix"
+    ],
+    "meta": {
+      "generated": true
+    },
+    "physical": {
+      "dimensions": [
+        1000,
+        24,
+        10
+      ],
+      "bulb": {
+        "type": "LED"
+      }
+    },
+    "asls": {
+      "bar": {
+        "length": 1,
+        "width": 0.024,
+        "height": 0.01,
+        "marginEnds": 0.02,
+        "marginSides": 0.006,
+        "columns": 60,
+        "rows": 1,
+        "emitterSize": 0.005,
+        "beamAngle": 120,
+        "order": "GRB",
+        "startCorner": "top-left",
+        "scanAxis": "row",
+        "serpentine": false
+      },
+      "components": [
+        "G",
+        "R",
+        "B"
+      ]
+    }
+  }
+}

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import paths from './paths';
+import jsonstore from './jsonstore';
 
 /**
  * The user's fixture library on disk, one file per item (main process).
@@ -47,6 +48,17 @@ const KINDS = {
 
 /** Marks a file as ours and carries the key the filename cannot. */
 const FORMAT = 1;
+
+/**
+ * Where the keys of already-seeded items are remembered.
+ *
+ * In the settings directory rather than in the library: which demos a user has
+ * been offered is bookkeeping, and the library is meant to hold their work and
+ * nothing else.
+ *
+ * @constant {String} SEED_STORE
+ */
+const SEED_STORE = 'library-seed';
 
 /**
  * Characters Windows forbids in a file name, plus the control range.
@@ -276,6 +288,69 @@ function removeItem(kind, key) {
   }
 }
 
+/**
+ * Copies the demo items shipped with the app into the user's library.
+ *
+ * Demo content is only worth anything if it can be found, opened, edited and
+ * sent on, so it is put where the user's own items are rather than read out of
+ * the install: a demo structure is a structure, and behaves like one.
+ *
+ * A key is recorded once its item is in place -- written here, or already held
+ * by the user under that name. That is what makes a demo the user deleted stay
+ * deleted, and what stops one they have edited being replaced on the next
+ * launch. A write that failed records nothing, so the next launch tries again
+ * rather than quietly leaving the demo out forever.
+ *
+ * The record only means anything while there is a library for it to describe.
+ * A user whose library has gone -- wiped, moved, or a profile that never had
+ * one -- is starting again, and starting again includes the demos: the record
+ * is dropped rather than read as "already given". Without that, deleting the
+ * folder is a one-way door that no reinstall reopens.
+ *
+ * @public
+ * @returns {Number} how many items were written
+ */
+function seedDefaults() {
+  const record = fs.existsSync(libraryRoot()) ? (jsonstore.read(SEED_STORE) || {}) : {};
+  const seeded = new Set(Array.isArray(record.seeded) ? record.seeded : []);
+  const known = seeded.size;
+  let written = 0;
+
+  Object.keys(KINDS).forEach((kind) => {
+    const root = path.join(paths.seedRoot(), KINDS[kind].dir);
+    filesUnder(root, KINDS[kind].depth).forEach((file) => {
+      let parsed;
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (err) {
+        // One unreadable demo is one missing demo, not a failed startup.
+        console.error(`[library] skipping shipped ${file}: ${err.message}`);
+        return;
+      }
+      const key = keyOf(parsed, file, kind);
+      if (seeded.has(`${kind}/${key}`)) return;
+      const target = pathFor(kind, key);
+      if (!target) return;
+      // Whatever the user already has under that name is theirs, and stays --
+      // but it counts as given, so we never ask about it again.
+      if (fs.existsSync(target)) {
+        seeded.add(`${kind}/${key}`);
+        return;
+      }
+      const payload = parsed && parsed.format === FORMAT ? parsed.data : parsed;
+      if (payload === undefined || payload === null) return;
+      if (!writeItem(kind, key, JSON.stringify(payload))) return;
+      seeded.add(`${kind}/${key}`);
+      written += 1;
+    });
+  });
+
+  if (seeded.size !== known) {
+    jsonstore.write(SEED_STORE, JSON.stringify({ seeded: [...seeded] }, null, 2));
+  }
+  return written;
+}
+
 export default {
-  readAll, writeItem, removeItem, libraryRoot, pathFor,
+  readAll, writeItem, removeItem, libraryRoot, pathFor, seedDefaults,
 };
