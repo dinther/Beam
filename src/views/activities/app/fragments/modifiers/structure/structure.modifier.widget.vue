@@ -27,10 +27,33 @@
         @select="displayMember"
       />
 
+      <p class="structure_summary">
+        Export mappings
+      </p>
+      <uk-flex
+        wrap
+        :gap="4"
+        class="structure_mappings"
+      >
+        <uk-checkbox
+          v-for="option in mappingOptions"
+          :key="option.id"
+          :model-value="hasMapping(option.id)"
+          :label="option.label"
+          @update:model-value="(on) => setMapping(option.id, on)"
+        />
+      </uk-flex>
+
       <uk-flex
         :gap="8"
         class="structure_actions"
       >
+        <uk-button
+          icon="save"
+          :label="saveLabel"
+          :disabled="!structure.members.length"
+          @click="saveToLibrary"
+        />
         <uk-button
           icon="fold"
           label="un-structure"
@@ -42,6 +65,11 @@
 </template>
 
 <script>
+import { PROJECTION_LABELS } from '@/models/DMX/generic/madmapper_layout';
+
+/** How long the save button confirms for, in ms. */
+const SAVE_FEEDBACK_MS = 1500;
+
 export default {
   name: 'StructureModifierWidget',
   compatConfig: {
@@ -65,6 +93,11 @@ export default {
     },
   },
   emits: ['select-member', 'exploded'],
+  data() {
+    return {
+      saved: false,
+    };
+  },
   computed: {
     header() {
       return { title: this.structure ? this.structure.name : 'Structure', icon: 'structure' };
@@ -96,8 +129,39 @@ export default {
       if (!this.structure) return [];
       return this.structure.members.map((member) => member.listable);
     },
+    saveLabel() {
+      return this.saved ? 'saved' : 'save to library';
+    },
+    mappingOptions() {
+      return PROJECTION_LABELS;
+    },
   },
   methods: {
+    /**
+     * Whether this structure asks for a mapping.
+     *
+     * @public
+     * @param {String} id projection id
+     * @returns {Boolean}
+     */
+    hasMapping(id) {
+      return !!this.structure && (this.structure.mappings || []).includes(id);
+    },
+    /**
+     * Adds or removes a mapping.
+     *
+     * Replaced rather than mutated so the change reaches Vue through the
+     * structure's own reactivity, the way the name does.
+     *
+     * @public
+     * @param {String} id projection id
+     * @param {Boolean} wanted
+     */
+    setMapping(id, wanted) {
+      if (!this.structure) return;
+      const current = (this.structure.mappings || []).filter((m) => m !== id);
+      this.structure.mappings = wanted ? [...current, id] : current;
+    },
     /**
      * Routes to a member so its own widgets open.
      *
@@ -113,6 +177,21 @@ export default {
       // Clicking the picked member again lets go of it, which is the only way
       // back to the structure's own fields without leaving the structure.
       this.$emit('select-member', item.id === this.selectedMemberId ? null : item.id);
+    },
+    /**
+     * Stores this arrangement in the library so it can be placed again.
+     *
+     * Placing does not happen on its own: what is in the scene is a stamp, and
+     * the library only knows about it once it is put there.
+     *
+     * @public
+     * @async
+     */
+    async saveToLibrary() {
+      if (!this.structure) return;
+      await this.$show.saveStructure(this.structure);
+      this.saved = true;
+      setTimeout(() => { this.saved = false; }, SAVE_FEEDBACK_MS);
     },
     /**
      * Explodes the structure, leaving its contents where they stand.
@@ -155,5 +234,8 @@ export default {
 }
 .structure_actions {
   align-items: center;
+}
+.structure_mappings {
+  flex-wrap: wrap;
 }
 </style>

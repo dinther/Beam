@@ -32,7 +32,7 @@
       :group="selectedGroup"
     />
     <arrange-widget
-      v-if="showsManyItems"
+      v-if="showsManyItems && arrangeOpen"
       :items="selectedItems"
     />
     <h3
@@ -98,6 +98,11 @@ export default {
        * structure, each counting once. What Arrange acts on.
        */
       selectedItems: [],
+      /**
+       * Whether the Arrange panel has been asked for. Driven by the patch
+       * bay's button rather than by the selection itself.
+       */
+      arrangeOpen: false,
     };
   },
   computed: {
@@ -138,10 +143,12 @@ export default {
     this.selectFixture(this.$route.query.fixtureId);
     this.selectGroup(this.$route.query.groupId);
     EventBus.on('fixture_picked', this.handleFixturePicked);
+    EventBus.on('arrange_toggled', this.setArrangeOpen);
   },
   beforeUnmount() {
     this.highlightMember(false);
     EventBus.off('fixture_picked', this.handleFixturePicked);
+    EventBus.off('arrange_toggled', this.setArrangeOpen);
     if (this.selectedFixture && this.selectedFixture.id) {
       this.selectedFixture.highlightSingle(false);
     }
@@ -191,6 +198,15 @@ export default {
       }
       this.selectedGroup = this.$show.groups
         .find((group) => group.id === Number(id)) || null;
+    },
+    /**
+     * Follows the Arrange button.
+     *
+     * @public
+     * @param {Boolean} open whether the panel should be showing
+     */
+    setArrangeOpen(open) {
+      this.arrangeOpen = !!open;
     },
     /**
      * Opens a structure member's own widgets, keeping the structure up.

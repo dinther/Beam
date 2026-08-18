@@ -439,7 +439,8 @@ function mappingsOf(group, fallback) {
  * @public
  * @param {Object} options
  * @param {Array} options.fixtures Fixture instances to include
- * @param {Array} [options.groups] groups, each carrying its own mappings
+ * @param {Array} [options.groups] anything holding members and naming its own
+ *   mappings -- groups and structures both -- each carrying its own
  * @param {String} [options.projection] mapping for groups that name none, and
  *   for fixtures belonging to no group
  * @param {Function} [options.definitionName] names a fixture's definition; must

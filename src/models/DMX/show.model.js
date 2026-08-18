@@ -892,7 +892,9 @@ class Show extends EventEmitter {
    * @returns {String} a name no other structure is using
    */
   uniqueStructureName(desired, ignoreId = null) {
-    const wanted = (desired || '').trim() || 'Structure';
+    // Untitled, as an unsaved show is: the name is the user's to give, and a
+    // made-up one reads as though it had already been named.
+    const wanted = (desired || '').trim() || 'untitled';
     const taken = new Set(
       this.structures
         .filter((structure) => structure.id !== ignoreId)

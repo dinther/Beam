@@ -52,7 +52,7 @@ class Structure extends Proxify {
     super();
     this._id = data.id !== undefined ? data.id : structureCount;
     structureCount = Math.max(structureCount, this._id + 1);
-    this._name = data.name || `Structure ${this._id + 1}`;
+    this._name = data.name || 'untitled';
     this._position = {
       x: (data.position || {}).x || 0,
       y: (data.position || {}).y || 0,
@@ -65,6 +65,14 @@ class Structure extends Proxify {
     };
     /** Members, in list order. Fixtures today, objects once they exist. */
     this.members = [];
+    /**
+     * Which flattenings of this structure are wanted when exporting a layout.
+     *
+     * A structure may have several: the same fixtures mapped both as an
+     * elevation and as an unwrap, so a cue can swap between them. Empty means
+     * the export's own default is used.
+     */
+    this.mappings = Array.isArray(data.mappings) ? [...data.mappings] : [];
     // The handle is named for groups because groups had it first; it draws
     // nothing and reads only position, rotationRad and members, so it stands
     // for a structure just as well.
@@ -153,6 +161,7 @@ class Structure extends Proxify {
       position: { ...this._position },
       rotation: { ...this._rotation },
       members: this.members.map((member) => member.id),
+      mappings: [...this.mappings],
     };
   }
 

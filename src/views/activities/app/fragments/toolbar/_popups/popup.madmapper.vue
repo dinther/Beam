@@ -18,15 +18,15 @@
       />
 
       <p class="layout_hint">
-        Used for groups that tick no mapping of their own, and for fixtures in
-        no group. A group's own choices are made in its widget, and a group may
-        ask for several.
+        Used for groups and structures that tick no mapping of their own, and
+        for fixtures in neither. Their own choices are made in their widgets,
+        and each may ask for several.
       </p>
 
       <p class="layout_summary">
         {{ fixtureCount }} patched
         {{ fixtureCount === 1 ? 'fixture' : 'fixtures' }},
-        {{ groupCount }} {{ groupCount === 1 ? 'group' : 'groups' }},
+        {{ groupCount }} {{ groupCount === 1 ? 'island' : 'islands' }},
         {{ islandCount }} {{ islandCount === 1 ? 'square' : 'squares' }}
       </p>
 
@@ -192,7 +192,7 @@ export default {
      * @type {Number}
      */
     islandCount() {
-      const groups = (this.$show.groups || [])
+      const groups = this.mappable
         .filter((g) => (g.members || []).some((m) => m.channels && m.channels.length));
       const grouped = new Set();
       let count = 0;
@@ -211,7 +211,16 @@ export default {
       return edgeOnFixtures(this.exportable, this.projection, this.perspective);
     },
     groupCount() {
-      return (this.$show.groups || []).filter((g) => (g.members || []).length).length;
+      return this.mappable.filter((g) => (g.members || []).length).length;
+    },
+    /**
+     * Everything that holds members and names its own mappings: groups and
+     * structures alike.
+     *
+     * @type {Array}
+     */
+    mappable() {
+      return [...(this.$show.groups || []), ...(this.$show.structures || [])];
     },
   },
   methods: {
@@ -230,7 +239,9 @@ export default {
       const { definitions, nameOf } = this.definitions;
       const svg = buildMadMapperLayout({
         fixtures: this.exportable,
-        groups: this.$show.groups,
+        // Structures answer the same three questions a group does -- members,
+        // name, and which mappings it wants -- so the layout takes both.
+        groups: this.mappable,
         projection: this.projection,
         definitionName: nameOf,
         perspective: this.perspective,

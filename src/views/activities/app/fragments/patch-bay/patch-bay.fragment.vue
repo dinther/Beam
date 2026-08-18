@@ -16,6 +16,13 @@
         @click="createStructure"
       />
       <uk-button
+        icon="move"
+        style="margin-right: 8px"
+        label="arrange"
+        :disabled="!canArrange"
+        @click="toggleArrange"
+      />
+      <uk-button
         icon="new"
         style="margin-right: 8px"
         label="new"
@@ -71,9 +78,25 @@ export default {
        * carries, since the two number themselves independently.
        */
       highlightedIds: [],
+      /**
+       * Whether the Arrange panel is open.
+       *
+       * Opening it is a decision, not a consequence of selecting things: the
+       * panel previews a layout the moment it appears, and a multi-selection
+       * is made for plenty of reasons that are not "lay these out again".
+       */
+      arrangeOpen: false,
     };
   },
   computed: {
+    /**
+     * Whether there is anything to arrange. One item has no arrangement.
+     *
+     * @property {Boolean} canArrange
+     */
+    canArrange() {
+      return this.highlightedIds.length > 1;
+    },
     /**
      * The patch bay as a tree: groups first, holding their members, then
      * everything still at the root.
@@ -342,6 +365,10 @@ export default {
         this.highlightedIds = [];
         return;
       }
+      // A new selection closes the panel. Left open it would re-arrange the
+      // next two things picked, which is the surprise this button exists to
+      // remove.
+      this.setArrangeOpen(false);
       // Built from the typed selection, so a structure highlights its own row
       // rather than whichever fixture happens to share its number.
       this.highlightedIds = (payload.selectedItems || []).map((item) => (
@@ -349,6 +376,26 @@ export default {
       ));
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
+    },
+    /**
+     * Opens or closes the Arrange panel for the current selection.
+     *
+     * @public
+     */
+    toggleArrange() {
+      if (!this.canArrange) return;
+      this.setArrangeOpen(!this.arrangeOpen);
+    },
+    /**
+     * Announces the panel's state, so the modifier column can follow it.
+     *
+     * @public
+     * @param {Boolean} open whether the panel should be showing
+     */
+    setArrangeOpen(open) {
+      if (this.arrangeOpen === open) return;
+      this.arrangeOpen = open;
+      EventBus.emit('arrange_toggled', open);
     },
     /**
      * Selects what "+ New" just added.
