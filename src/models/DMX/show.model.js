@@ -17,6 +17,7 @@ import Live from './live.model';
 import {
   buildLedBarProfile, expandLedBarProfile, withoutLedBarChannels,
 } from './generic/led_bar';
+import { normaliseMatrixProfile } from './ofl_matrix';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
 const DEFAULT_PROJECT_NAME = 'new_project.json';
@@ -48,7 +49,11 @@ async function fetchProfile(profileKey) {
       && typeof profile === 'object'
       && Array.isArray(profile.categories)
       && Array.isArray(profile.modes);
-    return usable ? profile : null;
+    // A grid arrives declared rather than enumerated -- see `ofl_matrix` -- and
+    // is written out here, once, so that nothing downstream has to know the
+    // difference between a profile that listed its channels and one that
+    // described them.
+    return usable ? normaliseMatrixProfile(profile) : null;
   } catch (err) {
     return null;
   }

@@ -316,6 +316,7 @@ import PopupMixin from '@/views/mixins/popup.mixin';
 import { DMX_UNIVERSE_LENGTH, channelAddress } from '@/models/DMX/patch.model';
 import { buildMadMapperFixture } from '@/models/DMX/generic/madmapper';
 import Fixture from '@/models/DMX/fixture.model';
+import { normaliseMatrixProfile } from '@/models/DMX/ofl_matrix';
 import CreateFixturePopup from './popup.create.fixture.vue';
 
 /** How long the export button confirms for, in ms. */
@@ -804,9 +805,13 @@ export default {
       // Generated profiles are built in the app, not served: there is no file
       // to fetch, and asking for one would 404.
       const generated = this.$show.generatedProfiles[`${manufacturer.name}/${fixture}`];
+      // Fetched here rather than through `fetchProfile`, so the grid a matrix
+      // profile only *describes* has to be written out here too -- otherwise
+      // the channel counts below would size the patch from an insert that
+      // stands for a hundred channels and counts as one.
       const data = generated
         ? JSON.parse(JSON.stringify(generated))
-        : (await this.$http.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${manufacturer.name}/${fixture}`)).data;
+        : normaliseMatrixProfile((await this.$http.get(`${import.meta.env.VITE_STATIC_URL}fixtures/${manufacturer.name}/${fixture}`)).data);
       Object.assign(this.fixture, {
         OFLData: data,
         modes: data.modes,
