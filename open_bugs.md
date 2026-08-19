@@ -144,6 +144,28 @@ channel), band placement, input/output rectangles, `__FT__fixture_line` as the
 element type, and a stray MadMapper instance on another machine -- that last
 one was suspected and excluded by capture, single source, 386 universes.
 
+### Fixed, pending Paul's eyes: inbound Art-Net lagged ~a minute (2026-08-19)
+
+Two costs, both on the input path, fixed in `7b3fbbd` and `1b0ae30`.
+
+**An IPC message per packet.** 15,437 `webContents.send` calls a second, each a
+structured clone and an event-loop wake-up, with two renderer listeners
+answering each one. Nothing throttled and nothing dropped, so the queue grew
+without bound and the delay compounded. The main process now coalesces to the
+latest frame per universe and sends one packed message per display frame --
+about 60 a second, same bytes -- and one renderer subscription fans out to both
+consumers.
+
+**Capability values built for pixels that never read them.** A bar's emitters
+take their colour from the DMX texture, so `setChannel`'s capability scan,
+allocated result object and entity-string parsing were dropped on the floor
+196,608 times per refresh. Measured at 12.5 ms against a 25 ms frame budget.
+Bars take an early return after the channel value is written; movers are
+untouched.
+
+What follows is the diagnosis as first written, kept because the arithmetic is
+the useful part.
+
 ### Open: inbound Art-Net takes ~a minute to reach the 3D view (2026-08-19)
 
 Changing the media in MadMapper takes about a minute to show up in Beam, with a
