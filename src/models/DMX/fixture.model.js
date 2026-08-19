@@ -963,8 +963,21 @@ class Fixture extends Proxify {
       this.setChannel(channel.fineChannels[0].id - 1, (value % 1) * 255); // Setting fine channel values recursively
     }
     value = Math.ceil(Math.min(Math.max(value, 0), 255)); // Clamping value between 0 and 255
-    const capability = channel.getCapability(value); // Fetching channel's capability from value
     this.channels[id].value = value; // Setting channel's value
+
+    // A generated bar's emitters take their colour from the DMX texture, which
+    // the shader samples directly -- `prepare3DModelInstance` hands the
+    // renderer `pixelTexels`, not channel values. So everything below is work
+    // whose result nothing reads: `LedBar` has no `colorIntensity` setter, and
+    // the object `getValue` allocates for each channel is assigned to a plain
+    // property and dropped.
+    //
+    // It is not free work. A 256 x 256 tile is 196,608 channels arriving 40
+    // times a second, and each one was allocating an object and parsing entity
+    // strings to fill it.
+    if (this._3DModel instanceof LedBar) return;
+
+    const capability = channel.getCapability(value); // Fetching channel's capability from value
     // A preset is released by the channel that set it. This used to hang off
     // channel 1, which is unrelated to colour and, with diff input on, is never
     // written unless the shutter itself moves -- so a preset latched forever.
