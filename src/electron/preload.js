@@ -11,14 +11,19 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 contextBridge.exposeInMainWorld('artnet', {
   /**
-   * Subscribe to inbound ArtDMX frames.
-   * @param {(frame: {universe: number, data: Uint8Array}) => void} callback
+   * Subscribe to inbound ArtDMX.
+   *
+   * Delivers a batch per display frame rather than a message per packet:
+   * `universes` holds the universe numbers that changed and `data` their
+   * values end to end, 512 per universe.
+   *
+   * @param {(batch: {universes: Uint16Array, data: Uint8Array}) => void} callback
    * @returns {() => void} unsubscribe
    */
-  onFrame: (callback) => {
+  onFrames: (callback) => {
     const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on('artnet:frame', listener);
-    return () => ipcRenderer.removeListener('artnet:frame', listener);
+    ipcRenderer.on('artnet:frames', listener);
+    return () => ipcRenderer.removeListener('artnet:frames', listener);
   },
   /** Open the receive socket. */
   start: (config) => ipcRenderer.invoke('artnet:start', config),

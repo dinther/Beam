@@ -143,9 +143,11 @@ function createWindow() {
  * renderer decides (per universe) whether to act on them.
  */
 function setupArtnet() {
-  const forward = (frame) => {
+  // One message per flush carrying every universe that changed, not one per
+  // packet: see FLUSH_INTERVAL in artnet.js for what a packet per message did.
+  const forward = (batch) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('artnet:frame', frame);
+      mainWindow.webContents.send('artnet:frames', batch);
     }
   };
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { subscribeFrames } from '@/plugins/artnet.frames';
 
 /**
  * @file Shared DMX data, held on the GPU.
@@ -100,11 +101,8 @@ function write(universe, frame) {
  * @returns {Function|null} unsubscribe handle, or null outside Electron
  */
 function attachArtNet() {
-  if (typeof window === 'undefined' || !window.artnet) return null;
   if (unsubscribe) return unsubscribe;
-  unsubscribe = window.artnet.onFrame(({ universe, data: frame }) => {
-    write(universe, frame);
-  });
+  unsubscribe = subscribeFrames(write);
   return unsubscribe;
 }
 

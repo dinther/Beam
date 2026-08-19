@@ -1,4 +1,5 @@
 import PatchSingleton from '@/models/DMX/patch.model';
+import { subscribeFrames } from '@/plugins/artnet.frames';
 
 /**
  * Renderer-side Art-Net connection manager.
@@ -31,7 +32,7 @@ class ArtNetConnection {
   enableInput() {
     if (!this.available || this.inputEnabled) return;
     window.artnet.start({});
-    this.unsubscribe = window.artnet.onFrame(({ universe, data }) => {
+    this.unsubscribe = subscribeFrames((universe, data) => {
       // The universe number is an offset into the show's address space, not a
       // lookup key: a frame is delivered whether or not a Universe object
       // exists for it, and a fixture straddling the boundary is filled by the
