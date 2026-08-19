@@ -14,7 +14,7 @@
  * single-pixel `Custom` fixture whose channels are spelled out one by one.
  */
 
-import { scanOrder } from './led_bar';
+import { scanOrder, SCAN_AXES, START_CORNERS } from './led_bar';
 
 /**
  * Patching mode declared on every exported fixture.
@@ -65,6 +65,104 @@ function fieldSafe(name) {
 }
 
 /**
+ * The most channels MadMapper will address within one fixture.
+ *
+ * Its `<PixelMapping>` offsets are a 16-bit field, so a fixture stops dead at
+ * channel 65,535 -- 21,845 RGB pixels. Measured, not inferred: a 256 x 256
+ * tile exported as one fixture lights its first 21,845 pixels and leaves the
+ * remaining two thirds black, and MadMapper's own readout puts the last live
+ * channel at U128 CH 255, which is 128 x 510 + 255.
+ *
+ * @constant {Number}
+ */
+export const MAX_FIXTURE_CHANNELS = 65535;
+
+/**
+ * How a grid must be cut up to fit inside `MAX_FIXTURE_CHANNELS`.
+ *
+ * The cut follows the scan's own line axis -- rows for a row-wired bar,
+ * columns for a column-wired one -- because only then is each band a
+ * contiguous run of the chain. Cut across the wiring instead and a band's
+ * pixels would be scattered through the fixture's address range, leaving it
+ * no single start channel to be patched at.
+ *
+ * Lines are spread evenly rather than packed to the limit: a 256 x 256 tile
+ * becomes four bands of 64 rows, not three of 85 and one of 1.
+ *
+ * Anything that already fits comes back as a single band covering the whole
+ * grid, so the ordinary fixture takes the same path as the large one and its
+ * export is unchanged.
+ *
+ * @public
+ * @param {Object} params bar parameters
+ * @param {Number} perPixel components per pixel
+ * @returns {Array} `{ index, count, startLine, lines, startPixel, pixelCount }`
+ */
+export function ledBarBands(params, perPixel) {
+  const { columns, rows } = params;
+  const alongLine = params.scanAxis === SCAN_AXES.COLUMN ? rows : columns;
+  const totalLines = params.scanAxis === SCAN_AXES.COLUMN ? columns : rows;
+  const channelsPerLine = alongLine * perPixel;
+
+  const whole = [{
+    index: 0,
+    count: 1,
+    startLine: 0,
+    lines: totalLines,
+    startPixel: 0,
+    pixelCount: columns * rows,
+  }];
+  if (!(channelsPerLine > 0) || columns * rows * perPixel <= MAX_FIXTURE_CHANNELS) return whole;
+
+  const linesPerBand = Math.floor(MAX_FIXTURE_CHANNELS / channelsPerLine);
+  // A single line too wide to fit has nowhere left to be cut; exporting it
+  // whole at least fails visibly rather than emitting bands that lie.
+  if (linesPerBand < 1) return whole;
+
+  const count = Math.ceil(totalLines / linesPerBand);
+  const even = Math.ceil(totalLines / count);
+
+  // A band has to be one unbroken run of the chain *and* one unbroken block of
+  // the grid. Those are the same range of lines only when the chain starts at
+  // the low edge; from a bottom or right corner it walks the lines backwards,
+  // so the band holding chain lines 0..63 is the grid's last 64. Bands are cut
+  // in chain order, since that is what has to stay contiguous, and the grid
+  // block is worked back out from it.
+  const flipped = params.scanAxis === SCAN_AXES.COLUMN
+    ? params.startCorner === START_CORNERS.TOP_RIGHT
+      || params.startCorner === START_CORNERS.BOTTOM_RIGHT
+    : params.startCorner === START_CORNERS.BOTTOM_LEFT
+      || params.startCorner === START_CORNERS.BOTTOM_RIGHT;
+
+  const bands = [];
+  for (let chainLine = 0; chainLine < totalLines; chainLine += even) {
+    const lines = Math.min(even, totalLines - chainLine);
+    bands.push({
+      index: bands.length,
+      count,
+      startLine: flipped ? totalLines - chainLine - lines : chainLine,
+      lines,
+      startPixel: chainLine * alongLine,
+      pixelCount: lines * alongLine,
+    });
+  }
+  return bands;
+}
+
+/**
+ * The grid a band covers, as MadMapper's `width` and `height`.
+ *
+ * @param {Object} params bar parameters
+ * @param {Object} band from `ledBarBands`
+ * @returns {Object} `{ width, height }` in pixels
+ */
+export function bandGrid(params, band) {
+  return params.scanAxis === SCAN_AXES.COLUMN
+    ? { width: band.lines, height: params.rows }
+    : { width: params.columns, height: band.lines };
+}
+
+/**
  * The channel each grid cell's pixel starts on, in row-major order.
  *
  * Our profile records the order pixels are *wired* in, as a list of grid cells.
@@ -73,15 +171,35 @@ function fieldSafe(name) {
  * column-wired bar export without any special casing -- the wiring lives
  * entirely in these numbers.
  *
+ * Given a band, the same inversion is done over that band's cells alone, and
+ * the channels are numbered from the band's own start rather than the whole
+ * fixture's. A band is patched as a fixture in its own right, so its first
+ * pixel has to be channel 1.
+ *
  * @param {Object} params bar parameters
  * @param {Number} perPixel components per pixel
+ * @param {Object} [band] from `ledBarBands`; omitted means the whole grid
  * @returns {Array} 1-based start channel per cell, row-major
  */
-export function pixelMapping(params, perPixel) {
+export function pixelMapping(params, perPixel, band = null) {
   const { columns, rows } = params;
-  const mapping = new Array(columns * rows).fill(0);
+  if (!band || band.count === 1) {
+    const mapping = new Array(columns * rows).fill(0);
+    scanOrder(params).forEach((cell, index) => {
+      mapping[cell.row * columns + cell.column] = index * perPixel + 1;
+    });
+    return mapping;
+  }
+
+  const grid = bandGrid(params, band);
+  const byColumn = params.scanAxis === SCAN_AXES.COLUMN;
+  const mapping = new Array(grid.width * grid.height).fill(0);
+  const last = band.startPixel + band.pixelCount;
   scanOrder(params).forEach((cell, index) => {
-    mapping[cell.row * columns + cell.column] = index * perPixel + 1;
+    if (index < band.startPixel || index >= last) return;
+    const column = byColumn ? cell.column - band.startLine : cell.column;
+    const row = byColumn ? cell.row : cell.row - band.startLine;
+    mapping[row * grid.width + column] = (index - band.startPixel) * perPixel + 1;
   });
   return mapping;
 }
@@ -155,10 +273,15 @@ function fixtureElement(profile, options = {}) {
     // already filtered to ones a pixel can carry and their order is the wire
     // order, which is exactly what MadMapper's `type` means.
     const letters = asls.components || [];
+    // A tile too big for one fixture is exported as several, and this is one
+    // of them: its own grid, its own channels from 1. Without a band it is the
+    // whole thing, which is what everything that fits gets.
+    const band = options.band || null;
+    const grid = band ? bandGrid(params, band) : { width: params.columns, height: params.rows };
     type = letters.join('');
-    width = params.columns;
-    height = params.rows;
-    body = pixelMapping(params, letters.length).join(' ');
+    width = grid.width;
+    height = grid.height;
+    body = pixelMapping(params, letters.length, band).join(' ');
   } else {
     components = componentsAttribute(profile, options.mode);
     if (!components) return null;
@@ -223,6 +346,36 @@ export function buildMadMapperFixture(profile, options = {}) {
 }
 
 /**
+ * How a profile has to be split to be exportable, as bands.
+ *
+ * One band for anything that fits, which is nearly everything. A profile that
+ * is not a generated bar is always one band: it has no grid to cut.
+ *
+ * @public
+ * @param {Object} profile OFL-shaped profile
+ * @returns {Array} from `ledBarBands`
+ */
+export function profileBands(profile) {
+  const asls = (profile || {}).asls || {};
+  if (!asls.bar) {
+    return [{
+      index: 0, count: 1, startLine: 0, lines: 1, startPixel: 0, pixelCount: 1,
+    }];
+  }
+  return ledBarBands(asls.bar, (asls.components || []).length || 1);
+}
+
+/**
+ * What a band adds to its fixture's name, so the parts stay tellable apart.
+ *
+ * @param {Object} band
+ * @returns {String}
+ */
+function bandSuffix(band) {
+  return `(${band.index + 1}/${band.count})`;
+}
+
+/**
  * The definitions a set of fixtures needs, one per distinct profile and mode.
  *
  * A mode is part of the identity, not a detail of it: the same model in two
@@ -269,22 +422,38 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
     used.get(key).fixtures.push(fixture);
   });
 
-  const definitions = [...used.values()].map((entry) => {
+  const named = [...used.values()].map((entry) => {
     const ambiguous = modesPerModel.get(entry.model).size > 1 && entry.modeName;
     return { ...entry, product: ambiguous ? `${entry.base} (${entry.modeName})` : entry.base };
   });
 
-  const byKey = new Map(definitions.map((d) => [d.key, d]));
+  // A profile too large for one fixture becomes one definition per band. The
+  // band is part of the product name because MadMapper resolves definitions by
+  // name and would otherwise see four different grids claiming to be the same
+  // fixture.
+  const definitions = [].concat(...named.map((entry) => {
+    const bands = profileBands(entry.profile);
+    if (bands.length === 1) return [{ ...entry, band: bands[0] }];
+    return bands.map((band) => ({
+      ...entry,
+      band,
+      product: `${entry.product} ${bandSuffix(band)}`,
+    }));
+  }));
+
+  const byKey = new Map();
+  definitions.forEach((d) => byKey.set(`${d.key}/${d.band.index}`, d));
 
   /**
    * The definition name a fixture's layout entry must quote.
    *
    * @param {Object} fixture
+   * @param {Number} [bandIndex] which band of a split fixture
    * @returns {String} `group - product`
    */
-  const nameOf = (fixture) => {
+  const nameOf = (fixture, bandIndex = 0) => {
     const modeName = fixture.modeName || (fixture.mode || {}).name || '';
-    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}`);
+    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}/${bandIndex}`);
     return found ? `${found.group} - ${found.product}` : `${fixture.manufacturer} - ${fixture.model}`;
   };
 
@@ -307,6 +476,7 @@ export function buildMadMapperLibrary(definitions = []) {
       group: d.group,
       product: d.product,
       mode: d.mode,
+      band: d.band,
       avoidCrossUniversePixels: d.universeAligned,
     }))
     .filter(Boolean);
@@ -319,4 +489,8 @@ export default {
   showDefinitions,
   componentsAttribute,
   pixelMapping,
+  ledBarBands,
+  profileBands,
+  bandGrid,
+  MAX_FIXTURE_CHANNELS,
 };

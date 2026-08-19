@@ -18,6 +18,9 @@
  */
 
 import * as THREE from 'three';
+import { profileBands } from './madmapper';
+import { SCAN_AXES } from './led_bar';
+import { DMX_UNIVERSE_LENGTH, channelAddress } from '../patch.model';
 
 /** SVG units per metre. Fixed, so exports of the same rig stay comparable. */
 export const UNITS_PER_METRE = 200;
@@ -282,6 +285,70 @@ export function fixtureEnds(fixture) {
 }
 
 /**
+ * The two ends of one band of a fixture, in scene metres.
+ *
+ * A band of a row-wired tile is a strip across part of its width, so it keeps
+ * the fixture's full length and is shifted sideways; a band of a column-wired
+ * one is a shorter piece of the same strip. Either way it is the rectangle
+ * those pixels actually occupy on the real fixture, which is what makes the
+ * bands land beside each other on MadMapper's canvas rather than stacked in
+ * the same place.
+ *
+ * @param {Object} fixture Fixture instance
+ * @param {Object} band from `profileBands`
+ * @returns {Array} two `THREE.Vector3`
+ */
+function bandEnds(fixture, band) {
+  const ends = fixtureEnds(fixture);
+  if (band.count === 1) return ends;
+
+  const { bar } = fixture.OFLData.asls;
+  const rotation = fixture.rotationRad;
+  const basis = new THREE.Euler(rotation.x, rotation.y, rotation.z);
+
+  if (bar.scanAxis === SCAN_AXES.COLUMN) {
+    // Bands sit end to end along the bar, so each is a section of its length.
+    const along = new THREE.Vector3(1, 0, 0).applyEuler(basis);
+    const centre = scenePoint(fixture);
+    const mid = bar.length * ((band.startLine + band.lines / 2) / bar.columns - 0.5);
+    const half = (bar.length * band.lines) / bar.columns / 2;
+    return [
+      centre.clone().add(along.clone().multiplyScalar(mid - half)),
+      centre.clone().add(along.clone().multiplyScalar(mid + half)),
+    ];
+  }
+
+  // Bands stack across the bar's width, each the full length.
+  const up = new THREE.Vector3(0, 1, 0).applyEuler(basis);
+  const shift = up.multiplyScalar(
+    bar.width * ((band.startLine + band.lines / 2) / (bar.rows || 1) - 0.5),
+  );
+  return ends.map((p) => p.clone().add(shift));
+}
+
+/**
+ * Where a band's own first channel lands in the show's address space.
+ *
+ * Read off the fixture's addressing rather than assumed, so a band starts
+ * exactly where the pixels before it left off -- including the dead tail at
+ * the end of each universe when the fixture keeps its pixels whole. Getting
+ * this from anywhere else is how a band ends up a channel or two out and
+ * every pixel in it shows the wrong colour.
+ *
+ * @param {Object} fixture Fixture instance
+ * @param {Object} band from `profileBands`
+ * @returns {Number} absolute address
+ */
+function bandAddress(fixture, band) {
+  if (band.count === 1) return fixture.address;
+  return channelAddress(
+    fixture.address,
+    band.startPixel * fixture.channelsPerPixel,
+    fixture.alignmentPixelSize,
+  );
+}
+
+/**
  * Escapes text for an XML attribute.
  *
  * @param {String} value
@@ -331,47 +398,59 @@ const round = (n) => Math.round(n * 1000) / 1000;
  * @returns {Object} entry ready to render
  */
 function prepare(fixture, projection, definitionName, frame, perspective) {
-  const definition = definitionName(fixture);
-  const common = {
-    name: fixture.name,
-    universe: fixture.universe,
-    channel: fixture.chStart + 1,
-    definition,
-  };
-
   const flatten = (p) => (perspective
     ? projectPerspective(p, projection, frame, perspective.distance)
     : project(p, projection, frame.radius, frame.centre));
 
   const ends = fixtureEnds(fixture);
-  if (ends) {
-    const { bar } = fixture.OFLData.asls;
-    const middle = flatten(scenePoint(fixture));
-    const period = 2 * Math.PI * frame.radius;
-    const placed = ends
-      .map(flatten)
-      .map((q) => (wrapsAround(projection) && !perspective
-        ? { ...q, x: nearestTurn(q.x, middle.x, period) }
-        : q));
+  if (!ends) {
+    // Anything without a length is drawn as a square facing the canvas, which
+    // is how MadMapper represents a fixture that is one pixel rather than a
+    // run. Nothing that small is ever split.
+    const c = flatten(scenePoint(fixture));
+    return [{
+      name: fixture.name,
+      universe: fixture.universe,
+      channel: fixture.chStart + 1,
+      definition: definitionName(fixture),
+      kind: 'fixture_quad',
+      centre: c,
+      half: POINT_FIXTURE_HALF,
+    }];
+  }
+
+  const { bar } = fixture.OFLData.asls;
+  const middle = flatten(scenePoint(fixture));
+  const period = 2 * Math.PI * frame.radius;
+  const place = (points) => points
+    .map(flatten)
+    .map((q) => (wrapsAround(projection) && !perspective
+      ? { ...q, x: nearestTurn(q.x, middle.x, period) }
+      : q));
+
+  // A tile too large for one MadMapper fixture is drawn as several, each
+  // patched where its own first pixel really lands. One band is the ordinary
+  // case and produces exactly what it always did.
+  return profileBands(fixture.OFLData).map((band) => {
+    const placed = place(bandEnds(fixture, band));
     const edgeOn = Math.hypot(placed[1].x - placed[0].x, placed[1].y - placed[0].y)
       < MIN_PROJECTED_LENGTH;
     const [a, b] = ensureLength(placed[0], placed[1]);
+    const address = bandAddress(fixture, band);
+    const byColumn = bar.scanAxis === SCAN_AXES.COLUMN;
+    const share = band.count > 1 && !byColumn ? band.lines / (bar.rows || 1) : 1;
     return {
       edgeOn,
-      ...common,
+      name: band.count > 1 ? `${fixture.name} ${band.index + 1}` : fixture.name,
+      universe: Math.floor(address / DMX_UNIVERSE_LENGTH),
+      channel: (address % DMX_UNIVERSE_LENGTH) + 1,
+      definition: definitionName(fixture, band.index),
       kind: 'fixture_line',
       a,
       b,
-      thickness: (bar.width || 0.024) * UNITS_PER_METRE,
+      thickness: (bar.width || 0.024) * share * UNITS_PER_METRE,
     };
-  }
-
-  // Anything without a length is drawn as a square facing the canvas, which is
-  // how MadMapper represents a fixture that is one pixel rather than a run.
-  const c = flatten(scenePoint(fixture));
-  return {
-    ...common, kind: 'fixture_quad', centre: c, half: POINT_FIXTURE_HALF,
-  };
+  });
 }
 
 /**
@@ -502,10 +581,12 @@ export function buildMadMapperLayout({
     const eye = perspective && isCameraView(island.mapping) ? perspective : null;
     const prefix = prefixOf.get(island.mapping) || 'FRT';
 
-    const entries = island.members.map((fixture) => {
-      const entry = prepare(fixture, island.mapping, definitionName, frame, eye);
-      return { ...entry, name: `${prefix} ${entry.name}` };
-    });
+    // One fixture can contribute several entries: a tile too large for a single
+    // MadMapper fixture is exported as one band per part.
+    const entries = [].concat(...island.members.map(
+      (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye)
+        .map((entry) => ({ ...entry, name: `${prefix} ${entry.name}` })),
+    ));
 
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
     const see = (x, y) => {
