@@ -17,16 +17,34 @@
 import { scanOrder, SCAN_AXES, START_CORNERS } from './led_bar';
 
 /**
- * Patching mode declared on every exported fixture.
+ * Patching mode declared on a fixture whose pixels form a grid.
  *
  * MadMapper's editor offers Fixed Size, LED Strip and Matrix. Only Fixed
- * exposes the per-pixel mapping; the other two have MadMapper derive the
- * layout from its own rules, which would silently discard the start corner,
- * scan axis and serpentine wiring the profile describes.
+ * exposes the per-pixel mapping -- but a Fixed fixture is never sampled.
+ * MadMapper paints one texel across every pixel of it however the media
+ * moves, which reads as a panel stuck on a single drifting colour. Measured
+ * on the wire against a 256 x 256 tile in four bands: Fixed carried three
+ * distinct colours across all 65,536 pixels, Matrix carried 248 per band.
+ *
+ * Matrix derives the layout from width, height and the start address instead.
+ * Its rule is serpentine rows, which is what our own map already describes for
+ * a generated bar -- captured frozen, its even rows matched ours and its odd
+ * rows were their exact mirror, 128 of 128. So nothing is lost here.
+ *
+ * A profile wired straight rather than serpentine would be given MadMapper's
+ * serpentine anyway and come back with every odd row mirrored. That is a wrong
+ * picture rather than a dark one, and it is untested; see open_bugs.md.
  *
  * @constant {String}
  */
-const PATCHING = 'Fixed';
+const GRID_PATCHING = 'Matrix';
+
+/**
+ * Patching mode for a mover: one pixel, named channels, no grid to derive.
+ *
+ * @constant {String}
+ */
+const CUSTOM_PATCHING = 'Fixed';
 
 /** MadMapper writes CRLF, with one space of indent per level. */
 const EOL = '\r\n';
@@ -267,6 +285,7 @@ function fixtureElement(profile, options = {}) {
   let height;
   let body;
   let components = null;
+  let patching;
 
   if (params) {
     // A generated bar: the geometry is the fixture. Component letters are
@@ -282,6 +301,7 @@ function fixtureElement(profile, options = {}) {
     width = grid.width;
     height = grid.height;
     body = pixelMapping(params, letters.length, band).join(' ');
+    patching = GRID_PATCHING;
   } else {
     components = componentsAttribute(profile, options.mode);
     if (!components) return null;
@@ -289,13 +309,14 @@ function fixtureElement(profile, options = {}) {
     width = 1;
     height = 1;
     body = '1';
+    patching = CUSTOM_PATCHING;
   }
 
   const attributes = [
     `avoidCrossUniversePixels="${options.avoidCrossUniversePixels ? 1 : 0}"`,
     ...(components ? [`components="${escapeAttribute(components)}"`] : []),
     `height="${height}"`,
-    `patching="${PATCHING}"`,
+    `patching="${patching}"`,
     `type="${escapeAttribute(type)}"`,
     `width="${width}"`,
   ].join(' ');

@@ -82,3 +82,89 @@ four bands and (b) a hand-made fixture with content working on it. Diff the
 two. Whichever attribute differs is what the exporter has to write. That is
 the same method that established 170 pixels per universe and the 65,535
 ceiling.
+
+### Resolved: `patching="Fixed"` was why no picture reached the fixtures (2026-08-19)
+
+`patching` decides who owns the pixel-to-channel map, and that choice silently
+decides whether media is sampled at all.
+
+- **`Fixed`** — MadMapper uses the `<PixelMapping>` number list verbatim. It is
+  the only mode that can express a start corner, a scan axis or serpentine
+  wiring, because no attribute carries those; they exist only as the shape of
+  that list. **But a Fixed fixture is never sampled.** MadMapper paints one
+  texel across every pixel of it, which reads as a panel stuck on a single
+  colour that drifts as the media moves.
+- **`Matrix`** — MadMapper ignores the list and derives its own map from
+  `width`, `height` and the start address. `Strip` is the same trade in 1D.
+
+Measured on the wire, 256 x 256 tile in four bands, one Art-Net source, 386
+universes: **Fixed carried 3 distinct RGB triples across all 65,536 pixels;
+Matrix carried 248 per band.** Every channel moved in both cases, so Fixed was
+live and rendering -- it was sampling one texel, not frozen or misaddressed.
+
+**What Matrix costs here: nothing.** Its derived rule is serpentine rows, and
+that is what our own map already describes. Captured with the media frozen,
+even rows matched and odd rows were their exact mirror, 128 of 128. The proof
+holds because the gradient is not perfectly symmetric -- 138 positions per row
+differ from their own mirror, and those asymmetries flip on odd rows. A
+symmetric image could not have shown this.
+
+Confirmed end to end: exported from Beam with `Matrix`, imported into
+MadMapper, content renders on all four bands with no manual mode change.
+
+**The diff, finally done.** MadMapper's own Export Fixtures on a working
+fixture (`profile_that_works.mmfl`) against ours as imported: identical in
+every attribute -- group, product, favorite, avoidCrossUniversePixels, height,
+type, width -- and identical across all 16,384 map entries. The only difference
+is `patching="Matrix"` against `patching="Fixed"`. One attribute value was the
+whole bug.
+
+**Untested, and now cheap to settle.** MadMapper wrote the full pixel map even
+in Matrix mode, byte-identical to ours. That is ambiguous: it either derived
+the map from its own serpentine rule and matched us by luck of the same rule,
+or it kept the map we imported and changed only the mode. If it keeps it,
+Matrix honours an imported map and there is no risk at all.
+
+Distinguish them without touching the wire: export a *non*-serpentine 256 x 64
+bar from Beam as Matrix, import it, run Export Fixtures, and diff the map that
+comes back. A straight map means the import is honoured. A serpentine map means
+MadMapper overrode it -- and a straight-wired panel would render with every odd
+row mirrored, a wrong picture rather than a dark one.
+
+**Also untested by this capture:** absolute orientation. The test gradient is
+vertically uniform and near-symmetric horizontally, so top-vs-bottom start
+corner and left-vs-right handedness are both invisible to it. A bright single
+corner, or a diagonal ramp, would pin all three properties in one capture.
+
+Movers keep `Fixed` deliberately: a 1x1 `Custom` has no grid to derive, and its
+channel meanings live in the `components` attribute.
+
+Ruled out along the way, so nobody re-opens them: addressing (proven to the
+channel), band placement, input/output rectangles, `__FT__fixture_line` as the
+element type, and a stray MadMapper instance on another machine -- that last
+one was suspected and excluded by capture, single source, 386 universes.
+
+### Open: inbound Art-Net takes ~a minute to reach the 3D view (2026-08-19)
+
+Changing the media in MadMapper takes about a minute to show up in Beam, with a
+256 x 256 tile on the wire. Every inbound frame runs two paths:
+
+- `dmx_store.write` -- one `data.set` into the universe texture. Cheap, and
+  what the `led_panel` shader actually reads.
+- `PatchSingleton.writeUniverse` -> `writeChannel` -> `fixture.setChannel` --
+  per channel, and for this fixture that is 196,608 channels per full refresh.
+
+Measured: the two Map lookups in `writeChannel` are *not* the problem -- a full
+386-universe pass costs about 5 ms against the 25 ms a 40 fps sender allows.
+The remaining suspect is `setChannel` itself, which per channel does a
+`getCapability` lookup and a `capability.getValue` that allocates an object,
+then writes into `_3DModel`. At 15,437 packets/s (measured) that is roughly
+7.9 M allocations/s.
+
+The sender's rate is measured, not assumed: `tools/artnet-log.js` recorded
+154,377 packets in 10 s.
+
+If it is a backlog, the delay grows the longer the app runs rather than
+settling at a minute -- that is the cheap way to tell it from fixed overhead.
+Worth checking whether the model fan-out is needed at all for a panel whose
+pixels the shader reads straight from the texture.
