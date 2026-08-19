@@ -33,3 +33,6 @@ yarn-error.log*
 
 # Electron-builder output, second output folder
 /release2
+
+# Art-Net captures written by tools/artnet-log.js
+/artnet-*.csv
