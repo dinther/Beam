@@ -29,15 +29,28 @@ const USABLE_CHANNELS = 510;
 /**
  * How many universes the texture can hold.
  *
- * A row costs 512 bytes here and the same again on the GPU, so 512 universes
- * is a quarter of a megabyte. The ceiling that would actually bite is maximum
- * texture height, typically 16384, which is about as many universes as Art-Net
+ * A row costs 512 bytes here and the same again on the GPU, so 2048 universes
+ * is a megabyte. The ceiling that would actually bite is maximum texture
+ * height, typically 16384, which is about as many universes as Art-Net
  * addressing offers anyway.
+ *
+ * 512 was not enough, and the way it failed is the reason this is documented
+ * rather than merely raised. A 256 x 256 tile driven from MadMapper arrived as
+ * 777 universes; the 265 past the end were dropped, which put roughly a third
+ * of the tile in the dark with nothing on screen to say why. The number here
+ * has to clear the whole stream, not the fixture: a rig's last universe is set
+ * by where its fixtures are patched, not by how many channels they use.
+ *
+ * 2048 rather than the full 16384 because the texture is re-uploaded whole on
+ * any frame that changed. At 2048 that is a megabyte a frame; at 16384 it
+ * would be eight, nearly all of it zeroes, for headroom no one is near. Raise
+ * it when a rig needs it -- and if the upload becomes the cost, the answer is
+ * to upload only the rows that moved, not to shrink this back down.
  *
  * The LED shader compiles this in as a #define and divides row indices by it,
  * so the texture and the shader are always sized from the same number.
  */
-const UNIVERSE_COUNT = 512;
+const UNIVERSE_COUNT = 2048;
 
 /** Universes already complained about, so a dropped frame is said once. */
 const droppedUniverses = new Set();
