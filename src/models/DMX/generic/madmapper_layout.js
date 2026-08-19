@@ -319,9 +319,15 @@ function bandEnds(fixture, band) {
   }
 
   // Bands stack across the bar's width, each the full length.
+  //
+  // Rows run *down* the face: `gridPositions` puts row 0 at the top and
+  // negates local Y, so a band's displacement has to be negated with it.
+  // Without that, band 1 -- the grid's first rows -- is placed lowest, and a
+  // tile arrives in MadMapper stacked bottom to top. A horizontal gradient
+  // cannot show this, because every row of it is the same.
   const up = new THREE.Vector3(0, 1, 0).applyEuler(basis);
   const shift = up.multiplyScalar(
-    bar.width * ((band.startLine + band.lines / 2) / (bar.rows || 1) - 0.5),
+    bar.width * (0.5 - (band.startLine + band.lines / 2) / (bar.rows || 1)),
   );
   return ends.map((p) => p.clone().add(shift));
 }

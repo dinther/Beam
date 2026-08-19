@@ -168,3 +168,33 @@ If it is a backlog, the delay grows the longer the app runs rather than
 settling at a minute -- that is the cheap way to tell it from fixed overhead.
 Worth checking whether the model fan-out is needed at all for a panel whose
 pixels the shader reads straight from the texture.
+
+### Fixed: exported bands stacked bottom to top (2026-08-19)
+
+A 256 x 256 tile arrived in MadMapper with its bands in reverse vertical order
+-- top to bottom 4, 3, 2, 1 where it should read 1, 2, 3, 4. Paul found it by
+eye and swapped them by hand.
+
+`bandEnds` in `madmapper_layout.js` displaced each band along the bar's local
+up axis by `(startLine + lines / 2) / rows - 0.5`, so a larger `startLine`
+moved a band *higher*. But `startLine` is a grid row index, and rows run down
+the face: `gridPositions` in `led_bar.js` puts row 0 at the top and negates
+local Y to get there. Band 1 holds the grid's first rows, so it belongs at the
+top and was being placed at the bottom. Negated to match.
+
+The COLUMN branch was already right -- columns run up in local X in both
+places -- so only the row branch changed.
+
+**Why no test caught it.** Every capture that day used a horizontal gradient:
+vertically uniform, identical in all 256 rows. Reversing the row order of an
+image whose rows are all the same produces the same image. The wire was
+checked to the channel and could not have shown this, and neither could the
+frozen-media capture that proved the serpentine wiring.
+
+The lesson is the same one the orientation section already asks for: an
+asymmetric test image -- a bright single corner, or a diagonal ramp -- would
+have caught the band order, the start corner and the handedness together. A
+gradient that is uniform along one axis is blind along that axis.
+
+Needs a re-export and a look at the panel to confirm; the maths now puts bands
+1 and 2 above centre and 3 and 4 below.
