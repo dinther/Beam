@@ -368,7 +368,10 @@ export default {
           this.chunks = [];
           const uri = URL.createObjectURL(blob);
           const link = document.createElement('a');
-          link.download = `studio_${this.$show.name.toLowerCase()}_rec`;
+          // Named for the project rather than for `name`, which stops being
+          // true the moment a project is saved under a name of its own. The
+          // `studio_` this carried was ASLS Studio's, and outlived the rename.
+          link.download = `beam_${this.$show.documentTitle.toLowerCase()}_rec`;
           link.href = uri;
           link.click();
           document.body.removeChild(link);

@@ -243,7 +243,11 @@ export default {
         perspective: this.perspective,
       });
       if (!svg) return;
-      const show = (this.$show.name || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
+      // `documentTitle`, not `name`. The project's name is its folder's, and
+      // `name` is a leftover from when a show was one file that carried its
+      // own -- nothing updates it when a project is named, so it keeps saying
+      // whatever the show was created as.
+      const show = (this.$show.documentTitle || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
       // One dialog, for the layout. The definitions go beside it under the
       // same name without being asked about: they are not a separate document
       // the user might want somewhere else, they are the half of this export
@@ -261,9 +265,12 @@ export default {
         title: 'Export layout for MadMapper',
         filters: [{ name: 'SVG fixture layout', extensions: ['svg'] }],
         companion: library ? { contents: library, extension: 'mmfl' } : null,
-        // Asked once a session. There is one layout file and it is rewritten
-        // constantly, so every later export goes straight back to it.
-        remember: 'madmapper-layout',
+        // Asked once per project a session. One project has one layout file
+        // and rewrites it constantly, so every later export goes straight back
+        // to it -- but opening or saving a different project is a different
+        // destination, and inheriting the last one would quietly write this
+        // project's rig over the previous project's file.
+        remember: `madmapper-layout:${this.$show.documentPath || 'untitled'}`,
       });
     },
   },

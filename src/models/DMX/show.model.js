@@ -20,8 +20,6 @@ import {
 import { normaliseMatrixProfile } from './ofl_matrix';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
-const DEFAULT_PROJECT_NAME = 'new_project.json';
-
 const SHOWFILE_EXTENSIONS = {
   JSON: 'json',
 };
@@ -73,7 +71,6 @@ class Show extends EventEmitter {
    */
   constructor() {
     super();
-    this.name = '';
     /**
      * Absolute path of the document this show was opened from or last saved
      * to, or null when it has never been saved.
@@ -172,7 +169,6 @@ class Show extends EventEmitter {
   get showData() {
     return {
       version: SHOWFILE_VERSION,
-      name: this.name,
       diffInput: PatchSingleton.diffInput,
       // Addressing lives entirely on the fixtures now. Universe records are
       // kept only for the name and colour the patch bay displays.
@@ -180,23 +176,6 @@ class Show extends EventEmitter {
       structures: this.structures.map((structure) => structure.showData),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
     };
-  }
-
-  /**
-   * Show name
-   *
-   * @type {String}
-   */
-  set name(name) {
-    if (name) {
-      this._name = name.replace('.json', '');
-    } else {
-      this._name = 'Untitled project';
-    }
-  }
-
-  get name() {
-    return this._name ? this._name : DEFAULT_PROJECT_NAME;
   }
 
   /**
@@ -283,7 +262,6 @@ class Show extends EventEmitter {
     // enough -- the old show's structures would keep a node each.
     this.structures.forEach((structure) => structure.dispose());
     this.structures = [];
-    this.name = '';
     this.isSaved = true;
   }
 
@@ -380,7 +358,7 @@ class Show extends EventEmitter {
    */
   async saveDocumentAs() {
     if (typeof window === 'undefined' || !window.documentStore) return false;
-    const target = await window.documentStore.saveAs(this.projectName || this.name);
+    const target = await window.documentStore.saveAs(this.projectName);
     // Cancelling a save dialog is an ordinary answer, not a failure.
     if (!target) return false;
     return this.writeDocument(target);
@@ -455,7 +433,6 @@ class Show extends EventEmitter {
     const extension = Show._getShowFileType(filename);
     const showData = await Show._parseShowData(data, extension);
     await this.loadFromData(showData);
-    this.name = filename;
     // Importing a loose showfile is not opening a project. Leaving the previous
     // document in place would point Save at somebody else's project and write
     // this show straight over it.
@@ -528,7 +505,6 @@ class Show extends EventEmitter {
 
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
-    this.name = showData.name;
     if (showData.diffInput !== undefined) {
       PatchSingleton.diffInput = showData.diffInput;
     }
@@ -536,7 +512,6 @@ class Show extends EventEmitter {
 
     this.loading.message = 'Finalizing';
     this.loading.percentage = 95;
-    this.name = showData.name;
     this.ready = true;
     this.isSaved = true;
 

@@ -38,7 +38,10 @@ export default {
       try {
         const el = document.createElement('a');
         el.setAttribute('href', `data:text/plain;charset=utf-8,${encodeURIComponent(this.$show.genShowFile())}`);
-        el.setAttribute('download', `${this.$show.name || 'beam_showfile'}.json` || 'showfile.json');
+        // The project's name is its folder's; `name` is a leftover that nothing
+        // updates once a project is saved, so it offers whatever the show was
+        // created as.
+        el.setAttribute('download', `${this.$show.documentTitle || 'beam_showfile'}.json`);
         el.style.display = 'none';
         document.body.appendChild(el);
         el.click();
