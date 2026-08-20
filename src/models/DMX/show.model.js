@@ -993,6 +993,26 @@ class Show extends EventEmitter {
   }
 
   /**
+   * The next free numbered name for a structure, e.g. "Fusion 2".
+   *
+   * Numbered from one even when it is the only one, so a name never has to be
+   * rewritten once a second arrives -- and so every name in an export reads
+   * the same way. The counterpart of `FixturePool.numberedName`; renaming goes
+   * through `uniqueStructureName` instead, which leaves a typed name alone.
+   *
+   * @public
+   * @param {String} base name to number
+   * @returns {String} a name no structure is using
+   */
+  numberedStructureName(base) {
+    const wanted = (base || '').trim() || 'untitled';
+    const taken = new Set(this.structures.map((structure) => structure.name));
+    let n = 1;
+    while (taken.has(`${wanted} ${n}`)) n += 1;
+    return `${wanted} ${n}`;
+  }
+
+  /**
    * The nearest free structure name to the one asked for.
    *
    * Placing the same definition twice is normal, so a clash is expected rather
@@ -1034,7 +1054,7 @@ class Show extends EventEmitter {
    */
   createStructure(members = [], name = undefined, origin = null) {
     const structure = new Structure({
-      name: this.uniqueStructureName(name),
+      name: this.numberedStructureName(name),
       position: (origin || {}).position,
       rotation: (origin || {}).rotation,
     });
