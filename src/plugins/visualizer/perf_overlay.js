@@ -13,6 +13,8 @@
  * accurately by making it use 90%.
  */
 
+import DMXStore from './dmx_store';
+
 /** Rolling window for the averages, in frames. */
 const WINDOW = 60;
 
@@ -178,6 +180,7 @@ function end() {
     }));
   }
 
+  const dmx = DMXStore.stats();
   state.element.textContent = [
     `fps        ${state.fps.toFixed(1)}`,
     `gpu        ${gpu}`,
@@ -186,6 +189,11 @@ function end() {
     `draws      ${info ? info.render.calls : '-'}`,
     `triangles  ${info ? info.render.triangles.toLocaleString() : '-'}`,
     `textures   ${info ? info.memory.textures : '-'}`,
+    // The DMX upload is the one per-frame cost that does not follow from
+    // what is on screen: it follows from how many universes arrived.
+    // Reported here because a rig that suddenly costs megabytes a second
+    // is invisible in every other number on this list.
+    `dmx        ${dmx.rows} rows  ${(dmx.bytesPerSecond / 1048576).toFixed(1)} MB/s${dmx.partial ? '' : ' (whole)'}`,
   ].join('\n');
 }
 

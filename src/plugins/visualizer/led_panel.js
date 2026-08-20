@@ -1000,7 +1000,9 @@ function sync(panel, {
 function refresh(renderer) {
   if (!panels.size) return;
 
-  const { version } = DMXStore.texture;
+  // The store's own counter, not the texture's: a partial upload never sets
+  // `needsUpdate`, so `texture.version` no longer moves when DMX arrives.
+  const { version } = DMXStore;
   const dmxChanged = version !== pass.dmxVersion;
 
   const quad = unscrambleQuad();

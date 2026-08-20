@@ -1036,6 +1036,9 @@ class Visualizer {
       // Inside the loop, and inside Perf, because it is part of the frame:
       // measuring the scene without it would report a cost nobody pays.
       // Skips itself when no Art-Net has arrived and nothing has moved.
+      // Before the panels, which read the texture this uploads into. Inside
+      // Perf for the same reason they are: it is part of the frame.
+      DMXStore.flush(this.renderer);
       LEDPanel.refresh(this.renderer);
       if (finalComposer) {
         finalComposer.render();
