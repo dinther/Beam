@@ -76,14 +76,9 @@
         hand or choosing another view.
       </p>
 
-      <uk-checkbox
-        v-model="withDefinitions"
-        label="Also write fixture definitions"
-      />
-
       <p class="layout_hint">
-        MadMapper resolves a layout's fixtures by name, so the definitions
-        have to be imported before the layout that refers to them.
+        The fixture definitions are written alongside the layout. MadMapper
+        resolves a layout's fixtures by name, so import the definitions first.
         {{ definitionCount }}
         {{ definitionCount === 1 ? 'definition' : 'definitions' }} in this show.
       </p>
@@ -126,8 +121,9 @@ export default {
   data() {
     return {
       headerData: { title: 'Export layout for MadMapper', icon: 'export' },
-      projectionIndex: 0,
-      withDefinitions: true,
+      // Looked up rather than written as a number, so reordering the list
+      // cannot quietly change which one a fresh export starts on.
+      projectionIndex: Math.max(0, PROJECTION_LABELS.findIndex((p) => p.id === PROJECTIONS.TOP)),
       usePerspective: false,
       /** Eye distance from the rig's centre, in radii. */
       eyeDistance: 1.3,
@@ -248,27 +244,26 @@ export default {
       });
       if (!svg) return;
       const show = (this.$show.name || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
-      // Definitions first: MadMapper resolves a layout's fixtures by name, so
-      // they have to exist before the layout that quotes them is read.
-      if (this.withDefinitions) {
-        const contents = buildMadMapperLibrary(definitions);
-        if (contents) {
-          await window.fileExport.save({
-            contents,
-            defaultName: `${show} fixtures.mmfl`,
-            startIn: 'madmapperFixtures',
-            title: 'Export fixture definitions (import these first)',
-            filters: [{ name: 'MadMapper fixtures', extensions: ['mmfl'] }],
-          });
-        }
-      }
+      // One dialog, for the layout. The definitions go beside it under the
+      // same name without being asked about: they are not a separate document
+      // the user might want somewhere else, they are the half of this export
+      // that names what the other half refers to. Import order still matters
+      // in MadMapper -- definitions before layout -- but that is a matter for
+      // importing, not for saving.
+      const library = buildMadMapperLibrary(definitions);
 
       await window.fileExport.save({
         contents: svg,
-        defaultName: `${show} ${this.projection}${this.perspective ? ' perspective' : ''}.svg`,
+        // No projection in the name: a group names its own mapping, so one
+        // layout can carry several and claiming one of them would be a lie.
+        defaultName: `${show}.svg`,
         startIn: 'madmapperFixtures',
         title: 'Export layout for MadMapper',
         filters: [{ name: 'SVG fixture layout', extensions: ['svg'] }],
+        companion: library ? { contents: library, extension: 'mmfl' } : null,
+        // Asked once a session. There is one layout file and it is rewritten
+        // constantly, so every later export goes straight back to it.
+        remember: 'madmapper-layout',
       });
     },
   },

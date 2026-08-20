@@ -40,7 +40,9 @@ contextBridge.exposeInMainWorld('artnet', {
  */
 contextBridge.exposeInMainWorld('fileExport', {
   /**
-   * @param {Object} payload contents, defaultName, startIn, filters, title
+   * @param {Object} payload contents, defaultName, startIn, filters, title,
+   *   an optional companion `{ contents, extension }` written beside it, and
+   *   an optional `remember` key that reuses this session's chosen path
    * @returns {Promise<String|null>} path written, or null when cancelled
    */
   save: (payload) => ipcRenderer.invoke('file:export', payload),
