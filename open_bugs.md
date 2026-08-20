@@ -1,11 +1,38 @@
-- 
-- Arrange to line. Aim: Along the line?
+- Delete causes an error: "Cannot find fixture in pool"
+- We have to revisit naming when exporting to madmapper
 - I find the up down buttons for numbers clunky. We do a lot of number entry. The UI should be more helpful.
-
+- LED fixture. Rendering to texture then apply? Does it still use billboards for the LED emitter halo? What is the LED count limit now?
+- Allow fixtures to use a used DMX address128x128 export works.
 - Fixtures have a bright white lens like they are on while the are not.
 - Export show file. Why is that not called "Save As"?
 - Why is showfile.migrate.js in the source?
 - What is live.model.js used for?run the app
+- Spica 250M has a speed channel but it appears to be ignored.
+- Review video recording feature
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Why a 256 x 256 tile does not light fully (2026-08-19)
 
 Two separate ceilings in two separate tools. Neither is Beam's, and neither
