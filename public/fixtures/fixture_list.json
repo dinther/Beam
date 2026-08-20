@@ -470,6 +470,29 @@
     ]
   },
   {
+    "name": "garagecube",
+    "fixtures": [
+      {
+        "file": "led-25.json",
+        "name": "LED 25",
+        "category": "Matrix",
+        "supported": true
+      },
+      {
+        "file": "led-50.json",
+        "name": "LED 50",
+        "category": "Matrix",
+        "supported": true
+      },
+      {
+        "file": "led-100.json",
+        "name": "LED 100",
+        "category": "Matrix",
+        "supported": true
+      }
+    ]
+  },
+  {
     "name": "glp",
     "fixtures": [
       {

@@ -1,0 +1,187 @@
+{
+  "name": "LED 25",
+  "categories": [
+    "Matrix"
+  ],
+  "meta": {
+    "generated": true
+  },
+  "physical": {
+    "dimensions": [
+      250,
+      25,
+      15
+    ],
+    "bulb": {
+      "type": "LED"
+    }
+  },
+  "availableChannels": {
+    "P1 Red": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Red",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P1 Green": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Green",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P1 Blue": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Blue",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P2 Red": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Red",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P2 Green": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Green",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P2 Blue": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Blue",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P3 Red": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Red",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P3 Green": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Green",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P3 Blue": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Blue",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P4 Red": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Red",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P4 Green": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Green",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P4 Blue": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Blue",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P5 Red": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Red",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P5 Green": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Green",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    },
+    "P5 Blue": {
+      "capability": {
+        "type": "ColorIntensity",
+        "color": "Blue",
+        "brightnessStart": "0%",
+        "brightnessEnd": "100%"
+      }
+    }
+  },
+  "modes": [
+    {
+      "name": "Default",
+      "channels": [
+        "P1 Red",
+        "P1 Green",
+        "P1 Blue",
+        "P2 Red",
+        "P2 Green",
+        "P2 Blue",
+        "P3 Red",
+        "P3 Green",
+        "P3 Blue",
+        "P4 Red",
+        "P4 Green",
+        "P4 Blue",
+        "P5 Red",
+        "P5 Green",
+        "P5 Blue"
+      ]
+    }
+  ],
+  "asls": {
+    "bar": {
+      "length": 0.25,
+      "width": 0.025,
+      "height": 0.015,
+      "marginEnds": 0.00125,
+      "marginSides": 0.004,
+      "columns": 5,
+      "rows": 1,
+      "emitterSize": 0.005,
+      "beamAngle": 120,
+      "order": "RGB",
+      "universeAligned": true,
+      "startCorner": "top-left",
+      "scanAxis": "row",
+      "serpentine": false,
+      "shape": "bar"
+    },
+    "components": [
+      "R",
+      "G",
+      "B"
+    ]
+  }
+}

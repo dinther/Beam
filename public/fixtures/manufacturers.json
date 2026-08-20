@@ -205,6 +205,10 @@
     "name": "Gantom",
     "website": "https://www.gantom.com"
   },
+  "garagecube": {
+    "name": "garageCube",
+    "website": "https://www.garagecube.com/led/"
+  },
   "generic": {
     "name": "Generic",
     "comment": "Use this pseudo manufacturer if you need to quick patch some channels without having to create a new fixture."
