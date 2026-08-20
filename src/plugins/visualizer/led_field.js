@@ -366,12 +366,47 @@ const scratch = {
   scale: new THREE.Vector3(1, 1, 1),
 };
 
+/**
+ * The scattered glow's tunables, as one object per parameter.
+ *
+ * Shared by reference with the panel path, exactly as `EMITTER_UNIFORMS` is:
+ * haze is a property of the room, so a tile and a strip standing in it must be
+ * scattering through the same air. It also means `syncEnvironment` and
+ * `update` reach both paths without knowing the second one exists.
+ *
+ * Note `backScatter` is far higher here than on the emitters. Scattered light
+ * is much less directional than a die, so a panel facing away still lights the
+ * air in front of it.
+ *
+ * @constant {Object} GLOW_UNIFORMS
+ */
+const GLOW_UNIFORMS = {
+  dmxTexture: { value: DMXStore.texture },
+  glowSize: { value: GLOW_BASE_SIZE },
+  glowGain: { value: GLOW_BASE_GAIN },
+  glowFalloff: { value: 500.0 },
+  backScatter: { value: 0.45 },
+  hazeAmount: { value: SceneEnv.hazeAmount },
+  sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
+  turbulence: { value: SceneEnv.hazeTurbulence },
+  turbulenceScale: { value: 4.8 },
+  time: { value: 0 },
+};
+
 /** Pushes the current scene haze into the one uniform that holds it. */
 function syncEnvironment() {
+  // Written into the shared uniforms rather than reached through `field.glow`.
+  // The panel renderer holds these same objects by reference and draws every
+  // patched fixture now, while this module allocates a glow mesh only when a
+  // capacity is claimed -- which nothing does. Guarding the whole function on
+  // that mesh therefore stopped updating the panel's haze as well, leaving it
+  // at the value it was born with: `SceneEnv.hazeAmount` read at module load,
+  // before any preference had been applied, which is zero. The quads were
+  // drawn and every one of them rasterised black.
+  GLOW_UNIFORMS.hazeAmount.value = SceneEnv.hazeAmount;
+  GLOW_UNIFORMS.turbulence.value = SceneEnv.hazeTurbulence;
+
   if (!field.glow) return;
-  const { uniforms } = field.glow.material;
-  uniforms.hazeAmount.value = SceneEnv.hazeAmount;
-  uniforms.turbulence.value = SceneEnv.hazeTurbulence;
   // Scattered light needs something to scatter off: the shader multiplies its
   // colour by the haze, so in clear air every one of these quads rasterises to
   // black. They are large -- a third of a metre even at zero haze -- and there
@@ -386,8 +421,9 @@ function syncEnvironment() {
  * @param {Number} elapsed seconds since start
  */
 function update(elapsed) {
-  if (!field.glow) return;
-  field.glow.material.uniforms.time.value = elapsed;
+  // Shared with the panel renderer, so it advances whether or not this module
+  // drew anything of its own -- otherwise the haze holds still.
+  GLOW_UNIFORMS.time.value = elapsed;
 }
 
 function buildProfiles(maxBars) {
@@ -454,33 +490,6 @@ function buildEmitters(maxLeds) {
   mesh.frustumCulled = false;
   return mesh;
 }
-
-/**
- * The scattered glow's tunables, as one object per parameter.
- *
- * Shared by reference with the panel path, exactly as `EMITTER_UNIFORMS` is:
- * haze is a property of the room, so a tile and a strip standing in it must be
- * scattering through the same air. It also means `syncEnvironment` and
- * `update` reach both paths without knowing the second one exists.
- *
- * Note `backScatter` is far higher here than on the emitters. Scattered light
- * is much less directional than a die, so a panel facing away still lights the
- * air in front of it.
- *
- * @constant {Object} GLOW_UNIFORMS
- */
-const GLOW_UNIFORMS = {
-  dmxTexture: { value: DMXStore.texture },
-  glowSize: { value: GLOW_BASE_SIZE },
-  glowGain: { value: GLOW_BASE_GAIN },
-  glowFalloff: { value: 500.0 },
-  backScatter: { value: 0.45 },
-  hazeAmount: { value: SceneEnv.hazeAmount },
-  sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
-  turbulence: { value: SceneEnv.hazeTurbulence },
-  turbulenceScale: { value: 4.8 },
-  time: { value: 0 },
-};
 
 function buildGlow(maxLeds) {
   const geometry = new THREE.PlaneGeometry(1, 1);
