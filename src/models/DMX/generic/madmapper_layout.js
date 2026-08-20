@@ -18,7 +18,7 @@
  */
 
 import * as THREE from 'three';
-import { profileBands } from './madmapper';
+import { profileBands, profileParts } from './madmapper';
 import { SCAN_AXES } from './led_bar';
 import { DMX_UNIVERSE_LENGTH, channelAddress } from '../patch.model';
 
@@ -378,9 +378,49 @@ function escapeAttribute(value) {
  * @param {Object} entry prepared fixture entry
  * @returns {String}
  */
+/**
+ * A name MadMapper will accept for a fixture or a group.
+ *
+ * It does its own tidying when it makes a fixture -- `Illusion Dotz 4.4` comes
+ * back as `Illusion Dotz 4_4` -- but not when it creates the surface group of
+ * the same name, which then fails outright and takes the whole import with it.
+ * Every group name that has failed here held a dot; the ones without have all
+ * been fine. So the dots are taken out before it sees them, using the same
+ * substitution it applies itself, and the two paths agree.
+ *
+ * A slash is removed rather than substituted: it is read as a path separator,
+ * so it is not a character in a name at all.
+ *
+ * @param {String} value
+ * @returns {String} the name as MadMapper would spell it
+ */
+function safeName(value) {
+  return String(value)
+    .split('__').join(' ')
+    .split('/')
+    .join(' ')
+    .split('.')
+    .join('_');
+}
+
 function elementId(entry) {
-  const name = String(entry.name).split('__').join(' ');
-  return `${name}__UN__${entry.universe}__CH__${entry.channel}`
+  // MadMapper composes `<group>/<name>` and splits the result on slashes, so
+  // a second level of grouping is written into the name rather than into the
+  // document. Each segment is tidied on its own; the separator between them is
+  // deliberate.
+  //
+  // The definition is left alone -- it is matched against the library's
+  // `product` attribute, which carries whatever the model is really called,
+  // and MadMapper resolved those with dots in them perfectly well.
+  const name = [entry.inner, entry.name].filter(Boolean).map(safeName).join('/');
+  // A grid has to state its size here. Matrix patching ignores the map the
+  // definition carries and derives its own from the placed width and height,
+  // so a quad that says nothing is given a grid MadMapper invents -- a single
+  // RGB pixel came back claiming a hundred of them, 300 channels wide.
+  const matrix = entry.matrix
+    ? `__MW__${entry.matrix.width}__MH__${entry.matrix.height}`
+    : '';
+  return `${name}__UN__${entry.universe}__CH__${entry.channel}${matrix}`
     + `__FT__${entry.kind}__FD__${entry.definition}`;
 }
 
@@ -412,17 +452,39 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
   if (!ends) {
     // Anything without a length is drawn as a square facing the canvas, which
     // is how MadMapper represents a fixture that is one pixel rather than a
-    // run. Nothing that small is ever split.
+    // run. It is drawn once per island, because MadMapper carries one
+    // component type per fixture and a head is rarely one thing: pan/tilt, its
+    // emitters and its control channels each become a fixture of their own.
     const c = flatten(scenePoint(fixture));
-    return [{
-      name: fixture.name,
-      universe: fixture.universe,
-      channel: fixture.chStart + 1,
-      definition: definitionName(fixture),
-      kind: 'fixture_quad',
-      centre: c,
-      half: POINT_FIXTURE_HALF,
-    }];
+    const parts = profileParts(fixture.OFLData, fixture.mode);
+    // Side by side rather than stacked, so they can be told apart and picked
+    // up on MadMapper's canvas. They sit centred on where the fixture really
+    // is, which is what makes a control channel mean anything if the user
+    // repoints it at the media.
+    const pitch = POINT_FIXTURE_HALF * 2.5;
+    return parts.map((part) => {
+      const address = channelAddress(
+        fixture.address,
+        part.island ? part.island.channelOffset : 0,
+        fixture.alignmentPixelSize,
+      );
+      return {
+        // A fixture that comes apart is a group of its own, named for the
+        // instance, and its islands are named only for what they do. MadMapper
+        // allows duplicate names in different groups, so every head can hold a
+        // `Pan Tilt` without qualifying it. A fixture that stays whole keeps
+        // its own name and sits with its neighbours.
+        name: parts.length > 1 ? part.suffix : fixture.name,
+        owner: parts.length > 1 ? fixture.name : null,
+        universe: Math.floor(address / DMX_UNIVERSE_LENGTH),
+        channel: (address % DMX_UNIVERSE_LENGTH) + 1,
+        definition: definitionName(fixture, part.index),
+        kind: 'fixture_quad',
+        matrix: part.grid,
+        centre: { ...c, x: c.x + (part.index - (parts.length - 1) / 2) * pitch },
+        half: POINT_FIXTURE_HALF,
+      };
+    });
   }
 
   const { bar } = fixture.OFLData.asls;
@@ -570,11 +632,16 @@ export function buildMadMapperLayout({
   if (loose.length) islands.push({ members: loose, mapping: projection, name: 'Fixtures' });
   if (!islands.length) return null;
 
-  // Tagged by mapping rather than by island, so one tag means one way of
-  // looking at the whole rig and a cue can raise or lower it as a set.
+  // Named by mapping rather than by island, so one name means one way of
+  // looking at the whole rig and a cue can raise or lower it as a set. Spelled
+  // out in full now that it has a group of its own to sit in rather than a
+  // prefix on somebody else's name.
   const order = PROJECTION_LABELS
     .filter((p) => islands.some((island) => island.mapping === p.id));
-  const prefixOf = new Map(order.map((p) => [p.id, p.tag]));
+  const prefixOf = new Map(order.map((p) => [p.id, p.label]));
+  // A mapping only earns a group of its own when there is another to tell it
+  // apart from. One projection in the file needs no saying.
+  const manyMappings = order.length > 1;
 
   /**
    * Flattens one island and fits it to its square.
@@ -591,7 +658,16 @@ export function buildMadMapperLayout({
     // MadMapper fixture is exported as one band per part.
     const entries = [].concat(...island.members.map(
       (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye)
-        .map((entry) => ({ ...entry, name: `${prefix} ${entry.name}` })),
+        // One rule for everything: the outermost group is the thing itself --
+        // a structure, or a fixture that came apart -- and the mapping is a
+        // group inside it. So a structure mapped two ways is one `Fusion`
+        // holding a `Front` and a `Top`, rather than two groups that both
+        // claim to be Fusion.
+        .map((entry) => ({
+          ...entry,
+          group: entry.owner || island.name,
+          inner: manyMappings ? prefix : null,
+        })),
     ));
 
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
@@ -628,7 +704,23 @@ export function buildMadMapperLayout({
   const width = columns * ISLAND_SIZE + (columns - 1) * ISLAND_GAP;
   const height = rows * ISLAND_SIZE + (rows - 1) * ISLAND_GAP;
 
-  const body = [];
+  // MadMapper's tree will not hold two groups of the same name anywhere in it,
+  // and unlike a fixture -- which it quietly renames to `… -1` -- a group that
+  // collides simply fails. Every structure and every fixture that comes apart
+  // wants a `Front` inside it, so the mapping's group is numbered by the group
+  // it sits in. The number means nothing on its own; it is there to be unlike
+  // the others.
+  const groupNumber = new Map();
+  built.forEach((island) => island.entries.forEach((entry) => {
+    const id = safeName(entry.group);
+    if (!groupNumber.has(id)) groupNumber.set(id, groupNumber.size + 1);
+  }));
+
+  // Shapes are collected before they are grouped, because a group can span
+  // mappings: a fixture holding a Front and a Back belongs to one group with
+  // both inside, not to two groups that happen to share a name. Each shape is
+  // still placed by its own island's scale and origin.
+  const pieces = [];
   built.forEach((island, index) => {
     const originX = (index % columns) * step;
     const originY = Math.floor(index / columns) * step;
@@ -643,23 +735,40 @@ export function buildMadMapperLayout({
       return Math.min(MAX_THICKNESS, Math.max(0, scaled));
     };
 
-    body.push(`    <g id="${escapeAttribute(`${island.prefix} ${island.name}`)}">`);
-    island.entries.forEach((entry) => {
-      const id = escapeAttribute(elementId(entry));
+    const shape = (entry) => {
+      const inner = entry.inner
+        ? `${entry.inner} ${groupNumber.get(safeName(entry.group))}`
+        : null;
+      const id = escapeAttribute(elementId({ ...entry, inner }));
       if (entry.kind === 'fixture_line') {
-        body.push(`        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
+        return `        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
           + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
-          + ` thickness="${toThickness(entry.thickness)}"/>`);
-        return;
+          + ` thickness="${toThickness(entry.thickness)}"/>`;
       }
       const x0 = toX(entry.centre.x - entry.half); const x1 = toX(entry.centre.x + entry.half);
       const y0 = toY(entry.centre.y - entry.half); const y1 = toY(entry.centre.y + entry.half);
-      body.push(`        <polygon id="${id}" points="${x0},${y0} ${x1},${y0} ${x1},${y1} ${x0},${y1}"/>`);
+      return `        <polygon id="${id}" points="${x0},${y0} ${x1},${y0} ${x1},${y1} ${x0},${y1}"/>`;
+    };
+
+    island.entries.forEach((entry) => {
+      pieces.push({ id: safeName(entry.group), svg: shape(entry) });
     });
+  });
+
+  // One element per group, in the order the groups first appeared.
+  const body = [];
+  const sections = new Map();
+  pieces.forEach((piece) => {
+    if (!sections.has(piece.id)) sections.set(piece.id, []);
+    sections.get(piece.id).push(piece.svg);
+  });
+  sections.forEach((shapes, id) => {
+    body.push(`    <g id="${escapeAttribute(id)}">`);
+    shapes.forEach((svg) => body.push(svg));
     body.push('    </g>');
   });
 
-  const legend = order.map((p) => `${p.tag} = ${p.label}`).join(', ');
+  const legend = order.map((p) => p.label).join(', ');
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"`

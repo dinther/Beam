@@ -15,6 +15,7 @@
  */
 
 import { scanOrder, SCAN_AXES, START_CORNERS } from './led_bar';
+import { fixtureIslands, ISLAND_KINDS } from '../fixture_islands';
 
 /**
  * Patching mode declared on a fixture whose pixels form a grid.
@@ -261,6 +262,61 @@ export function componentsAttribute(profile, mode) {
 }
 
 /**
+ * An island's components as MadMapper's `components` attribute.
+ *
+ * The same shape as `componentsAttribute`, but over an island that has already
+ * folded its fine channels, so nothing has to be worked out a second time.
+ * Every source is `Slider`: MadMapper's own movers are written that way, and
+ * a slider is the one thing the user can always repoint at a colour if they
+ * want the media to drive it.
+ *
+ * @param {Object} island from `fixtureIslands`
+ * @returns {String}
+ */
+function islandComponents(island) {
+  const fields = [COMPONENTS_VERSION];
+  island.names.forEach((name, index) => {
+    const width = island.widths[index % island.pixelSize];
+    fields.push('Slider', fieldSafe(name || UNUSED_CHANNEL), width === 16 ? '16 Bits' : '8 Bits', '', '0');
+  });
+  return fields.join(FIELD);
+}
+
+/**
+ * The grid an island's pixels form.
+ *
+ * A profile that declares a matrix has already said what shape its pixels are
+ * in, and an island covering all of them inherits it -- a 4 x 4 head exports
+ * as 4 x 4 rather than as a line of sixteen. Anything else is a run.
+ *
+ * @param {Object} profile OFL profile
+ * @param {Object} island from `fixtureIslands`
+ * @returns {Object} `{ width, height }`
+ */
+function islandGrid(profile, island) {
+  const counts = ((profile || {}).matrix || {}).pixelCount;
+  if (Array.isArray(counts) && counts[0] * counts[1] * counts[2] === island.pixelCount) {
+    return { width: counts[0], height: counts[1] * counts[2] };
+  }
+  return { width: island.pixelCount, height: 1 };
+}
+
+/**
+ * Whether an island can be handed over as a grid of emitters.
+ *
+ * Only a light island can, and only while its components are eight bits wide:
+ * MadMapper's `type` names components but says nothing about their width, so a
+ * 16-bit emitter has to fall back to named channels rather than be declared as
+ * something it is not.
+ *
+ * @param {Object} island from `fixtureIslands`
+ * @returns {Boolean}
+ */
+function islandIsGrid(island) {
+  return island.kind === ISLAND_KINDS.LIGHT && !island.widths.includes(16);
+}
+
+/**
  * One `<LEDFixture>` element, as the lines it occupies.
  *
  * @param {Object} profile OFL-shaped profile; a generated bar carries
@@ -287,6 +343,9 @@ function fixtureElement(profile, options = {}) {
   let components = null;
   let patching;
 
+  const part = options.part || {};
+  const island = part.island || null;
+
   if (params) {
     // A generated bar: the geometry is the fixture. Component letters are
     // already filtered to ones a pixel can carry and their order is the wire
@@ -295,13 +354,32 @@ function fixtureElement(profile, options = {}) {
     // A tile too big for one fixture is exported as several, and this is one
     // of them: its own grid, its own channels from 1. Without a band it is the
     // whole thing, which is what everything that fits gets.
-    const band = options.band || null;
+    const band = part.band || options.band || null;
     const grid = band ? bandGrid(params, band) : { width: params.columns, height: params.rows };
     type = letters.join('');
     width = grid.width;
     height = grid.height;
     body = pixelMapping(params, letters.length, band).join(' ');
     patching = GRID_PATCHING;
+  } else if (island && islandIsGrid(island)) {
+    // Emitters. Declaring the components as the `type` is what makes MadMapper
+    // sample media across them; the map is written for a round trip's sake but
+    // Matrix derives its own from the width, height and start address.
+    const grid = part.grid || islandGrid(profile, island);
+    type = island.components.join('');
+    width = grid.width;
+    height = grid.height;
+    body = Array.from({ length: island.pixelCount }, (unused, i) => 1 + i * island.pixelSize)
+      .join(' ');
+    patching = GRID_PATCHING;
+  } else if (island) {
+    // Movement and control: one pixel carrying this island's channels by name.
+    components = islandComponents(island);
+    type = 'Custom';
+    width = 1;
+    height = 1;
+    body = '1';
+    patching = CUSTOM_PATCHING;
   } else {
     components = componentsAttribute(profile, options.mode);
     if (!components) return null;
@@ -352,21 +430,6 @@ function library(elements) {
 }
 
 /**
- * A profile as a MadMapper fixture document.
- *
- * @public
- * @param {Object} profile OFL-shaped profile; a generated bar carries
- *   `asls.bar` and `asls.components`
- * @param {Object} [options] see `fixtureElement`
- * @returns {String|null} the contents of a `.mmfl` file, or null when the
- *   profile cannot be expressed
- */
-export function buildMadMapperFixture(profile, options = {}) {
-  const element = fixtureElement(profile, options);
-  return element ? library([element]) : null;
-}
-
-/**
  * How a profile has to be split to be exportable, as bands.
  *
  * One band for anything that fits, which is nearly everything. A profile that
@@ -397,6 +460,103 @@ function bandSuffix(band) {
 }
 
 /**
+ * What each island adds to its fixture's name.
+ *
+ * The components are the most useful thing to see in MadMapper's browser --
+ * `RGBW` says what the thing does far better than `Light 2` would. A label
+ * only gains a number when the same one turns up twice on one fixture, which
+ * is common for control islands and rare for anything else.
+ *
+ * @param {Array} islands from `fixtureIslands`
+ * @returns {Array} one label per island
+ */
+function islandLabels(islands) {
+  const labels = islands.map((island) => {
+    if (island.kind === ISLAND_KINDS.LIGHT) return island.components.join('');
+    if (island.kind === ISLAND_KINDS.MOVEMENT) {
+      // Space-separated, never `Pan/Tilt`: MadMapper reads a slash in a
+      // fixture's name as a group separator, so that one character had it
+      // build a folder called `Pan` and strand a fixture called `Tilt`
+      // outside every group.
+      return island.components.map((role) => role[0].toUpperCase() + role.slice(1)).join(' ');
+    }
+    return 'Control';
+  });
+
+  const totals = {};
+  labels.forEach((label) => { totals[label] = (totals[label] || 0) + 1; });
+
+  const seen = {};
+  return labels.map((label) => {
+    if (totals[label] === 1) return label;
+    seen[label] = (seen[label] || 0) + 1;
+    return `${label} ${seen[label]}`;
+  });
+}
+
+/**
+ * The MadMapper fixtures one profile becomes.
+ *
+ * Two reasons a fixture comes apart, and they do not overlap. A generated bar
+ * splits into bands when it outgrows MadMapper's 65,535 channels per fixture.
+ * Everything else splits into islands, because a fixture is rarely one thing
+ * and MadMapper carries one component type per fixture -- so a head with
+ * pan/tilt, a grid of emitters and a fistful of control channels can only be
+ * described as three.
+ *
+ * @public
+ * @param {Object} profile OFL-shaped profile
+ * @param {Object} [mode] the mode being exported; ignored for a bar
+ * @returns {Array} parts, each carrying a `band` or an `island`
+ */
+export function profileParts(profile, mode) {
+  const asls = (profile || {}).asls || {};
+  if (asls.bar) {
+    const bands = ledBarBands(asls.bar, (asls.components || []).length || 1);
+    return bands.map((band) => ({
+      index: band.index, count: bands.length, band, suffix: bandSuffix(band),
+    }));
+  }
+
+  const islands = fixtureIslands(profile, mode);
+  const labels = islandLabels(islands);
+  return islands.map((island, index) => ({
+    index,
+    count: islands.length,
+    island,
+    suffix: labels[index],
+    // Carried on the part so the library and the layout cannot disagree about
+    // it. A layout has to state the grid too -- see `elementId` -- because
+    // Matrix patching derives its map from the placed size rather than from
+    // the map the definition carries.
+    grid: islandIsGrid(island) ? islandGrid(profile, island) : null,
+  }));
+}
+
+/**
+ * A profile as a MadMapper fixture document.
+ *
+ * @public
+ * @param {Object} profile OFL-shaped profile; a generated bar carries
+ *   `asls.bar` and `asls.components`
+ * @param {Object} [options] see `fixtureElement`
+ * @returns {String|null} the contents of a `.mmfl` file, or null when the
+ *   profile cannot be expressed
+ */
+export function buildMadMapperFixture(profile, options = {}) {
+  const base = options.product || (profile || {}).name;
+  const parts = profileParts(profile, options.mode);
+  const elements = parts
+    .map((part) => fixtureElement(profile, {
+      ...options,
+      part,
+      product: parts.length > 1 ? `${base} ${part.suffix}` : base,
+    }))
+    .filter(Boolean);
+  return elements.length ? library(elements) : null;
+}
+
+/**
  * The definitions a set of fixtures needs, one per distinct profile and mode.
  *
  * A mode is part of the identity, not a detail of it: the same model in two
@@ -415,7 +575,6 @@ function bandSuffix(band) {
  */
 export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
   const used = new Map();
-  const modesPerModel = new Map();
 
   fixtures.forEach((fixture) => {
     if (!fixture || !fixture.OFLData) return;
@@ -423,9 +582,6 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
     const modeName = fixture.modeName || mode.name || '';
     const model = `${fixture.manufacturer}/${fixture.model}`;
     const key = `${model}/${modeName}`;
-
-    if (!modesPerModel.has(model)) modesPerModel.set(model, new Set());
-    modesPerModel.get(model).add(modeName);
 
     if (!used.has(key)) {
       used.set(key, {
@@ -443,38 +599,44 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
     used.get(key).fixtures.push(fixture);
   });
 
-  const named = [...used.values()].map((entry) => {
-    const ambiguous = modesPerModel.get(entry.model).size > 1 && entry.modeName;
-    return { ...entry, product: ambiguous ? `${entry.base} (${entry.modeName})` : entry.base };
-  });
+  // The mode is always named, not only when one show happens to use two of
+  // them. MadMapper's library outlives the project that filled it and its
+  // import is purely additive, so a definition called `Illusion Dotz 4.4`
+  // meets the same model in another mode months later -- same name, different
+  // channel count, and no way to tell which is which.
+  const named = [...used.values()].map((entry) => ({
+    ...entry,
+    product: entry.modeName ? `${entry.base} (${entry.modeName})` : entry.base,
+  }));
 
-  // A profile too large for one fixture becomes one definition per band. The
-  // band is part of the product name because MadMapper resolves definitions by
-  // name and would otherwise see four different grids claiming to be the same
-  // fixture.
+  // A profile that cannot be one MadMapper fixture becomes one definition per
+  // part -- a band of an oversized tile, or an island of an ordinary fixture.
+  // The part is named in the product because MadMapper resolves definitions by
+  // name and would otherwise see several different things claiming to be the
+  // same fixture.
   const definitions = [].concat(...named.map((entry) => {
-    const bands = profileBands(entry.profile);
-    if (bands.length === 1) return [{ ...entry, band: bands[0] }];
-    return bands.map((band) => ({
+    const parts = profileParts(entry.profile, entry.mode);
+    if (parts.length === 1) return [{ ...entry, part: parts[0] }];
+    return parts.map((part) => ({
       ...entry,
-      band,
-      product: `${entry.product} ${bandSuffix(band)}`,
+      part,
+      product: `${entry.product} ${part.suffix}`,
     }));
   }));
 
   const byKey = new Map();
-  definitions.forEach((d) => byKey.set(`${d.key}/${d.band.index}`, d));
+  definitions.forEach((d) => byKey.set(`${d.key}/${d.part.index}`, d));
 
   /**
    * The definition name a fixture's layout entry must quote.
    *
    * @param {Object} fixture
-   * @param {Number} [bandIndex] which band of a split fixture
+   * @param {Number} [partIndex] which band or island of a split fixture
    * @returns {String} `group - product`
    */
-  const nameOf = (fixture, bandIndex = 0) => {
+  const nameOf = (fixture, partIndex = 0) => {
     const modeName = fixture.modeName || (fixture.mode || {}).name || '';
-    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}/${bandIndex}`);
+    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}/${partIndex}`);
     return found ? `${found.group} - ${found.product}` : `${fixture.manufacturer} - ${fixture.model}`;
   };
 
@@ -497,7 +659,7 @@ export function buildMadMapperLibrary(definitions = []) {
       group: d.group,
       product: d.product,
       mode: d.mode,
-      band: d.band,
+      part: d.part,
       avoidCrossUniversePixels: d.universeAligned,
     }))
     .filter(Boolean);
@@ -508,6 +670,7 @@ export default {
   buildMadMapperFixture,
   buildMadMapperLibrary,
   showDefinitions,
+  profileParts,
   componentsAttribute,
   pixelMapping,
   ledBarBands,
