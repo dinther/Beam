@@ -163,7 +163,7 @@
 
 <script>
 import {
-  DEFAULT_BAR_PARAMS, START_CORNERS, SCAN_AXES,
+  DEFAULT_BAR_PARAMS, START_CORNERS, SCAN_AXES, BAR_SHAPES,
 } from '@/models/DMX/generic/led_bar';
 
 /** Millimetres per metre: the form talks mm, the model talks metres. */
@@ -175,7 +175,11 @@ const MM = 1000;
  * uk-select-input models the selected *index*, not the value, so each of these
  * is paired with an index in data and read back through a computed.
  */
-const KINDS = ['LED bar'];
+// What the thing is, which decides how other tools are told to draw it: a bar
+// is a line with a thickness, a panel a rectangle. Separate from how many rows
+// it carries -- a four-row batten is still a bar.
+const KINDS = ['LED bar', 'LED panel'];
+const KIND_SHAPES = [BAR_SHAPES.BAR, BAR_SHAPES.PANEL];
 const ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR', 'RGBW', 'GRBW', 'BGRW', 'RGBA', 'GRBA'];
 const CORNERS = Object.values(START_CORNERS);
 const AXES = Object.values(SCAN_AXES);
@@ -225,6 +229,9 @@ export default {
      */
     order() {
       return ORDERS[this.orderIndex] || ORDERS[0];
+    },
+    shape() {
+      return KIND_SHAPES[this.kindIndex] || KIND_SHAPES[0];
     },
     startCorner() {
       return CORNERS[this.startCornerIndex] || CORNERS[0];
@@ -328,6 +335,7 @@ export default {
           scanAxis: this.scanAxis,
           serpentine: this.serpentine,
           universeAligned: this.universeAligned,
+          shape: this.shape,
         },
       );
       // `state` is a computed over the parent's v-model, and its setter above

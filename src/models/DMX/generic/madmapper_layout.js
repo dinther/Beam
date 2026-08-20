@@ -18,8 +18,8 @@
  */
 
 import * as THREE from 'three';
-import { profileBands, profileParts } from './madmapper';
-import { SCAN_AXES } from './led_bar';
+import { profileBands, profileParts, bandGrid } from './madmapper';
+import { SCAN_AXES, isPanel } from './led_bar';
 import { DMX_UNIVERSE_LENGTH, channelAddress } from '../patch.model';
 
 /** SVG units per metre. Fixed, so exports of the same rig stay comparable. */
@@ -417,10 +417,16 @@ function elementId(entry) {
   // definition carries and derives its own from the placed width and height,
   // so a quad that says nothing is given a grid MadMapper invents -- a single
   // RGB pixel came back claiming a hundred of them, 300 channels wide.
-  const matrix = entry.matrix
-    ? `__MW__${entry.matrix.width}__MH__${entry.matrix.height}`
-    : '';
-  return `${name}__UN__${entry.universe}__CH__${entry.channel}${matrix}`
+  //
+  // A run of pixels states its length instead, and the two are mutually
+  // exclusive -- the importer says so itself: "__MW__ (Matrix Width) and
+  // __SL__ (Strip Length) are both specified". Saying neither is what left a
+  // 128 x 128 tile arriving as a hundred pixels in a single row.
+  let size = '';
+  if (entry.matrix) size = `__MW__${entry.matrix.width}__MH__${entry.matrix.height}`;
+  else if (entry.stripLength) size = `__SL__${entry.stripLength}`;
+
+  return `${name}__UN__${entry.universe}__CH__${entry.channel}${size}`
     + `__FT__${entry.kind}__FD__${entry.definition}`;
 }
 
@@ -499,24 +505,56 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
   // A tile too large for one MadMapper fixture is drawn as several, each
   // patched where its own first pixel really lands. One band is the ordinary
   // case and produces exactly what it always did.
+  const rotation = fixture.rotationRad;
+  const basis = new THREE.Euler(rotation.x, rotation.y, rotation.z);
+
   return profileBands(fixture.OFLData).map((band) => {
-    const placed = place(bandEnds(fixture, band));
+    const span = bandEnds(fixture, band);
+    const placed = place(span);
     const edgeOn = Math.hypot(placed[1].x - placed[0].x, placed[1].y - placed[0].y)
       < MIN_PROJECTED_LENGTH;
-    const [a, b] = ensureLength(placed[0], placed[1]);
     const address = bandAddress(fixture, band);
     const byColumn = bar.scanAxis === SCAN_AXES.COLUMN;
     const share = band.count > 1 && !byColumn ? band.lines / (bar.rows || 1) : 1;
-    return {
+    const across = (bar.width || 0.024) * share;
+    const grid = bandGrid(bar, band);
+
+    const common = {
       edgeOn,
       name: band.count > 1 ? `${fixture.name} ${band.index + 1}` : fixture.name,
       universe: Math.floor(address / DMX_UNIVERSE_LENGTH),
       channel: (address % DMX_UNIVERSE_LENGTH) + 1,
       definition: definitionName(fixture, band.index),
+      // More than one row is a matrix however the thing is shaped; a single
+      // row is a run, and states its length instead.
+      ...(grid.height > 1 ? { matrix: grid } : { stripLength: grid.width }),
+    };
+
+    // A panel is a surface, so it is drawn as the rectangle it occupies rather
+    // than as a line down its middle. The corners are taken in the scene and
+    // projected like anything else, so a tilted panel arrives tilted instead
+    // of being flattened to an axis-aligned box.
+    if (isPanel(bar)) {
+      const half = new THREE.Vector3(0, 1, 0).applyEuler(basis).multiplyScalar(across / 2);
+      return {
+        ...common,
+        kind: 'fixture_quad',
+        corners: place([
+          span[0].clone().sub(half),
+          span[1].clone().sub(half),
+          span[1].clone().add(half),
+          span[0].clone().add(half),
+        ]),
+      };
+    }
+
+    const [a, b] = ensureLength(placed[0], placed[1]);
+    return {
+      ...common,
       kind: 'fixture_line',
       a,
       b,
-      thickness: (bar.width || 0.024) * share * UNITS_PER_METRE,
+      thickness: across * UNITS_PER_METRE,
     };
   });
 }
@@ -676,10 +714,10 @@ export function buildMadMapperLayout({
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     };
     entries.forEach((e) => {
-      if (e.kind === 'fixture_line') { see(e.a.x, e.a.y); see(e.b.x, e.b.y); } else {
-        see(e.centre.x - e.half, e.centre.y - e.half);
-        see(e.centre.x + e.half, e.centre.y + e.half);
-      }
+      if (e.kind === 'fixture_line') { see(e.a.x, e.a.y); see(e.b.x, e.b.y); return; }
+      if (e.corners) { e.corners.forEach((c) => see(c.x, c.y)); return; }
+      see(e.centre.x - e.half, e.centre.y - e.half);
+      see(e.centre.x + e.half, e.centre.y + e.half);
     });
 
     // Fitted rather than stretched: a wide unwrap and a tall elevation share
@@ -745,9 +783,17 @@ export function buildMadMapperLayout({
           + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
           + ` thickness="${toThickness(entry.thickness)}"/>`;
       }
-      const x0 = toX(entry.centre.x - entry.half); const x1 = toX(entry.centre.x + entry.half);
-      const y0 = toY(entry.centre.y - entry.half); const y1 = toY(entry.centre.y + entry.half);
-      return `        <polygon id="${id}" points="${x0},${y0} ${x1},${y0} ${x1},${y1} ${x0},${y1}"/>`;
+      // A panel brings its own four corners, already projected, so a tilted
+      // one keeps its tilt. Anything else is a square about a point.
+      const points = entry.corners
+        ? entry.corners.map((c) => `${toX(c.x)},${toY(c.y)}`)
+        : [
+          `${toX(entry.centre.x - entry.half)},${toY(entry.centre.y - entry.half)}`,
+          `${toX(entry.centre.x + entry.half)},${toY(entry.centre.y - entry.half)}`,
+          `${toX(entry.centre.x + entry.half)},${toY(entry.centre.y + entry.half)}`,
+          `${toX(entry.centre.x - entry.half)},${toY(entry.centre.y + entry.half)}`,
+        ];
+      return `        <polygon id="${id}" points="${points.join(' ')}"/>`;
     };
 
     island.entries.forEach((entry) => {

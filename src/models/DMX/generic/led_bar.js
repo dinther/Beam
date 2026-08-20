@@ -39,6 +39,40 @@ export const SCAN_AXES = {
 };
 
 /**
+ * What the fixture is, as a thing in a room.
+ *
+ * Not the same question as how many rows it has. A bar is long and thin and is
+ * described to other tools as a line with a thickness; a panel is a surface
+ * and is described as a rectangle. A bar may still carry several rows -- a
+ * four-row batten is a bar -- and that decides whether it is addressed as a
+ * matrix, which is a separate matter from its shape.
+ *
+ * @constant {Object}
+ */
+export const BAR_SHAPES = {
+  BAR: 'bar',
+  PANEL: 'panel',
+};
+
+/**
+ * Whether a set of bar parameters describes a panel.
+ *
+ * Profiles written before the distinction existed do not say, so they are read
+ * the way they were meant at the time: anything with more than one row was a
+ * tile, and everything else a strip.
+ *
+ * @public
+ * @param {Object} params bar parameters
+ * @returns {Boolean}
+ */
+export function isPanel(params) {
+  const { shape, rows } = params || {};
+  if (shape === BAR_SHAPES.PANEL) return true;
+  if (shape === BAR_SHAPES.BAR) return false;
+  return (rows || 1) > 1;
+}
+
+/**
  * Default bar: a metre of 60-pixel RGB strip in an aluminium profile.
  *
  * Lengths are metres, matching the rest of the scene.
@@ -68,6 +102,14 @@ export const DEFAULT_BAR_PARAMS = {
   startCorner: START_CORNERS.TOP_LEFT,
   scanAxis: SCAN_AXES.ROW,
   serpentine: false,
+  /**
+   * A thing in a room, rather than a count of rows -- see `BAR_SHAPES`.
+   *
+   * Deliberately absent rather than defaulted: left unsaid, `isPanel` reads it
+   * from the row count, which is what every profile written before the
+   * distinction existed meant. Defaulting it here would instead declare every
+   * tile a bar and quietly overrule that.
+   */
 };
 
 /**
@@ -291,6 +333,7 @@ export function buildLedBarProfile(overrides = {}) {
 }
 
 export default {
+  isPanel,
   buildLedBarProfile,
   scanOrder,
   gridPositions,
