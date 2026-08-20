@@ -339,10 +339,18 @@ class Entity {
   getValue(value, unit, min, max) {
     value = this.getValueFromPresets(value);
     const valueUnit = Entity.parseValueUnit(value);
+    // A percentage is a fraction of the feature's range whatever that range is
+    // measured in -- including when it is itself measured in percent. That
+    // case used to fall to the branch below and be taken literally, so a
+    // brightness of `100%` came back as 100 on a scale that ends at 1: a
+    // hundred times too bright, saturated and clipped, and no longer able to
+    // vary. It bit exactly the profiles that spell the defaults out, while the
+    // ones that leave them off were right by accident.
+    if (valueUnit === ENTITY_UNIT_PERC) {
+      return min + (parseFloat(value) / 100) * (max - min);
+    }
     if (valueUnit === unit) {
       return parseFloat(value);
-    } if (valueUnit === ENTITY_UNIT_PERC) {
-      return (parseFloat(value) / 100) * (max - min);
     }
     if (this._type === 'Speed' || this._type === 'RotationSpeed') {
       return parseFloat(value) * (

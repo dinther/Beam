@@ -527,18 +527,12 @@ class Capability {
             );
           }
           if (!entityValue && !entityValueStart && !entityValueStop) {
-            this.entities[alias].start = setting.entity.getValue(
-              setting.min + setting.unit,
-              setting.unit,
-              setting.min,
-              setting.max,
-            );
-            this.entities[alias].end = setting.entity.getValue(
-              setting.max + setting.unit,
-              setting.unit,
-              setting.min,
-              setting.max,
-            );
+            // Said nothing, so it means all of it. The bounds are already in
+            // the units this feature is measured in, so they are taken as they
+            // are rather than spelled back into a string for parsing -- which
+            // is what used to make `max` read as a literal `1%`.
+            this.entities[alias].start = setting.min;
+            this.entities[alias].end = setting.max;
           }
         } else {
           this.parameters[alias] = capabilityData[feature] || setting.default;
