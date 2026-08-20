@@ -242,7 +242,14 @@ class Show extends EventEmitter {
    * @param {Object} fixture a fixture configuration object
    */
   deleteFixture(fixture) {
-    const fixtureHandle = this.fixturePool.getFromId(fixture.id);
+    // `findFromId`, as `deleteStructure` already does: a fixture that is no
+    // longer in the pool has been deleted, which is the outcome asked for
+    // rather than a fault. Deleting a selection makes three passes -- groups,
+    // then structures, then what is left -- and the first two take their
+    // contents with them, so the third routinely meets fixtures that are
+    // already gone. `getFromId` threw at that, and the guard below could never
+    // fire because it never got the chance to return anything falsy.
+    const fixtureHandle = this.fixturePool.findFromId(fixture.id);
     if (fixtureHandle) {
       PatchSingleton.unpatchFixture(fixtureHandle);
       this.fixturePool.delete(fixtureHandle, true);
