@@ -63,13 +63,13 @@ You build your rig in three dimensions — the movers where they'll really hang,
 
 That's it. That's the whole idea. It's a room you can put lights in, before you have the room or the lights.
 
-The word *sandbox* is doing real work in that sentence. This is a place to try things. Nothing you do here goes out to a rig, nothing costs a hire fee, and nothing needs a truck. Get it wrong, drag it somewhere else, get it wrong again. That's what it's for.
+The word *sandbox* is doing real work in that sentence. This is a place to try things. Get it wrong, drag it somewhere else, get it wrong again. That's what it's for.
 
 ## What it isn't
 
-Three things, and it's worth being blunt about all of them, because knowing what a tool refuses to do is how you avoid being disappointed by it.
+Three things, and it's worth being blunt about all of them.
 
-**It is not photo-realistic.** There's no ray tracing here. No measured photometrics, no IES profiles, no attempt to predict how a beam will actually look punching through real haze in a real room. The haze in Beam is an effect that looks *plausible* and costs almost nothing to draw. If you need a render your client will mistake for a photograph, you want a renderer, and you want an afternoon. Beam would rather give you sixty honest frames a second than one beautiful lie.
+**It is not photo-realistic.** There's no ray tracing here. No measured photometrics, no IES profiles, no attempt to predict how a beam will actually look punching through real haze in a real room. The haze in Beam is an effect that just looks *plausible*. If you need a photo-realistic render you need a copy of Blender and an afternoon. Beam gives you sixty good enough frames a second rather than one beautiful lie.
 
 What it *is* accurate about is the stuff that bites you on site: **which fixture is where, what it's addressed to, and what colour it's doing right now.** Position, orientation, patch, and response. Those are exact. The prettiness is approximate on purpose.
 
@@ -83,15 +83,15 @@ Here's the situation this was built for.
 
 You're doing something with a lot of pixels — an LED wall, a bunch of strips on a frame, a rig where the interesting part isn't a single beam but the *pattern* across many fixtures. You're driving it with MadMapper, or something like it, because that's the sane way to push video and generative content at pixels.
 
-And you hit the same wall every time: **MadMapper works on a flat canvas, and your rig is not flat.**
+And you hit the same wall every time, how to pitch your vision. How to try your vision: **MadMapper works on a flat canvas, and your rig is not flat.**
 
-To map content onto your rig, you first have to flatten it — decide where each fixture sits on a 2D surface, so content sweeping across that surface hits your fixtures in an order that means something. Done by hand, that's an afternoon of dragging rectangles. And it's an afternoon you have to spend *again* the moment you want the content to wrap around the rig instead of sweeping across it, because the flattening **is** the effect. Same fixtures, never moved, completely different look.
+To map content onto your rig, you first have to flatten it — decide where each fixture sits on a 2D surface, so content sweeping across that surface hits your fixtures in an order that means something. Done by hand, that's an afternoon of dragging 2D points. And it's an afternoon you have to spend *again* the moment you want the content to wrap around the rig instead of sweeping across it, because the flattening **is** the effect. Same fixtures, completely different look.
 
-Beam already knows where every fixture is in three dimensions. So it can do that flattening for you, mechanically, as many ways as you like — front elevation, plan view, unrolled around a cylinder, unwrapped like a globe — and hand each one to MadMapper as a file with the addressing already baked in.
+Beam already knows where every fixture is in three dimensions. So it can do that flattening for you, mathematically, using several projections — front elevation, plan view, unrolled around a cylinder, unwrapped like a globe — and hand each one to MadMapper as a file with the addressing already baked in.
 
-That's the pitch. **Build the rig once in 3D. Get as many 2D mappings out of it as you have ideas.**
+That's the pitch. **Build the rig once in 3D. Get many 2D mappings out of it.**
 
-The preview is the other half. Because Beam listens to Art-Net, the same rig you exported is sitting right there responding to what MadMapper is sending. Change the content, watch the rig. No venue, no truss, no power.
+The preview is the other half. Because Beam listens to Art-Net, the same rig you exported is sitting right there responding to what MadMapper is sending. Change the content, watch the rig. No venue, no truss, no power. Great for practice and training too.
 
 ## What else you need
 
