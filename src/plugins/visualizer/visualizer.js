@@ -1036,6 +1036,16 @@ class Visualizer {
       // Inside the loop, and inside Perf, because it is part of the frame:
       // measuring the scene without it would report a cost nobody pays.
       // Skips itself when no Art-Net has arrived and nothing has moved.
+      // Before the panels, which read the texture this uploads into. Inside
+      // Perf for the same reason they are: it is part of the frame.
+      //
+      // Skipped entirely when nothing reads it. Art-Net arrives whether or not
+      // the show has anything patched -- an empty scene with a 256 x 256 tile
+      // on the wire was uploading 7.5 MB/s into a texture with no readers,
+      // because the store accepts every universe on the wire and has no notion
+      // of a show. `refresh` already returns early on the same condition; this
+      // is the upload that fed it.
+      DMXStore.flush(this.renderer, LEDPanel.hasReaders());
       LEDPanel.refresh(this.renderer);
       if (finalComposer) {
         finalComposer.render();

@@ -3,6 +3,7 @@ import {
   Proxify,
 } from '../utils/proxify.utils';
 import Channel from './channel.model';
+import BarChannels from './bar_channels';
 import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.model';
 import MovingHead from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
@@ -257,9 +258,13 @@ class Fixture extends Proxify {
         z: 0,
       };
       this.parseFromOFLData();
-      this.channels.forEach((channel) => {
-        this.setChannel(channel.id - 1, 0);
-      });
+      if (this.channels instanceof BarChannels) {
+        this.channels.fill(0);
+      } else {
+        this.channels.forEach((channel) => {
+          this.setChannel(channel.id - 1, 0);
+        });
+      }
     }
     return this.proxify(['_3DModel']);
   }
@@ -958,6 +963,17 @@ class Fixture extends Proxify {
    */
   /* eslint-disable max-len */
   setChannel(id, value) {
+    // A bar's channel is a byte in a range. Everything below -- the fine
+    // channel recursion, the capability lookup, the 3D model fan-out -- is
+    // answering questions a bar has already answered in its geometry, and its
+    // emitters read the DMX texture directly rather than these values. This
+    // replaces the `_3DModel instanceof LedBar` return further down, which
+    // still walked an object to get here.
+    if (this.channels instanceof BarChannels) {
+      this.channels.setValueAt(id, Math.ceil(Math.min(Math.max(value, 0), 255)));
+      return;
+    }
+
     const channel = this.channels[id]; // Getting channel instance from ID
     if (channel.fineChannels.length > 0) { // Channel has fine capabilities ?
       this.setChannel(channel.fineChannels[0].id - 1, (value % 1) * 255); // Setting fine channel values recursively
@@ -1182,18 +1198,39 @@ class Fixture extends Proxify {
    * @public
    */
   prepareChannels() {
-    const OFLData = JSON.parse(JSON.stringify(this.OFLData));
+    const { OFLData } = this;
+    this.mode = OFLData.modes[this.modeIndex] || OFLData.modes[0]; // Parsing and setting fixture channel mode
+
+    // A generated bar's channels are a range, not a collection of objects:
+    // every one of them is the same colour intensity under a different name,
+    // and all of that is arithmetic on the index. See bar_channels.js.
+    if (this.isBar) {
+      this.channels = new BarChannels(OFLData.asls.bar);
+      return;
+    }
+
     this.channels = [];
     let channelId = 0; // Initialising channel index to 0
-    this.mode = OFLData.modes[this.modeIndex] || OFLData.modes[0]; // Parsing and setting fixture channel mode
     this.mode.channels.forEach((channel) => { // Looping through channel modes
       if (channel && typeof channel === 'string') { // Making sure the OFL mode data contains a channel value
         const split = channel.split(FINE_CHANNEL_SPLIT_PATERN); // Looking for and parsing fine channel aliases
         const channelName = split[0]; // Getting channel name from split result
         const isFine = split.length > 1; // Checking if split result contains a result for fine alias
-        const channelData = OFLData.availableChannels[channelName]; // Isolating channel data
-        if (channelData && channelData.capability && isFine) { // Checking if the channel has a fine alias
-          channelData.capability.type = `${channelName}${FINE_CHANNEL_TERMINOLOGY}`; // Setting fine terminology to channel's capability type
+        let channelData = OFLData.availableChannels[channelName]; // Isolating channel data
+        if (channelData && channelData.capability && isFine) {
+          // A copy rather than a write. This one assignment is the only reason
+          // the whole profile used to be deep-cloned on the line above -- 46%
+          // of the cost of adding a panel, spent so that a fine channel could
+          // rename its own capability type without touching the shared
+          // profile. Copying the two objects it actually needs costs nothing
+          // and leaves `this.OFLData` untouched, which is what mattered.
+          channelData = {
+            ...channelData,
+            capability: {
+              ...channelData.capability,
+              type: `${channelName}${FINE_CHANNEL_TERMINOLOGY}`,
+            },
+          };
         }
         const chn = new Channel({ // Instanciating new channel
           id: ++channelId, // Channel's ID is set and incremented for the next loop occurence
@@ -1219,6 +1256,11 @@ class Fixture extends Proxify {
    * @public
    */
   setupQuickAccessors() {
+    // A bar has one channel type across every channel, so the accessor map
+    // would be a single array holding every channel -- exactly the allocation
+    // the range exists to avoid. Nothing asks a bar for a quick accessor:
+    // they serve Pan, Tilt and Dimmer, none of which a bar has.
+    if (this.isBar) return;
     this.channels.forEach((channel) => {
       if (this.quickChannelsAccessors[channel.type]) {
         channel.qaIndex = this.quickChannelsAccessors[channel.type].length;
@@ -1236,6 +1278,9 @@ class Fixture extends Proxify {
    * @public
    */
   setupFineChannels() {
+    // No generated bar has a 16-bit channel, and the search below is a
+    // `find` per channel -- quadratic if it ever did run over a range.
+    if (this.isBar) return;
     this.channels.forEach((channel) => {
       if (channel.fineChannelAliases && !channel.isFine) {
         channel.fineChannels = channel.fineChannelAliases.flatMap((alias) => {

@@ -17,6 +17,7 @@ import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
 import jsonstore from './jsonstore';
 import library from './library';
+import objectstore from './objectstore';
 import documentstore from './documentstore';
 import fileexport from './fileexport';
 
@@ -59,6 +60,21 @@ process.env.ELECTRON_ENABLE_STACK_DUMPING = '1';
 
 protocol.registerSchemesAsPrivileged([
   {
+    // Models the user dropped into their library, served as files. A .glb is
+    // megabytes of binary: handing it over IPC would mean a structured clone
+    // per load, where a URL lets GLTFLoader stream it. Read-only, and
+    // `objectstore.resolve` decides what may be read -- see there for why the
+    // renderer is not trusted to name a path.
+    scheme: 'library',
+    privileges: {
+      bypassCSP: true,
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+  {
     scheme: 'static',
     privileges: {
       bypassCSP: true,
@@ -83,6 +99,18 @@ let mainWindow = null;
  * is anything to open it with, so it waits here until the renderer asks.
  */
 let pendingDocument = null;
+
+/**
+ * Whether the splash still owes the user an appearance this launch.
+ *
+ * Lives here because this process is the only one that can tell starting the
+ * application from the renderer restarting itself. New Project and Open both
+ * finish with `window.location.reload()` -- the comment above each says why --
+ * and a reload re-evaluates every renderer module, so no flag over there can
+ * survive one. From main's point of view a reload is not a launch, which is
+ * the whole distinction.
+ */
+let splashUnclaimed = true;
 
 /**
  * The project among a set of command line arguments, if there is one.
@@ -193,6 +221,9 @@ function setupLibrary() {
   ipcMain.handle('library:write', (_event, kind, key, json) => library.writeItem(kind, key, json));
   ipcMain.handle('library:remove', (_event, kind, key) => library.removeItem(kind, key));
   ipcMain.handle('library:root', () => library.libraryRoot());
+  // The folder is the catalogue: whatever is in Library/Objects is what the
+  // app offers, with no index to fall out of step with it.
+  ipcMain.handle('library:objects', () => objectstore.list());
 }
 
 /**
@@ -212,6 +243,15 @@ function setupDocumentStore() {
     const target = pendingDocument;
     pendingDocument = null;
     return target;
+  });
+
+  // Synchronous on purpose, and the one place that earns it: preload asks
+  // before any renderer code runs, so the answer is already in hand when the
+  // app mounts. Asked asynchronously the splash would flash up and vanish on
+  // every New Project.
+  ipcMain.on('app:claimSplash', (event) => {
+    event.returnValue = splashUnclaimed;
+    splashUnclaimed = false;
   });
 }
 
@@ -265,6 +305,26 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
+  /**
+   * Library models, by URL rather than by IPC.
+   *
+   * Answers a refusal with 404 rather than an explanation: a renderer asking
+   * for a path it may not have is not owed the difference between "outside the
+   * library" and "not a model".
+   */
+  protocol.handle('library', async (request) => {
+    const target = objectstore.resolve(decodeURIComponent(new URL(request.url).pathname));
+    if (!target) return new Response('Not found', { status: 404 });
+    const response = await net.fetch(`file://${target}`);
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  });
+
   /** Forward static files through custom protocol (with CORS for the file:// renderer) */
   protocol.handle('static', async (request) => {
     const url = request.url.substring(7);
@@ -288,6 +348,7 @@ app.on('before-quit', () => {
 
 app.on('before-quit', () => {
   protocol.unhandle('static');
+  protocol.unhandle('library');
 });
 
 app.on('window-all-closed', () => {

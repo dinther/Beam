@@ -1000,7 +1000,9 @@ function sync(panel, {
 function refresh(renderer) {
   if (!panels.size) return;
 
-  const { version } = DMXStore.texture;
+  // The store's own counter, not the texture's: a partial upload never sets
+  // `needsUpdate`, so `texture.version` no longer moves when DMX arrives.
+  const { version } = DMXStore;
   const dmxChanged = version !== pass.dmxVersion;
 
   const quad = unscrambleQuad();
@@ -1040,6 +1042,20 @@ function isPanel(params) {
   return !!params && params.columns > 0 && params.rows > 0;
 }
 
+/**
+ * Whether anything is reading the DMX texture.
+ *
+ * The panels are its only readers. Asked once a frame, so it answers from the
+ * set's size rather than through `stats`, which walks every panel to total
+ * their pixels.
+ *
+ * @public
+ * @returns {Boolean}
+ */
+function hasReaders() {
+  return panels.size > 0;
+}
+
 /** @returns {Object} how much has been built */
 function stats() {
   let pixels = 0;
@@ -1064,6 +1080,7 @@ export default {
   sync,
   release,
   refresh,
+  hasReaders,
   isPanel,
   tunables,
   stats,

@@ -50,6 +50,20 @@ import Modifier from './fragments/modifiers/modifier.fragment.vue';
 
 import PopupSplash from './_popups/popup.splash.vue';
 import ErrorPopup from './_popups/popup.error.vue';
+/**
+ * Whether the splash is owed an appearance this launch.
+ *
+ * Answered by the main process through preload, because it cannot be answered
+ * here: New Project and Open both end in `window.location.reload()`, which
+ * re-evaluates this module. Anything kept at module scope -- as this was, on
+ * the reasoning that a reload is a launch -- resets with it and puts the logo
+ * back up on exactly the two actions that should not have it.
+ *
+ * Outside Electron there is no main process to ask, and a plain page load is
+ * a launch, so the splash shows.
+ */
+const SPLASH_DUE = window.appSession ? !!window.appSession.splashDue : true;
+
 /** Splitter limits, in px. */
 const DEFAULT_LEFT_WIDTH = 200;
 const MIN_LEFT_WIDTH = 120;
@@ -105,6 +119,11 @@ export default {
        * than because something is loading.
        */
       aboutOpen: false,
+      /**
+       * Whether the splash's loading turn is still to come. Spent at the end
+       * of `setup`, so it covers the whole of the first load and nothing after.
+       */
+      splashDue: SPLASH_DUE,
       /** Drops the launched-with-a-project subscription on unmount. */
       stopListeningForDocuments: null,
     };
@@ -117,11 +136,16 @@ export default {
      * dismiss -- so a false lands on the About flag and leaves the loader
      * alone.
      *
+     * The loading half is spent once. Starting a new project or opening one
+     * runs the same load and raises the same `loading.state`, but that is not
+     * the application starting and should not put the logo back on screen.
+     * After the first load only About opens it.
+     *
      * @type {Boolean}
      */
     splashState: {
       get() {
-        return this.loader.state || this.aboutOpen;
+        return (this.loader.state && this.splashDue) || this.aboutOpen;
       },
       set(open) {
         if (!open) this.aboutOpen = false;
@@ -260,6 +284,11 @@ export default {
 
       await new Promise((r) => { setTimeout(r, 500); });
       this.loader.state = false;
+      // Spent here rather than when the show load finished: the overlay is
+      // deliberately raised again above to cover the view settling, and that
+      // is still part of starting up. From this line on, a raised loader
+      // belongs to a project the user asked for and shows no splash.
+      this.splashDue = false;
       this.$router._appReayState = true;
       this.ready = true;
       EventBus.emit('app_ready');

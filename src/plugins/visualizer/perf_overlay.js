@@ -13,6 +13,8 @@
  * accurately by making it use 90%.
  */
 
+import DMXStore from './dmx_store';
+
 /** Rolling window for the averages, in frames. */
 const WINDOW = 60;
 
@@ -163,6 +165,8 @@ function end() {
     gpu = state.ext ? 'measuring...' : 'unsupported';
   }
 
+  const dmx = DMXStore.stats();
+
   // Also emitted to the console every few seconds, so the numbers can be read
   // from a log rather than only off the screen.
   if (now - state.lastLog > 3000) {
@@ -175,6 +179,9 @@ function end() {
       passes: state.passes,
       draws: info ? info.render.calls : null,
       triangles: info ? info.render.triangles : null,
+      dmxRows: dmx.rows,
+      dmxMBs: Number((dmx.bytesPerSecond / 1048576).toFixed(2)),
+      dmxPartial: dmx.partial,
     }));
   }
 
@@ -186,6 +193,11 @@ function end() {
     `draws      ${info ? info.render.calls : '-'}`,
     `triangles  ${info ? info.render.triangles.toLocaleString() : '-'}`,
     `textures   ${info ? info.memory.textures : '-'}`,
+    // The DMX upload is the one per-frame cost that does not follow from
+    // what is on screen: it follows from how many universes arrived.
+    // Reported here because a rig that suddenly costs megabytes a second
+    // is invisible in every other number on this list.
+    `dmx        ${dmx.rows} rows  ${(dmx.bytesPerSecond / 1048576).toFixed(1)} MB/s${dmx.partial ? '' : ' (whole)'}`,
   ].join('\n');
 }
 
