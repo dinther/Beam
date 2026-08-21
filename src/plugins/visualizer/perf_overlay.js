@@ -165,6 +165,8 @@ function end() {
     gpu = state.ext ? 'measuring...' : 'unsupported';
   }
 
+  const dmx = DMXStore.stats();
+
   // Also emitted to the console every few seconds, so the numbers can be read
   // from a log rather than only off the screen.
   if (now - state.lastLog > 3000) {
@@ -177,10 +179,12 @@ function end() {
       passes: state.passes,
       draws: info ? info.render.calls : null,
       triangles: info ? info.render.triangles : null,
+      dmxRows: dmx.rows,
+      dmxMBs: Number((dmx.bytesPerSecond / 1048576).toFixed(2)),
+      dmxPartial: dmx.partial,
     }));
   }
 
-  const dmx = DMXStore.stats();
   state.element.textContent = [
     `fps        ${state.fps.toFixed(1)}`,
     `gpu        ${gpu}`,
