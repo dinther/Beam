@@ -96,6 +96,16 @@ contextBridge.exposeInMainWorld('library', {
   remove: (kind, key) => ipcRenderer.invoke('library:remove', kind, key),
   /** @returns {Promise<String>} absolute path of the library root */
   root: () => ipcRenderer.invoke('library:root'),
+  /**
+   * 3D models the user has put in `Library/Objects`.
+   *
+   * Metadata only. Each carries a `library://` url, which is what a loader
+   * wants -- the bytes never come through here, because a .glb is megabytes
+   * and this channel copies whatever crosses it.
+   *
+   * @returns {Promise<Array>} `{ name, file, url, bytes, modified }`
+   */
+  objects: () => ipcRenderer.invoke('library:objects'),
 });
 
 /**
@@ -106,6 +116,18 @@ contextBridge.exposeInMainWorld('library', {
  * rather than being invented by the renderer, and the main process will only
  * read or write files carrying our own extension.
  */
+/**
+ * Facts about this run of the application, settled before the app mounts.
+ *
+ * Preload re-runs on every renderer load, including the reloads New Project
+ * and Open end with, so the claim below reaches a main process that has not
+ * restarted -- which is exactly how a reload is told from a launch.
+ */
+contextBridge.exposeInMainWorld('appSession', {
+  /** True only for the renderer load that started the application. */
+  splashDue: ipcRenderer.sendSync('app:claimSplash'),
+});
+
 contextBridge.exposeInMainWorld('documentStore', {
   /** @returns {Promise<Object|null>} the show, or null when unreadable */
   read: (target) => ipcRenderer.invoke('document:read', target),
