@@ -162,24 +162,12 @@ function write(universe, frame) {
 }
 
 /**
- * Uploads the universes written since the last call.
- *
- * Driven from the render loop rather than from `write`, because the copy needs
- * a renderer and Art-Net arrives nowhere near one. Cheap on a frame where
- * nothing moved: there is no span, and it returns.
- *
- * `copyTextureToTexture` with this texture as both source and destination is
- * the supported route to `texSubImage2D` from three: the CPU array is the
- * source image, the GPU copy is the destination, and the unpack skip-rows it
- * sets around the call is what makes a row range mean anything. Nothing here
- * sets `needsUpdate`, which would put the whole megabyte straight back.
+ * Pushes the dirty span to the GPU and clears it.
  *
  * @param {Object} renderer THREE.WebGLRenderer
  * @returns {Number} universes uploaded
  */
-function flush(renderer) {
-  if (!PARTIAL_UPLOAD || dirtyFirst < 0 || !renderer) return 0;
-
+function upload(renderer) {
   const rows = dirtyLast - dirtyFirst + 1;
   // Box2 max is exclusive: three takes the height as max.y - min.y.
   region.min.set(0, dirtyFirst);
@@ -189,7 +177,19 @@ function flush(renderer) {
 
   dirtyFirst = -1;
   dirtyLast = -1;
+  return rows;
+}
 
+/**
+ * Records what a frame's upload cost, including the frames that skip it.
+ *
+ * Called on every frame rather than only on the ones that upload, so an idle
+ * rig reads 0 MB/s rather than holding whatever it last managed. A stale
+ * number here would have hidden exactly the waste this gate was added for.
+ *
+ * @param {Number} rows universes uploaded this frame
+ */
+function meter(rows) {
   const now = performance.now();
   uploaded.rows = rows;
   uploaded.bytes += rows * UNIVERSE_SIZE;
@@ -200,6 +200,38 @@ function flush(renderer) {
     uploaded.bytes = 0;
     uploaded.since = now;
   }
+}
+
+/**
+ * Uploads the universes written since the last call.
+ *
+ * Driven from the render loop rather than from `write`, because the copy needs
+ * a renderer and Art-Net arrives nowhere near one. Cheap on a frame where
+ * nothing moved: there is no span, and it returns.
+ *
+ * `wanted` is how the caller says whether anything reads the texture. Art-Net
+ * arrives whether or not the show has a use for it, and this store has no
+ * notion of a show -- it is the wire, on the GPU. An empty scene with a
+ * 256 x 256 tile streaming past was uploading 7.5 MB/s to nobody. The dirty
+ * span is deliberately **kept** when an upload is skipped, so a panel created
+ * later gets current data on its first frame rather than waiting for each of
+ * its universes to arrive again.
+ *
+ * `copyTextureToTexture` with this texture as both source and destination is
+ * the supported route to `texSubImage2D` from three: the CPU array is the
+ * source image, the GPU copy is the destination, and the unpack skip-rows it
+ * sets around the call is what makes a row range mean anything. Nothing here
+ * sets `needsUpdate`, which would put the whole megabyte straight back.
+ *
+ * @param {Object} renderer THREE.WebGLRenderer
+ * @param {Boolean} [wanted] whether anything reads the texture this frame
+ * @returns {Number} universes uploaded
+ */
+function flush(renderer, wanted = true) {
+  const rows = (wanted && PARTIAL_UPLOAD && dirtyFirst >= 0 && renderer)
+    ? upload(renderer)
+    : 0;
+  meter(rows);
   return rows;
 }
 
