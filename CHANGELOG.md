@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+Almost entirely about large LED panels, which were slow in three separate
+places. Every number below was measured rather than estimated.
+
+### Big panels are usable
+
+- **Adding one is about fourteen times faster.** A 128 x 128 panel took roughly
+  a quarter of a second in the model layer alone and now takes under twenty
+  milliseconds. A 256 x 256 went from over half a second to a fraction of it.
+
+  A bar's channels are all the same thing -- an 8-bit colour intensity for one
+  component of one pixel -- so a 256 x 256 was building 196,608 objects that
+  differed only in an index and a colour name. They are a numbered range now.
+  The profile is also no longer deep-copied for every fixture: that copy
+  guarded one assignment a generated bar never makes, and was 46% of the cost
+  of adding a panel.
+
+- **Selecting one no longer stalls.** The channel map asked for a table row per
+  channel -- 294,912 page elements for a 128 x 128, over a million for a
+  256 x 256, every one saying the same thing about a different pixel.
+
+  A generated bar now shows a summary instead: grid, components, channel count,
+  address span, universes used, wiring, and whether pixels are kept whole, plus
+  the first and last pixel as sample rows. **Copy map** still gives you every
+  channel. Ordinary fixtures are unchanged -- the largest profile in the
+  shipped library is 127 channels, so the full table was only ever a problem
+  for panels.
+
+- **Incoming Art-Net keeps up better.** A full refresh of a 128 x 128 went from
+  20.2 ms to 9.3 ms, which is 37% of a 40 fps budget where it was 81%. A
+  256 x 256 halved, 83.9 ms to 39 ms -- that one still cannot hold 40 fps, but
+  it is viable to about 25 where it was about 11.
+
+- **An empty scene ignores DMX it has no use for.** With a 256 x 256 tile on
+  the wire and nothing in the show, Beam was pushing 7.5 MB/s to the graphics
+  card for nobody to read. It now does nothing at all.
+
+### The splash screen shows once
+
+It reappeared on every New Project and every Open, because both reload the
+application window internally. It now shows only when Beam starts. The version
+panel still opens any time from the toolbar.
+
+One consequence: the splash was also what covered a load and blocked input
+while it ran, so New Project and Open now go straight through with no progress
+messages. On a large show that means a short spell where the window responds
+while fixtures are still being patched.
+
+### Groundwork
+
+3D models dropped into `Library/Objects` are now listed and served to the
+renderer. Nothing uses them yet -- there is no way to place one in a scene.
+
+### Known
+
+Dragging multi-selected fixtures into a group can still lose them, and the loss
+reaches disk. It is the one bug here that destroys work rather than merely
+annoying you.
+
 ## 0.1.0-alpha.2
 
 ### Before you open an existing show
