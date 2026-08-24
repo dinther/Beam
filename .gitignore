@@ -36,3 +36,6 @@ yarn-error.log*
 
 # Art-Net captures written by tools/artnet-log.js
 /artnet-*.csv
+
+# Scratch screenshots dropped in the repo root while debugging
+/debugValues.png
