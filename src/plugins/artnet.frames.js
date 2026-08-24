@@ -15,10 +15,26 @@
 /** Channels in a universe, and so the stride through a batch's `data`. */
 const UNIVERSE_SIZE = 512;
 
+/**
+ * Whether batches arrive over a transferred MessagePort rather than over IPC.
+ *
+ * `webContents.send` structured-clones what it carries, and with context
+ * isolation the preload copies it a second time to get it across the bridge.
+ * A port is delivered straight into the page's own world, so only the clone is
+ * left: at 512 x 512 that is 786 KB a flush copied once instead of twice.
+ *
+ * Set to false to go back to the IPC path. Main decides which path it sends
+ * on, and this side listens on both regardless, so the switch cannot leave the
+ * renderer deaf on the path main happens to choose.
+ *
+ * @constant {Boolean}
+ */
+const TRANSFER_FRAMES = true;
+
 /** Everyone currently listening. */
 const listeners = new Set();
 
-/** Handle for the one IPC subscription, held while anyone is listening. */
+/** Handle for the one subscription, held while anyone is listening. */
 let detach = null;
 
 /**
@@ -43,15 +59,66 @@ function deliver({ universes, data }) {
  * @param {(universe: Number, frame: Uint8Array) => void} listener
  * @returns {Function|null} unsubscribe handle, or null outside Electron
  */
+/**
+ * Opens the transferable channel and feeds batches from it.
+ *
+ * The listener goes on before the port is asked for, so the reply cannot
+ * arrive before anything is waiting for it. Returns synchronously -- matching
+ * the IPC path it replaces -- while the port itself connects in the
+ * background; the frames lost in that window are a few milliseconds of a
+ * stream that repeats itself continuously.
+ *
+ * @returns {Function} detach handle
+ */
+function attachPort() {
+  let port = null;
+  let cancelled = false;
+
+  const onWindowMessage = (event) => {
+    if (event.source !== window || event.data !== 'artnet:frame-port') return;
+    window.removeEventListener('message', onWindowMessage);
+    if (cancelled) return;
+    [port] = event.ports;
+    port.onmessage = (message) => deliver(message.data);
+    port.start();
+  };
+
+  window.addEventListener('message', onWindowMessage);
+  window.artnet.requestFramePort();
+
+  return () => {
+    cancelled = true;
+    window.removeEventListener('message', onWindowMessage);
+    if (port) {
+      port.onmessage = null;
+      port.close();
+    }
+  };
+}
+
 export function subscribeFrames(listener) {
   if (typeof window === 'undefined' || !window.artnet) return null;
 
   listeners.add(listener);
-  if (!detach) detach = window.artnet.onFrames(deliver);
+  if (!detach) {
+    // Both paths, always. Main sends a batch down exactly one of them, but
+    // which one is its decision and it can change: the port is asked for
+    // asynchronously, so early batches arrive over IPC, and a port that fails
+    // hands the stream back to IPC mid-run. Listening on only the path we hope
+    // for is what turned one bad call in main into a black rig.
+    const stopIpc = window.artnet.onFrames(deliver);
+    const stopPort = TRANSFER_FRAMES && window.artnet.requestFramePort
+      ? attachPort()
+      : null;
+    detach = () => {
+      stopIpc();
+      if (stopPort) stopPort();
+    };
+  }
 
   return () => {
     listeners.delete(listener);
-    // The IPC listener costs nothing while idle, but leaving it attached with
+    // The subscription costs nothing while idle, but leaving it attached with
     // nobody behind it means a batch is still unpacked on every frame.
     if (!listeners.size && detach) {
       detach();

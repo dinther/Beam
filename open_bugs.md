@@ -9,6 +9,8 @@
 - What is live.model.js used for?run the app
 - Spica 250M has a speed channel but it appears to be ignored.
 - Review video recording feature
+- Consider "Check for update" feature
+- If you want to use the same fixture, some with pan/tilt mapped and some on a slider, this is currently not possible
 
 
 

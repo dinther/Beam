@@ -9,6 +9,14 @@ import { contextBridge, ipcRenderer } from 'electron';
  * When the app runs in a plain browser (no Electron), `window.artnet` is simply
  * absent and the renderer falls back to manual-fader-only operation.
  */
+// A MessagePort cannot cross the context bridge, but it can cross the DOM.
+// Handing it on with `window.postMessage` is how a transferable reaches the
+// page's own world, and it is what lets an inbound batch arrive there without
+// being copied on the way. See setupArtnet in main.js.
+ipcRenderer.on('artnet:port', (event) => {
+  window.postMessage('artnet:frame-port', '*', [event.ports[0]]);
+});
+
 contextBridge.exposeInMainWorld('artnet', {
   /**
    * Subscribe to inbound ArtDMX.
@@ -25,6 +33,13 @@ contextBridge.exposeInMainWorld('artnet', {
     ipcRenderer.on('artnet:frames', listener);
     return () => ipcRenderer.removeListener('artnet:frames', listener);
   },
+  /**
+   * Asks for a transferable channel to receive batches on.
+   *
+   * The port arrives as a `window` message carrying `'artnet:frame-port'`;
+   * listen for it before calling this.
+   */
+  requestFramePort: () => ipcRenderer.send('artnet:request-port'),
   /** Open the receive socket. */
   start: (config) => ipcRenderer.invoke('artnet:start', config),
   /** Close the receive socket. */

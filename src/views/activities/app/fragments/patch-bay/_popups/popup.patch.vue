@@ -61,6 +61,7 @@
             v-if="activeKind === 'objects'"
             icon="export"
             label="import object"
+            title="Not built yet. Copy a .glb into Library/Objects and it appears here."
             disabled
           />
         </uk-flex>
@@ -379,6 +380,13 @@ export default {
        */
       items: [],
       selectedStructure: null,
+      /**
+       * Models found in the library, as the object tab lists them. Fetched
+       * when the dialog opens rather than watched: the folder is the
+       * catalogue, and nothing here can change it.
+       */
+      objects: [],
+      selectedObject: null,
       kinds: [
         { id: 'fixtures', label: 'fixtures' },
         { id: 'objects', label: 'objects' },
@@ -407,7 +415,8 @@ export default {
      * @type {Boolean}
      */
     formEnabled() {
-      return (this.fixture.loaded || !!this.selectedStructure) && !this.loading;
+      return (this.fixture.loaded || !!this.selectedStructure || !!this.selectedObject)
+        && !this.loading;
     },
     /**
      * Whether OK can do anything with what is selected.
@@ -417,6 +426,7 @@ export default {
     submittable() {
       if (this.loading) return false;
       if (this.activeKind === 'structures') return !!this.selectedStructure;
+      if (this.activeKind === 'objects') return !!this.selectedObject;
       return this.fixture.loaded && !this.patchError;
     },
     /**
@@ -552,6 +562,8 @@ export default {
     init() {
       this.activeKind = 'fixtures';
       this.selectedStructure = null;
+      this.selectedObject = null;
+      this.loadObjects();
       this.items = this.buildItems(this.activeKind);
       this.fixture = JSON.parse(JSON.stringify(DEFAULT_FIXTURE_DATA));
       this.amount = DEFAULT_FIXTURE_AMOUNT;
@@ -572,7 +584,53 @@ export default {
         await this.placeStructures();
         return;
       }
+      if (this.activeKind === 'objects') {
+        await this.placeObjects();
+        return;
+      }
       this.patchFixtures();
+    },
+    /**
+     * Places the selected model, offsetting each copy as the others do.
+     *
+     * @public
+     * @async
+     */
+    async placeObjects() {
+      if (!this.selectedObject) return;
+      this.loading = true;
+      const base = { ...this.fixture.position };
+      const spin = { ...this.fixture.rotation };
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      const placed = [];
+      try {
+        for (let i = 0; i < this.amount; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const object = await this.$show.placeObject(this.selectedObject, {
+            position: {
+              x: base.x + this.positionOffsets.x * i,
+              y: base.y + this.positionOffsets.y * i,
+              z: base.z + this.positionOffsets.z * i,
+            },
+            rotation: {
+              x: toRad(spin.x + this.rotationOffsets.x * i),
+              y: toRad(spin.y + this.rotationOffsets.y * i),
+              z: toRad(spin.z + this.rotationOffsets.z * i),
+            },
+          });
+          if (object) placed.push(object);
+        }
+      } catch (err) {
+        // A model that will not load is worth saying out loud: the file is in
+        // the user's own folder and they can act on it.
+        // eslint-disable-next-line no-console
+        console.error(`[objects] could not place ${this.selectedObject.name}: ${err.message}`);
+      }
+      this.loading = false;
+      // What was just added is what the user is looking at, so it arrives
+      // selected -- the same courtesy the structure path extends.
+      if (placed.length) this.$emit('placed', { kind: 'object', id: placed[0].id });
+      this.close();
     },
     /**
      * Places the selected structure, offsetting each copy as the fixture path
@@ -730,6 +788,7 @@ export default {
     selectKind(id) {
       this.activeKind = id;
       this.selectedStructure = null;
+      this.selectedObject = null;
       this.items = this.buildItems(id);
     },
     /**
@@ -739,8 +798,37 @@ export default {
      * @param {String} id kind id
      * @returns {Array} list entries
      */
+    /**
+     * Reads the models folder, and refreshes the list if it is on screen.
+     *
+     * Outside Electron there is no library to read, so the tab stays empty
+     * rather than erroring.
+     *
+     * @public
+     * @async
+     */
+    async loadObjects() {
+      if (!window.library || !window.library.objects) return;
+      try {
+        this.objects = await window.library.objects();
+      } catch (err) {
+        this.objects = [];
+      }
+      if (this.activeKind === 'objects') this.items = this.buildItems('objects');
+    },
     buildItems(id) {
       if (id === 'fixtures') return this.prepareFixtures();
+      if (id === 'objects') {
+        return this.objects.map((model) => ({
+          name: model.name,
+          icon: 'structure',
+          object: model,
+          // Its size on disk says nothing useful; whether it has been through
+          // import decides how it will be scaled and turned, and that is the
+          // thing worth knowing before placing one.
+          more: model.described ? `${model.scale}x ${String(model.upAxis).toUpperCase()}-up` : 'not imported',
+        }));
+      }
       if (id === 'structures') {
         const structures = this.$show.structureLibrary || {};
         return Object.keys(structures).map((name) => ({
@@ -767,6 +855,12 @@ export default {
       if (this.activeKind === 'structures' && item && item.structure) {
         this.selectedStructure = item.structure;
         this.fixture.name = item.structure;
+        this.patchError = false;
+        return;
+      }
+      if (this.activeKind === 'objects' && item && item.object) {
+        this.selectedObject = item.object;
+        this.fixture.name = item.object.name;
         this.patchError = false;
       }
     },

@@ -13,6 +13,7 @@ import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import FixturePool from './fixture.pool.model';
 import Group from './group.model';
 import Structure from './structure.model';
+import SceneObject from './object.model';
 import Live from './live.model';
 import {
   buildLedBarProfile, expandLedBarProfile, withoutLedBarChannels,
@@ -101,6 +102,15 @@ class Show extends EventEmitter {
      * link back to whatever it was stamped from.
      */
     this.structures = [];
+    /**
+     * Models standing in the scene. Held beside structures rather than in the
+     * fixture pool: an object has no address and never appears in the patch
+     * bay, so pooling it with things that do would mean explaining the
+     * exception everywhere.
+     */
+    this.objects = [];
+    /** Library models available to place, by key. Read once per load. */
+    this.objectLibrary = {};
     /** Saved structure definitions, keyed by name, for placing again. */
     this.structureLibrary = {};
     /**
@@ -174,6 +184,9 @@ class Show extends EventEmitter {
       // kept only for the name and colour the patch bay displays.
       groups: this.groups.map((group) => group.showData),
       structures: this.structures.map((structure) => structure.showData),
+      // Keys and transforms. The geometry stays in the library until an export
+      // collects it, which is the same bargain profiles make.
+      objects: this.objects.map((object) => object.showData),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
     };
   }
@@ -269,6 +282,8 @@ class Show extends EventEmitter {
     // enough -- the old show's structures would keep a node each.
     this.structures.forEach((structure) => structure.dispose());
     this.structures = [];
+    this.objects.forEach((object) => object.dispose());
+    this.objects = [];
     this.isSaved = true;
   }
 
@@ -509,6 +524,9 @@ class Show extends EventEmitter {
 
     this.loading.message = 'Restoring structures';
     this.prepareStructures(showData);
+
+    this.loading.message = 'Placing objects';
+    await this.prepareObjects(showData);
 
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
@@ -960,6 +978,111 @@ class Show extends EventEmitter {
    * @public
    * @param {Object} showData raw showfile contents
    */
+  /**
+   * Rebuilds the models placed in a show.
+   *
+   * Each object names a library key, and the key is resolved here rather than
+   * stored: the file is a reference, so a show opened on another machine finds
+   * whatever that machine has. A model that cannot be found leaves its object
+   * in the show marked unresolved rather than dropping it -- a missing file
+   * should not quietly delete what was built with it, and the alternative is
+   * a show that silently loses a truss.
+   *
+   * Geometry loads in the background. Nothing waits on it: a hundred objects
+   * are a hundred rows in an instanced buffer and appear as they arrive.
+   *
+   * @public
+   * @async
+   * @param {Object} showData raw showfile contents
+   */
+  async prepareObjects(showData) {
+    const records = showData.objects || [];
+    this.objects = records.map((data) => new SceneObject(data));
+    if (!this.objects.length) return;
+    await this.preloadObjectLibrary();
+    this.objects.forEach((object) => {
+      object.attach(this.objectLibrary[object.model] || null);
+    });
+    const missing = this.objects.filter((object) => object.unresolved);
+    if (missing.length) {
+      // Named, because "an object is missing" is not actionable and the file
+      // name is: it is in the user's own library folder.
+      // eslint-disable-next-line no-console
+      console.warn(`[show] ${missing.length} object(s) reference models this machine does not have: ${[...new Set(missing.map((o) => o.model))].join(', ')}`);
+    }
+  }
+
+  /**
+   * Reads what models the library offers, keyed as objects reference them.
+   *
+   * @public
+   * @async
+   */
+  async preloadObjectLibrary() {
+    if (!window.library || !window.library.objects) return;
+    try {
+      const listed = await window.library.objects();
+      this.objectLibrary = listed.reduce((all, model) => {
+        all[model.name] = model;
+        return all;
+      }, {});
+    } catch (err) {
+      this.objectLibrary = {};
+    }
+  }
+
+  /**
+   * Puts a model in the scene as an item of its own.
+   *
+   * @public
+   * @async
+   * @param {Object} descriptor a library entry
+   * @param {Object} [transform] `{ position, rotation, scale }`
+   * @returns {Promise<Object>} the object
+   */
+  async placeObject(descriptor, transform = {}) {
+    const object = new SceneObject({
+      model: descriptor.name,
+      name: this.numberedObjectName(descriptor.name),
+      position: transform.position,
+      rotation: transform.rotation,
+      scale: transform.scale,
+    });
+    await object.attach(descriptor);
+    this.objects.push(object);
+    return object;
+  }
+
+  /**
+   * Takes an object out of the show.
+   *
+   * @public
+   * @param {Object} object the object to remove
+   * @returns {Boolean} whether it was there to remove
+   */
+  removeObject(object) {
+    const index = this.objects.indexOf(object);
+    if (index === -1) return false;
+    object.dispose();
+    this.objects.splice(index, 1);
+    return true;
+  }
+
+  /**
+   * A name not already taken by another object.
+   *
+   * @public
+   * @param {String} base the model's name
+   * @returns {String}
+   */
+  numberedObjectName(base) {
+    const taken = new Set(this.objects.map((object) => object.name));
+    if (!taken.has(base)) return base;
+    let n = 2;
+    while (taken.has(`${base} ${n}`)) n += 1;
+    return `${base} ${n}`;
+  }
+
   prepareStructures(showData) {
     this.structures = (showData.structures || []).map((structureData) => {
       const structure = new Structure(structureData);

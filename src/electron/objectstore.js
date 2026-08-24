@@ -23,6 +23,19 @@ import library from './library';
 const OBJECTS_DIR = 'Objects';
 
 /**
+ * Folders the `library://` protocol will serve, by the host segment naming them.
+ *
+ * Keyed lowercase because a URL host is lowercased before it reaches us, and
+ * the folder on disk is capitalised. Anything not listed here is unreachable,
+ * whatever it is called or however the request is spelled.
+ *
+ * @constant {Object}
+ */
+const SERVED_DIRS = {
+  objects: OBJECTS_DIR,
+};
+
+/**
  * Model containers worth offering.
  *
  * `.glb` is the packed one and what anyone exporting for a game engine
@@ -36,9 +49,60 @@ const MODEL_EXTENSIONS = ['.glb', '.gltf'];
 /** Anything the loader may fetch alongside a `.gltf`: its buffers and textures. */
 const COMPANION_EXTENSIONS = ['.bin', '.png', '.jpg', '.jpeg', '.webp', '.ktx2', '.basis'];
 
+/**
+ * What a model is taken to mean when nothing says otherwise.
+ *
+ * glTF's own convention is metres and Y up, and it is the only convention the
+ * format states, so it is what an unannotated file is read as. A model that
+ * disagrees is corrected by its sidecar rather than by guessing: nothing in a
+ * .glb reliably says what a unit was meant to be, and a wrong guess puts a
+ * truss in a room at a hundredth of its size with no way to tell why.
+ *
+ * @constant {Object}
+ */
+const DEFAULT_METADATA = {
+  /** Multiplier taking the file's units to metres. */
+  scale: 1,
+  /** Which axis of the file points up: 'y' as glTF specifies, or 'z'. */
+  upAxis: 'y',
+  /** Metres, applied after scale and axis, to bring the origin where it belongs. */
+  offset: { x: 0, y: 0, z: 0 },
+};
+
 /** @returns {String} absolute path of the objects folder */
 function objectsRoot() {
   return path.join(library.libraryRoot(), OBJECTS_DIR);
+}
+
+/**
+ * What the import step recorded about a model, if anything.
+ *
+ * A sidecar beside the model rather than anything inside it: the .glb is the
+ * user's file and we do not rewrite it, and glTF has nowhere to put "this was
+ * authored in millimetres" that a loader would honour. A model with no sidecar
+ * still loads -- on glTF's own convention -- which is what keeps "drop a file
+ * in the folder and it appears" true.
+ *
+ * @param {String} file model file name, with extension
+ * @returns {Object} the defaults, overlaid with whatever the sidecar says
+ */
+function metadataFor(file) {
+  const sidecar = path.join(objectsRoot(), `${path.basename(file, path.extname(file))}.json`);
+  let stored = null;
+  try {
+    stored = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
+  } catch (err) {
+    return { ...DEFAULT_METADATA, described: false };
+  }
+  const payload = stored && stored.data ? stored.data : stored;
+  return {
+    ...DEFAULT_METADATA,
+    ...payload,
+    offset: { ...DEFAULT_METADATA.offset, ...(payload.offset || {}) },
+    // So the UI can say "this has never been through import" rather than
+    // showing defaults as though someone had chosen them.
+    described: true,
+  };
 }
 
 /**
@@ -76,10 +140,12 @@ function list() {
         // named the file; we do not get to rename it at them.
         name: path.basename(entry.name, path.extname(entry.name)),
         file: entry.name,
-        // What the renderer hands to GLTFLoader.
-        url: `library://${OBJECTS_DIR}/${encodeURIComponent(entry.name)}`,
+        // What the renderer hands to GLTFLoader. Lowercase `objects` because
+        // that segment is a URL host, not a folder name -- see `resolve`.
+        url: `library://objects/${encodeURIComponent(entry.name)}`,
         bytes: stats.size,
         modified: stats.mtimeMs,
+        ...metadataFor(entry.name),
       };
     })
     .filter(Boolean)
@@ -102,9 +168,20 @@ function list() {
 function resolve(requestPath) {
   if (!requestPath) return null;
   const root = library.libraryRoot();
+
+  // The scheme is registered `standard: true`, so Chromium parses a URL with a
+  // host: `library://objects/x.glb` arrives as host `objects` and path
+  // `/x.glb`. Hosts are lowercased, and the folder on disk is `Objects`, so the
+  // first segment cannot be used as a path component -- it is a *kind*, looked
+  // up here. That also means only the folders named below are reachable at all,
+  // which is a better guarantee than refusing the rest by extension.
+  const [kind, ...rest] = requestPath.split('/').filter(Boolean);
+  const dir = SERVED_DIRS[String(kind || '').toLowerCase()];
+  if (!dir || !rest.length) return null;
+
   // `path.resolve` collapses `..` before the containment test, so the test is
   // made against where the path actually lands rather than how it is written.
-  const target = path.resolve(root, `.${path.sep}${requestPath}`);
+  const target = path.resolve(root, dir, `.${path.sep}${rest.join(path.sep)}`);
   const relative = path.relative(root, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
 
@@ -136,6 +213,8 @@ function resolve(requestPath) {
 export default {
   list,
   resolve,
+  metadataFor,
   objectsRoot,
   MODEL_EXTENSIONS,
+  DEFAULT_METADATA,
 };

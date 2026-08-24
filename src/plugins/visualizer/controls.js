@@ -7,6 +7,7 @@ import EventBus from '@/plugins/eventbus';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 import LedBar from './led_bar';
+import SceneObjects from './scene_objects';
 import GroupHandle from './group_handle';
 
 /**
@@ -554,10 +555,12 @@ class Controls {
       // reaches into. Nothing is emitted for an empty selection, so the key
       // stays free for whatever else has focus.
       if (this.pooledInstances.length) {
-        EventBus.emit('delete_requested', this.pooledInstances.map((item) => ({
-          kind: item.isStructure ? 'structure' : 'fixture',
-          id: item.id,
-        })));
+        EventBus.emit('delete_requested', this.pooledInstances.map((item) => {
+          let kind = 'fixture';
+          if (item.isStructure) kind = 'structure';
+          if (item.isObject) kind = 'object';
+          return { kind, id: item.id };
+        }));
       }
     } else if (e.key.toLowerCase() === 'h') {
       this.mode = CONTROL_MODES.DISCRETE;
@@ -780,7 +783,11 @@ class Controls {
     pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
     raycaster.setFromCamera(pointer, this.cameraHandle);
 
-    const targets = [MovingHead.instancedMesh, ...LedBar.pickObjects()].filter(Boolean);
+    const targets = [
+      MovingHead.instancedMesh,
+      ...LedBar.pickObjects(),
+      ...SceneObjects.pickObjects(),
+    ].filter(Boolean);
     const hit = raycaster.intersectObjects(targets, false)[0];
     if (hit) {
       pivotPoint.copy(hit.point);
@@ -822,13 +829,23 @@ class Controls {
     // box per bar. Both are invisible, and invisible objects still raycast,
     // which is what they exist for. Tested together so the nearest wins
     // regardless of which kind of fixture it belongs to.
-    const targets = [MovingHead.instancedMesh, ...LedBar.pickObjects()];
+    const targets = [
+      MovingHead.instancedMesh,
+      ...LedBar.pickObjects(),
+      // Objects are picked from the geometry itself rather than from a proxy:
+      // a truss is its own shape, and a box round one would swallow every
+      // fixture standing inside it.
+      ...SceneObjects.pickObjects(),
+    ];
     const hits = raycaster.intersectObjects(targets.filter(Boolean), false);
     const hit = hits.find((h) => h.instanceId !== undefined
       || (h.object && h.object.userData.ledBar));
     if (!hit) return null;
     if (hit.object && hit.object.userData.ledBar) {
       return hit.object.userData.ledBar.fixtureHandle || null;
+    }
+    if (hit.object && hit.object.userData.sceneObjectModel) {
+      return SceneObjects.ownerAt(hit.object, hit.instanceId);
     }
     const instance = MovingHead.getInstance(hit.instanceId);
     return (instance && instance.fixtureHandle) || null;

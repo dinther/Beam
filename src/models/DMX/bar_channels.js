@@ -133,6 +133,25 @@ class BarChannels {
     this.values[index] = value;
   }
 
+  /**
+   * Writes a contiguous block of channels in one go.
+   *
+   * The whole reason a bar's channels are a range: an inbound universe is
+   * already a block of bytes in exactly this order, so routing it is a memcpy
+   * rather than 512 dispatches through `setChannel`. Clamped rather than
+   * validated, because the caller works in absolute addresses and the tail of
+   * a frame may reach past the last channel.
+   *
+   * @param {Number} index 0-based channel index to start at
+   * @param {Uint8Array} source bytes to copy, already in wire order
+   */
+  setRange(index, source) {
+    if (index < 0 || index >= this.length) return;
+    const count = Math.min(source.length, this.length - index);
+    if (count <= 0) return;
+    this.values.set(count === source.length ? source : source.subarray(0, count), index);
+  }
+
   /** Sets every channel to one value, without materialising any of them. */
   fill(value) {
     this.values.fill(value);

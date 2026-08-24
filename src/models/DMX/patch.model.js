@@ -117,13 +117,23 @@ class PatchMap {
      */
     this._patch = new Map();
     /**
-     * Absolute channel -> start address of the fixture occupying it. Sparse by
-     * design: the address space is 32768 universes wide and a show uses a
-     * handful of runs of it.
+     * Every patched fixture as one span, in address order and never
+     * overlapping.
      *
-     * @type {Map<Number, Number>}
+     * This replaces a Map holding one entry per DMX channel. A 512 x 512 panel
+     * is 786,432 channels, so that map was 786,432 entries saying "these all
+     * belong to one fixture" -- rebuilt on every patch, and probed once per
+     * channel per frame. A rig has tens of fixtures, not hundreds of thousands
+     * of channels, so the index that matters is over fixtures: a lookup
+     * becomes a binary search and a patch becomes an insert.
+     *
+     * A span reaches from the fixture's address to where its last channel
+     * really lands -- `channelAddress`, never `start + length`, which a
+     * fixture keeping its pixels whole outruns.
+     *
+     * @type {Array<Object>}
      */
-    this._addressMap = new Map();
+    this._runs = [];
     /**
      * Last inbound frame per universe, for diffing. Allocated on first frame.
      *
@@ -175,11 +185,58 @@ class PatchMap {
   }
 
   /**
+   * Index of the first run ending at or after an address.
+   *
+   * Runs never overlap and are held in address order, so this doubles as the
+   * insertion point for a new run starting there.
+   *
+   * @public
+   * @param {Number} address absolute channel
+   * @return {Number} index into the run list, possibly its length
+   */
+  seekRun(address) {
+    let lo = 0;
+    let hi = this._runs.length;
+    while (lo < hi) {
+      // eslint-disable-next-line no-bitwise
+      const mid = (lo + hi) >> 1;
+      if (this._runs[mid].end < address) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /**
+   * The run whose span covers an address, if any.
+   *
+   * Covering the span is not the same as occupying the channel. A fixture
+   * keeping its pixels whole leaves the unfillable tail of each universe
+   * empty, and those channels sit inside its span while belonging to none of
+   * its channels. Anything that needs the channel itself has to confirm by
+   * asking `channelAddress` where that index actually landed.
+   *
+   * @public
+   * @param {Number} address absolute channel
+   * @return {Object} run, or null
+   */
+  runAt(address) {
+    const run = this._runs[this.seekRun(address)];
+    return run && run.start <= address ? run : null;
+  }
+
+  /**
    * Whether a run of channels is free.
    *
    * @public
    * @param {Number} address absolute start address
    * @param {Number} chCount how many channels the run occupies
+   * Spans are treated as solid, so the dead tail a pixel-aligned fixture
+   * leaves at the end of each universe counts as occupied. Nothing could
+   * usefully live in those one or two orphan channels -- they exist precisely
+   * because a pixel would not fit -- and taking them as part of the fixture is
+   * what lets a patched rig be an ordered list of spans rather than a map of
+   * every channel.
+   *
    * @param {Object} [ignore] fixture whose own channels should not count as
    *                          occupied, for re-addressing an existing fixture
    * @return {Boolean} whether the run can be patched
@@ -194,9 +251,11 @@ class PatchMap {
       return false;
     }
     const ignoreAddress = ignore ? ignore.address : null;
-    for (let i = 0; i < chCount; i++) {
-      const occupant = this._addressMap.get(channelAddress(address, i, pixelSize));
-      if (occupant !== undefined && occupant !== ignoreAddress) return false;
+    const end = channelAddress(address, chCount - 1, pixelSize);
+    for (let i = this.seekRun(address); i < this._runs.length; i += 1) {
+      const run = this._runs[i];
+      if (run.start > end) break;
+      if (run.start !== ignoreAddress) return false;
     }
     return true;
   }
@@ -273,28 +332,29 @@ class PatchMap {
     // A run occupies at least its channel count, so nothing can start later
     // than this even when the layout stretches it further.
     const limit = this.addressSpaceLength - total;
-    for (let i = Math.max(from, 0); i <= limit; i++) {
+    let i = Math.max(from, 0);
+    while (i <= limit) {
       if (this.canPatchMany(i, chCount, amount, pixelSize)) return i;
-      // Skip past whatever blocked us rather than retesting its every channel.
-      const occupant = this._addressMap.get(i);
-      if (occupant !== undefined) {
-        const blocker = this._patch.get(occupant);
-        if (blocker) {
-          // Where the blocker really ends, not where counting its channels
-          // from its start would put it: a fixture keeping its pixels whole
-          // steps over the tail of a universe, so it reaches further than its
-          // channel count suggests. Taking
-          // the shorter figure lands back inside the blocker, and since the
-          // jump may then be backwards from here, the search sits on the same
-          // address forever. Only ever move forwards.
-          const last = channelAddress(
-            occupant,
-            blocker.channels.length - 1,
-            blocker.alignmentPixelSize,
-          );
-          if (last > i) i = last;
-        }
-      }
+      // Skip past whatever blocked us rather than retesting every address in
+      // between. This used to step one channel at a time and jump only when it
+      // landed *on* an occupied channel, so a free gap merely too small for the
+      // run was walked byte by byte -- which for a panel's channel counts is
+      // hundreds of thousands of probes to cross ground already known to be
+      // free. A run carries where it really ends, so the whole blocker is one
+      // step.
+      const placed = this.addressRun(i, chCount, amount, pixelSize);
+      const end = placed.length === amount
+        ? channelAddress(placed[placed.length - 1], chCount - 1, pixelSize)
+        : i;
+      let next = i + 1;
+      const blocker = this._runs[this.seekRun(i)];
+      if (blocker && blocker.start <= end) next = blocker.end + 1;
+      // A fixture keeping its pixels whole can also be refused for starting too
+      // late in a universe to fit one; this moves past exactly that tail.
+      next = alignedStart(next, pixelSize);
+      // Only ever forwards. A jump that can move backwards is what turned an
+      // off-by-some into a silent hang the last time this loop was wrong.
+      i = next > i ? next : i + 1;
     }
     return -1;
   }
@@ -330,9 +390,15 @@ class PatchMap {
     }
     this.unpatchFixture(fixture);
     this._patch.set(fixture.address, fixture);
-    for (let i = 0; i < chCount; i++) {
-      this._addressMap.set(channelAddress(fixture.address, i, pixelSize), fixture.address);
-    }
+    this._runs.splice(this.seekRun(fixture.address), 0, {
+      start: fixture.address,
+      end: channelAddress(fixture.address, chCount - 1, pixelSize),
+      chCount,
+      pixelSize,
+      fixture,
+      // Asked once, here, rather than per universe per frame.
+      takesRange: !!fixture.takesChannelRange,
+    });
     // The new fixture's channels start at zero regardless of what a shadow
     // remembers for those addresses.
     this.invalidateInputShadow();
@@ -349,12 +415,8 @@ class PatchMap {
     const existing = this._patch.get(fixture.address);
     if (existing !== fixture) return;
     this._patch.delete(fixture.address);
-    const chCount = fixture.channels.length;
-    const pixelSize = fixture.alignmentPixelSize;
-    for (let i = 0; i < chCount; i++) {
-      const address = channelAddress(fixture.address, i, pixelSize);
-      if (this._addressMap.get(address) === fixture.address) this._addressMap.delete(address);
-    }
+    const at = this.seekRun(fixture.address);
+    if (this._runs[at] && this._runs[at].start === fixture.address) this._runs.splice(at, 1);
     this.invalidateInputShadow();
   }
 
@@ -365,7 +427,7 @@ class PatchMap {
    */
   clearAll() {
     this._patch.clear();
-    this._addressMap.clear();
+    this._runs.length = 0;
     this._shadows.clear();
     this.invalidateInputShadow();
   }
@@ -390,8 +452,31 @@ class PatchMap {
    * @return {Object} Fixture instance, or null
    */
   fixtureAt(channel) {
-    const start = this._addressMap.get(channel);
-    return start === undefined ? null : this._patch.get(start) || null;
+    const run = this.runAt(channel);
+    if (!run) return null;
+    return this.indexIn(run, channel) < 0 ? null : run.fixture;
+  }
+
+  /**
+   * Which channel of a run an absolute address is, or -1 if it is none of them.
+   *
+   * The span test in `runAt` is deliberately coarse; this is the exact one.
+   * `channelIndexAt` inverts the layout only for addresses the fixture really
+   * occupies -- handed one of the orphan channels in a universe tail it still
+   * returns a plausible in-range index -- so the answer is only trusted once
+   * `channelAddress` agrees it lands back where we asked.
+   *
+   * @public
+   * @param {Object} run entry from the run list
+   * @param {Number} channel absolute channel
+   * @return {Number} channel index within the fixture, or -1
+   */
+  // eslint-disable-next-line class-methods-use-this
+  indexIn(run, channel) {
+    const index = channelIndexAt(run.start, channel, run.pixelSize);
+    if (index < 0 || index >= run.chCount) return -1;
+    if (run.pixelSize > 1 && channelAddress(run.start, index, run.pixelSize) !== channel) return -1;
+    return index;
   }
 
   /**
@@ -402,11 +487,11 @@ class PatchMap {
    * @param {Number} value DMX value
    */
   writeChannel(channel, value) {
-    const start = this._addressMap.get(channel);
-    if (start === undefined) return;
-    const fixture = this._patch.get(start);
-    if (!fixture) return;
-    fixture.setChannel(channelIndexAt(start, channel, fixture.alignmentPixelSize), value);
+    const run = this.runAt(channel);
+    if (!run) return;
+    const index = this.indexIn(run, channel);
+    if (index < 0) return;
+    run.fixture.setChannel(index, value);
   }
 
   /**
@@ -422,34 +507,114 @@ class PatchMap {
    */
   writeUniverse(universe, data) {
     const length = Math.min(data.length, DMX_UNIVERSE_LENGTH);
-    const offset = universe * DMX_UNIVERSE_LENGTH;
+    if (length <= 0) return;
+    const first = universe * DMX_UNIVERSE_LENGTH;
+    const last = first + length - 1;
 
-    if (this._diffInput) {
-      let shadow = this._shadows.get(universe);
-      if (!shadow) {
-        shadow = new Uint8Array(DMX_UNIVERSE_LENGTH);
-        this._shadows.set(universe, shadow);
-      }
-      if (this._primed.has(universe)) {
-        for (let channel = 0; channel < length; channel += 1) {
-          const value = data[channel];
-          if (value !== shadow[channel]) {
-            shadow[channel] = value;
-            this.writeChannel(offset + channel, value);
-          }
+    let shadow = null;
+    let primed = false;
+    for (let i = this.seekRun(first); i < this._runs.length; i += 1) {
+      const run = this._runs[i];
+      if (run.start > last) break;
+      if (run.takesRange) {
+        this.writeRunBulk(run, first, length, data);
+      } else {
+        if (!shadow) {
+          shadow = this.shadowFor(universe);
+          primed = this._diffInput && this._primed.has(universe);
         }
-        return;
+        this.writeRunChannels(run, first, length, data, primed ? shadow : null);
       }
-      for (let channel = 0; channel < length; channel += 1) {
-        this.writeChannel(offset + channel, data[channel]);
-      }
+    }
+    // Only universes carrying a fixture that pays per channel are worth
+    // shadowing. A panel's are not: its write is already a memcpy, so diffing
+    // one would cost the same read it saves.
+    if (shadow) {
       shadow.set(data.subarray(0, length));
       this._primed.add(universe);
-      return;
     }
+  }
 
-    for (let channel = 0; channel < length; channel += 1) {
-      this.writeChannel(offset + channel, data[channel]);
+  /**
+   * The diffing baseline for a universe, made on first use.
+   *
+   * @public
+   * @param {Number} universe Art-Net universe
+   * @return {Uint8Array} shadow buffer, 512 long
+   */
+  shadowFor(universe) {
+    let shadow = this._shadows.get(universe);
+    if (!shadow) {
+      shadow = new Uint8Array(DMX_UNIVERSE_LENGTH);
+      this._shadows.set(universe, shadow);
+    }
+    return shadow;
+  }
+
+  /**
+   * Routes the part of a frame a bar occupies, as one copy.
+   *
+   * This is the whole point of the run list. Within a single universe a
+   * fixture's channels are contiguous in address *and* in index -- the only
+   * break a pixel-aligned layout makes is the tail it cannot fill, which is
+   * where this stops -- so the frame's bytes are already in the order the
+   * fixture wants them and the routing is a `set` on a typed array.
+   *
+   * Nothing is diffed here. A bar's emitters read the DMX texture directly, so
+   * the values being written feed the widget's table and little else; comparing
+   * them against a shadow would read as many bytes as writing them.
+   *
+   * @public
+   * @param {Object} run entry from the run list
+   * @param {Number} first absolute address of the frame's channel 0
+   * @param {Number} length channels the frame carries
+   * @param {Uint8Array} data the frame
+   */
+  writeRunBulk(run, first, length, data) {
+    const from = Math.max(run.start, first);
+    const to = Math.min(run.end, first + length - 1);
+    if (to < from) return;
+    const index = this.indexIn(run, from);
+    if (index < 0) return;
+    const offset = from % DMX_UNIVERSE_LENGTH;
+    // How many of its channels the fixture can still place in this universe:
+    // the whole remainder when channels simply run on, and whole pixels only
+    // when they are being kept intact.
+    const room = run.pixelSize > 1
+      ? Math.floor((DMX_UNIVERSE_LENGTH - offset) / run.pixelSize) * run.pixelSize
+      : DMX_UNIVERSE_LENGTH - offset;
+    const count = Math.min(run.chCount - index, room, to - from + 1);
+    if (count <= 0) return;
+    const at = from - first;
+    run.fixture.setChannelRange(index, data.subarray(at, at + count));
+  }
+
+  /**
+   * Routes the part of a frame a fixture occupies, one channel at a time.
+   *
+   * For anything but a bar a channel means something -- a capability lookup, a
+   * write into the 3D model -- so this stays per channel, and keeps the diff
+   * that makes an unchanged channel free. That is affordable here because such
+   * a fixture has tens of channels, not hundreds of thousands.
+   *
+   * @public
+   * @param {Object} run entry from the run list
+   * @param {Number} first absolute address of the frame's channel 0
+   * @param {Number} length channels the frame carries
+   * @param {Uint8Array} data the frame
+   * @param {Uint8Array} shadow previous frame to diff against, or null to
+   *                            write every channel through
+   */
+  writeRunChannels(run, first, length, data, shadow) {
+    const from = Math.max(run.start, first);
+    const to = Math.min(run.end, first + length - 1);
+    for (let address = from; address <= to; address += 1) {
+      const at = address - first;
+      const value = data[at];
+      if (!shadow || shadow[at] !== value) {
+        const index = this.indexIn(run, address);
+        if (index >= 0) run.fixture.setChannel(index, value);
+      }
     }
   }
 }

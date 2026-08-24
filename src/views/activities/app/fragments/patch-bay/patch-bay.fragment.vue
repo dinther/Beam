@@ -146,10 +146,14 @@ export default {
         structure.members.forEach((member) => spokenFor.add(member.id));
         return structure.listable;
       });
+      // Objects are scene items too, and flat rows for the same reason
+      // structures are. They hold no fixtures and no channels, so nothing here
+      // is spoken for by one.
+      const objects = (this.show.objects || []).map((object) => object.listable);
       const loose = this.pool.fixtures
         .filter((fixture) => !spokenFor.has(fixture.id))
         .map((fixture) => this.describeFixture(fixture));
-      return [...structures, ...groups, ...loose];
+      return [...structures, ...objects, ...groups, ...loose];
     },
   },
   mounted() {
@@ -395,8 +399,12 @@ export default {
         const structure = this.$show.structures.find((s) => s.id === item.structureId);
         if (structure) this.$show.deleteStructure(structure);
       });
+      fixtures.filter((item) => item && item.isObject).forEach((item) => {
+        const object = this.$show.objects.find((o) => o.id === item.objectId);
+        if (object) this.$show.removeObject(object);
+      });
       fixtures
-        .filter((item) => item && !item.isGroup && !item.isStructure)
+        .filter((item) => item && !item.isGroup && !item.isStructure && !item.isObject)
         .forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
     },
     /**
@@ -434,11 +442,11 @@ export default {
      * @param {Array} selection `{kind, id}` entries from the 3D view
      */
     requestDeletion(selection) {
-      const rows = this.listable.filter((row) => (selection || []).some((entry) => (
-        entry.kind === 'structure'
-          ? row.isStructure && row.structureId === entry.id
-          : !row.isStructure && !row.isGroup && row.id === entry.id
-      )));
+      const rows = this.listable.filter((row) => (selection || []).some((entry) => {
+        if (entry.kind === 'structure') return row.isStructure && row.structureId === entry.id;
+        if (entry.kind === 'object') return row.isObject && row.objectId === entry.id;
+        return !row.isStructure && !row.isGroup && !row.isObject && row.id === entry.id;
+      }));
       if (rows.length) this.deleteFixtures(rows);
     },
     /**

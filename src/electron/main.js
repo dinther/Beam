@@ -3,6 +3,7 @@
 import {
   app,
   BrowserWindow,
+  MessageChannelMain,
   net,
   protocol,
   ipcMain,
@@ -171,13 +172,58 @@ function createWindow() {
  * renderer decides (per universe) whether to act on them.
  */
 function setupArtnet() {
-  // One message per flush carrying every universe that changed, not one per
-  // packet: see FLUSH_INTERVAL in artnet.js for what a packet per message did.
+  /**
+   * The renderer's transferable channel, once it has asked for one.
+   *
+   * `webContents.send` structured-clones its payload, and with
+   * `contextIsolation` on the preload has to copy it again to get it across
+   * the context bridge. That is two copies of every batch: for a 512 x 512
+   * panel, 1,536 universes is 786 KB a flush, so about 94 MB/s of pure copying
+   * to move bytes between two processes on the same machine.
+   *
+   * A port lands straight in the page's own world, so the context-bridge copy
+   * goes away and one copy carries the batch instead of two.
+   *
+   * It is only one, not none. `MessagePortMain.postMessage` accepts a transfer
+   * list of `MessagePortMain` objects and nothing else -- handing it the
+   * batch's ArrayBuffers throws, which is exactly how this arrived silent the
+   * first time: every flush raised inside the timer and not one universe was
+   * delivered. Getting to zero copies needs a SharedArrayBuffer, not a
+   * transfer.
+   */
+  let framePort = null;
+
   const forward = (batch) => {
+    if (framePort) {
+      try {
+        framePort.postMessage(batch);
+        return;
+      } catch (err) {
+        // Never let a broken fast path mean no DMX at all. A dead port is
+        // dropped and the copying path below carries this batch and the rest.
+        console.error('[artnet] frame port failed, falling back to IPC:', err.message);
+        framePort = null;
+      }
+    }
+    // Until the renderer asks for a port -- and in any renderer that never
+    // does -- the original copying path still works.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('artnet:frames', batch);
     }
   };
+
+  // Asked for by the renderer rather than pushed at it, so there is no window
+  // in which a port is delivered before anything is listening for it.
+  ipcMain.on('artnet:request-port', (event) => {
+    if (framePort) framePort.close();
+    const { port1, port2 } = new MessageChannelMain();
+    framePort = port2;
+    framePort.on('close', () => {
+      if (framePort === port2) framePort = null;
+    });
+    framePort.start();
+    event.sender.postMessage('artnet:port', null, [port1]);
+  });
 
   ipcMain.handle('artnet:start', (_event, config) => {
     artnet.start(forward, config);
@@ -313,7 +359,11 @@ app.whenReady().then(() => {
    * library" and "not a model".
    */
   protocol.handle('library', async (request) => {
-    const target = objectstore.resolve(decodeURIComponent(new URL(request.url).pathname));
+    // Host and path together: the scheme is `standard`, so the first segment
+    // is parsed as a host and would otherwise be dropped. `objectstore.resolve`
+    // reads it as the kind of thing being asked for.
+    const url = new URL(request.url);
+    const target = objectstore.resolve(decodeURIComponent(`${url.host}${url.pathname}`));
     if (!target) return new Response('Not found', { status: 404 });
     const response = await net.fetch(`file://${target}`);
     const headers = new Headers(response.headers);

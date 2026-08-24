@@ -15,6 +15,7 @@ import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
 import LEDPanel from './led_panel';
 import DMXStore from './dmx_store';
+import SceneObjects from './scene_objects';
 
 /** Room reserved for patched LED fixtures, on top of the scene's own bars. */
 const LED_FIXTURE_BAR_CAPACITY = 256;
@@ -800,6 +801,28 @@ class Visualizer {
     // spanning 36 universes.
     DMXStore.attachArtNet();
 
+    // Library models, reachable from the console while there is no UI for
+    // them. Development only: this is scaffolding for judging a model's scale
+    // and orientation by eye, and comes out when placing one is a real action.
+    //
+    //   await beamObjects.list()            what is in Library/Objects
+    //   await beamObjects.place('name')     put one at the origin
+    //   beamObjects.stats()                 draw calls against placements
+    if (import.meta.env.DEV) {
+      window.beamObjects = {
+        list: () => (window.library ? window.library.objects() : []),
+        place: async (name, transform) => {
+          const found = (await window.library.objects())
+            .find((item) => item.name === name);
+          if (!found) throw new Error(`no model named ${name} in Library/Objects`);
+          return SceneObjects.place(found, transform);
+        },
+        move: SceneObjects.move,
+        clear: SceneObjects.clear,
+        stats: SceneObjects.stats,
+      };
+    }
+
     // Capacity for patched LED fixtures. The instanced meshes are sized once,
     // so this is a hard ceiling rather than a hint: past it, a bar patches and
     // addresses correctly but does not draw.
@@ -1047,6 +1070,12 @@ class Visualizer {
       // is the upload that fed it.
       DMXStore.flush(this.renderer, LEDPanel.hasReaders());
       LEDPanel.refresh(this.renderer);
+      // Objects are instanced, so the gizmo cannot drag one directly -- it
+      // drags a plain node and this copies it into the buffer. Only while
+      // something is selected: with nothing picked, no instance can be moving.
+      if (Controls.pooledInstances && Controls.pooledInstances.length) {
+        SceneObjects.syncFromOwners();
+      }
       if (finalComposer) {
         finalComposer.render();
       } else {

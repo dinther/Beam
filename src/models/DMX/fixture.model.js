@@ -956,6 +956,40 @@ class Fixture extends Proxify {
   }
 
   /**
+   * Whether this fixture can take a block of channels in one call.
+   *
+   * True only for a generated bar, whose channels are a byte range and whose
+   * emitters read the DMX texture rather than these values. Anything else
+   * means something per channel -- a capability lookup, a 3D model write --
+   * and has to go through `setChannel` one at a time.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  get takesChannelRange() {
+    return this.channels instanceof BarChannels;
+  }
+
+  /**
+   * Writes a contiguous block of channels, when `takesChannelRange` allows it.
+   *
+   * An inbound universe is already bytes in channel order, so a bar takes it
+   * as a memcpy. Falls back to one `setChannel` per byte otherwise, so callers
+   * need not branch -- but a caller in a hot loop should check
+   * `takesChannelRange` and keep its own diffing on the slow path.
+   *
+   * @param {Number} index 0-based channel index to start at
+   * @param {Uint8Array} source bytes in channel order
+   */
+  setChannelRange(index, source) {
+    if (this.channels instanceof BarChannels) {
+      this.channels.setRange(index, source);
+      return;
+    }
+    for (let i = 0; i < source.length; i += 1) this.setChannel(index + i, source[i]);
+  }
+
+  /**
    * Sets specified channel value for given fixture channel index.
    *
    * @param {Number} id fixture's channel index
