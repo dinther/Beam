@@ -584,6 +584,33 @@ export function buildMadMapperFixture(profile, options = {}) {
 }
 
 /**
+ * What a definition calls itself.
+ *
+ * A library profile names its mode, and always -- not only when one show
+ * happens to use two of them. MadMapper's library outlives the project that
+ * filled it and its import is purely additive, so a definition called
+ * `Illusion Dotz 4.4` meets the same model in another mode months later: same
+ * name, different channel count, and no way to tell which is which.
+ *
+ * A generated bar is the other case. It has exactly one mode, called `Default`,
+ * so naming it distinguishes nothing and only adds noise. What is worth saying
+ * about one is whether it describes a whole fixture or a band of one -- a tile
+ * too large for a single MadMapper fixture is placed as several bands that all
+ * quote this one definition, and saying so is what stops it reading as the
+ * whole tile.
+ *
+ * @param {Object} entry
+ * @param {Array} parts from `profileParts`
+ * @returns {String}
+ */
+function productName(entry, parts) {
+  if (((entry.profile || {}).asls || {}).bar) {
+    return parts.length > 1 ? `${entry.base} band` : entry.base;
+  }
+  return entry.modeName ? `${entry.base} (${entry.modeName})` : entry.base;
+}
+
+/**
  * The definitions a set of fixtures needs, one per distinct profile and mode.
  *
  * A mode is part of the identity, not a detail of it: the same model in two
@@ -626,33 +653,33 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
     used.get(key).fixtures.push(fixture);
   });
 
-  // The mode is always named, not only when one show happens to use two of
-  // them. MadMapper's library outlives the project that filled it and its
-  // import is purely additive, so a definition called `Illusion Dotz 4.4`
-  // meets the same model in another mode months later -- same name, different
-  // channel count, and no way to tell which is which.
-  const named = [...used.values()].map((entry) => ({
-    ...entry,
-    product: entry.modeName ? `${entry.base} (${entry.modeName})` : entry.base,
-  }));
-
   // A profile that cannot be one MadMapper fixture becomes one definition per
   // island, named for what the island does: MadMapper resolves definitions by
   // name and would otherwise see several different things claiming to be the
   // same fixture. The bands of an oversized tile are the exception -- they all
   // quote one definition, so it keeps the plain product name and `covers`
   // records every part index that resolves to it.
-  const definitions = [].concat(...named.map((entry) => {
+  //
+  // Named from the parts rather than before them, because whether a profile
+  // comes apart is half of what its definition is called -- see `productName`.
+  const definitions = [].concat(...[...used.values()].map((entry) => {
     const parts = profileParts(entry.profile, entry.mode);
-    if (parts.length === 1) return [{ ...entry, part: parts[0], covers: [parts[0].index] }];
+    const product = productName(entry, parts);
+    if (parts.length === 1) {
+      return [{
+        ...entry, product, part: parts[0], covers: [parts[0].index],
+      }];
+    }
     if (sharesOneDefinition(parts)) {
-      return [{ ...entry, part: parts[0], covers: parts.map((part) => part.index) }];
+      return [{
+        ...entry, product, part: parts[0], covers: parts.map((part) => part.index),
+      }];
     }
     return parts.map((part) => ({
       ...entry,
       part,
       covers: [part.index],
-      product: `${entry.product} ${part.suffix}`,
+      product: `${product} ${part.suffix}`,
     }));
   }));
 
