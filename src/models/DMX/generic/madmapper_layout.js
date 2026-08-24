@@ -54,6 +54,32 @@ const MAX_THICKNESS = 1000;
 const MIN_PROJECTED_LENGTH = 0.05;
 
 /**
+ * Whether a panel is exported as the quad it actually is.
+ *
+ * MadMapper flips a quad fixture vertically on import: a tile exported from
+ * here and imported there arrives upside down, and so does one of its own
+ * exports round-tripped through it. A *line* fixture round-trips correctly.
+ * Paul established the split on 2026-08-24 and reported it; this is the
+ * workaround until a fix ships.
+ *
+ * A rectangle is expressible either way, so nothing is lost by drawing the
+ * panel as a thick line: `bandEnds` already returns the band's centreline, and
+ * the quad below derives its corners from that same line as `span +/- across/2`.
+ * MadMapper agrees -- a line fixture 1024 x 512 at the origin has its start at
+ * `0,256` and its end at `1024,256`, which is the centreline with the height as
+ * its thickness, exactly what the line branch emits. The band keeps its
+ * `__MW__`/`__MH__` either way, so the pixel map survives the change; only a
+ * keystoned panel under a perspective projection loses anything, since a line
+ * cannot be a non-rectangular quad.
+ *
+ * Set back to true once MadMapper imports a quad the right way up. Their fix
+ * cannot break the line path -- lines already import correctly today.
+ *
+ * @constant {Boolean}
+ */
+const PANEL_AS_QUAD = false;
+
+/**
  * How the rig is flattened.
  *
  * The camera projections keep the rig looking like itself from a chosen side
@@ -426,7 +452,21 @@ function elementId(entry) {
   if (entry.matrix) size = `__MW__${entry.matrix.width}__MH__${entry.matrix.height}`;
   else if (entry.stripLength) size = `__SL__${entry.stripLength}`;
 
-  return `${name}__UN__${entry.universe}__CH__${entry.channel}${size}`
+  // A line states its thickness here as well as in the attribute. The importer
+  // accepts every placement value either way -- as an id token or as plain
+  // XML -- and a line carrying `__MW__`/`__MH__` is new ground, so this one is
+  // said twice rather than once: bands that abut exactly in the file were
+  // arriving with gaps between them, which is what a thickness that did not
+  // land looks like.
+  //
+  // Whole numbers, like every other id token: the ranges the importer quotes
+  // are integers (`__UN__` 0-32767, `__CH__` 1-512, `__TH__` 0-1000), and it
+  // refuses the entire file over a value it will not read. Rounding cannot
+  // reopen a gap -- adjacent bands are half a thickness either side of their
+  // shared edge, so the error is under half a unit on a 1024 canvas.
+  const thickness = entry.thickness == null ? '' : `__TH__${Math.round(entry.thickness)}`;
+
+  return `${name}__UN__${entry.universe}__CH__${entry.channel}${size}${thickness}`
     + `__FT__${entry.kind}__FD__${entry.definition}`;
 }
 
@@ -463,10 +503,18 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
     // emitters and its control channels each become a fixture of their own.
     const c = flatten(scenePoint(fixture));
     const parts = profileParts(fixture.OFLData, fixture.mode);
-    // Side by side rather than stacked, so they can be told apart and picked
-    // up on MadMapper's canvas. They sit centred on where the fixture really
-    // is, which is what makes a control channel mean anything if the user
-    // repoints it at the media.
+    // Stacked rather than side by side, and the reason is selection. A rig is
+    // laid out along its width: fixtures in a truss share a height and differ
+    // in x. Spreading each fixture's islands in x too put them among their
+    // neighbours', so picking every Pan/Tilt on the canvas meant hunting one
+    // island at a time. Stacked, each fixture keeps its own column and the
+    // same island of every fixture lands on one horizontal line -- which a
+    // single rubber-band selection takes.
+    //
+    // The stack is centred on where the fixture really is, as the row was,
+    // which is what makes a control channel mean anything if the user repoints
+    // it at the media. Islands run in channel order, so light, movement and
+    // control keep the order they occupy in the profile.
     const pitch = POINT_FIXTURE_HALF * 2.5;
     return parts.map((part) => {
       const address = channelAddress(
@@ -487,7 +535,7 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
         definition: definitionName(fixture, part.index),
         kind: 'fixture_quad',
         matrix: part.grid,
-        centre: { ...c, x: c.x + (part.index - (parts.length - 1) / 2) * pitch },
+        centre: { ...c, y: c.y + (part.index - (parts.length - 1) / 2) * pitch },
         half: POINT_FIXTURE_HALF,
       };
     });
@@ -534,8 +582,16 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
     // than as a line down its middle. The corners are taken in the scene and
     // projected like anything else, so a tilted panel arrives tilted instead
     // of being flattened to an axis-aligned box.
-    if (isPanel(bar)) {
+    if (PANEL_AS_QUAD && isPanel(bar)) {
       const half = new THREE.Vector3(0, 1, 0).applyEuler(basis).multiplyScalar(across / 2);
+      // Corner order is inert here, and that is worth knowing rather than
+      // rediscovering: MadMapper's SVG import always builds a fixture in its
+      // default orientation. Paul established this on 2026-08-22 by round trip
+      // -- a fixture he had flipped by hand exported and re-imported unflipped,
+      // while one left in the default orientation round-tripped unchanged. So
+      // no winding and no coordinates written here can express a vertical flip,
+      // and two attempts to fix one by reordering these corners changed
+      // nothing. If a flip needs fixing, it is not in this file.
       return {
         ...common,
         kind: 'fixture_quad',
@@ -714,7 +770,26 @@ export function buildMadMapperLayout({
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     };
     entries.forEach((e) => {
-      if (e.kind === 'fixture_line') { see(e.a.x, e.a.y); see(e.b.x, e.b.y); return; }
+      if (e.kind === 'fixture_line') {
+        // A line is as wide as the fixture it stands for, and that width has to
+        // be inside the island. Fitting to the centreline alone lets the scale
+        // push the thickness past `MAX_THICKNESS`, where it is clamped -- and a
+        // clamped band is drawn narrower than its neighbour is far away, which
+        // opens a gap between the bands of a tile. A 128 x 256 panel wanted
+        // 1024 and was held to 1000, leaving 24 units of black per seam.
+        //
+        // Taken perpendicular to the line, so this is the same rectangle the
+        // quad branch builds from the same centreline and the two fit alike.
+        const half = (e.thickness / UNITS_PER_METRE) / 2;
+        const length = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) || 1;
+        const px = (-(e.b.y - e.a.y) / length) * half;
+        const py = ((e.b.x - e.a.x) / length) * half;
+        see(e.a.x + px, e.a.y + py);
+        see(e.a.x - px, e.a.y - py);
+        see(e.b.x + px, e.b.y + py);
+        see(e.b.x - px, e.b.y - py);
+        return;
+      }
       if (e.corners) { e.corners.forEach((c) => see(c.x, c.y)); return; }
       see(e.centre.x - e.half, e.centre.y - e.half);
       see(e.centre.x + e.half, e.centre.y + e.half);
@@ -777,11 +852,15 @@ export function buildMadMapperLayout({
       const inner = entry.inner
         ? `${entry.inner} ${groupNumber.get(safeName(entry.group))}`
         : null;
-      const id = escapeAttribute(elementId({ ...entry, inner }));
+      // Scaled once and handed to both the id and the attribute, so the two
+      // cannot disagree about how thick the same line is. `entry.thickness` is
+      // in scene units until this point; everything downstream wants canvas.
+      const thickness = entry.kind === 'fixture_line' ? toThickness(entry.thickness) : null;
+      const id = escapeAttribute(elementId({ ...entry, inner, thickness }));
       if (entry.kind === 'fixture_line') {
         return `        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
           + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
-          + ` thickness="${toThickness(entry.thickness)}"/>`;
+          + ` thickness="${thickness}"/>`;
       }
       // A panel brings its own four corners, already projected, so a tilted
       // one keeps its tilt. Anything else is a square about a point.

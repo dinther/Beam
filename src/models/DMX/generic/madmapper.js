@@ -534,6 +534,29 @@ export function profileParts(profile, mode) {
 }
 
 /**
+ * Whether a profile's parts all resolve to the same MadMapper definition.
+ *
+ * The bands of an oversized tile do. A definition carries a grid and a pixel
+ * map, but a grid fixture is exported as `Matrix`, and Matrix ignores the map
+ * the definition holds and derives its own from the size the *layout* places
+ * -- which every band already states in its own `__MW__`/`__MH__`. What is
+ * left of the definition is the component `type`, the pixel size and the
+ * patching mode, and those are identical across bands. So one definition
+ * serves all of them, and it stays correct even when the last band is short:
+ * `ledBarBands` divides evenly where it can, but 250 rows come out 84/84/82.
+ *
+ * Islands are the opposite case and each need their own: a light island and a
+ * control island differ in component type and channel count, which is the part
+ * of a definition that is not inert.
+ *
+ * @param {Array} parts from `profileParts`
+ * @returns {Boolean}
+ */
+function sharesOneDefinition(parts) {
+  return parts.length > 1 && !!parts[0].band;
+}
+
+/**
  * A profile as a MadMapper fixture document.
  *
  * @public
@@ -546,11 +569,15 @@ export function profileParts(profile, mode) {
 export function buildMadMapperFixture(profile, options = {}) {
   const base = options.product || (profile || {}).name;
   const parts = profileParts(profile, options.mode);
-  const elements = parts
+  // Bands share one definition, so only the first is written -- see
+  // `sharesOneDefinition`. The suffix goes with them: a document called
+  // `... (1/4)` that four bands all quote is worse than no suffix at all.
+  const needed = sharesOneDefinition(parts) ? [parts[0]] : parts;
+  const elements = needed
     .map((part) => fixtureElement(profile, {
       ...options,
       part,
-      product: parts.length > 1 ? `${base} ${part.suffix}` : base,
+      product: needed.length > 1 ? `${base} ${part.suffix}` : base,
     }))
     .filter(Boolean);
   return elements.length ? library(elements) : null;
@@ -610,22 +637,27 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
   }));
 
   // A profile that cannot be one MadMapper fixture becomes one definition per
-  // part -- a band of an oversized tile, or an island of an ordinary fixture.
-  // The part is named in the product because MadMapper resolves definitions by
+  // island, named for what the island does: MadMapper resolves definitions by
   // name and would otherwise see several different things claiming to be the
-  // same fixture.
+  // same fixture. The bands of an oversized tile are the exception -- they all
+  // quote one definition, so it keeps the plain product name and `covers`
+  // records every part index that resolves to it.
   const definitions = [].concat(...named.map((entry) => {
     const parts = profileParts(entry.profile, entry.mode);
-    if (parts.length === 1) return [{ ...entry, part: parts[0] }];
+    if (parts.length === 1) return [{ ...entry, part: parts[0], covers: [parts[0].index] }];
+    if (sharesOneDefinition(parts)) {
+      return [{ ...entry, part: parts[0], covers: parts.map((part) => part.index) }];
+    }
     return parts.map((part) => ({
       ...entry,
       part,
+      covers: [part.index],
       product: `${entry.product} ${part.suffix}`,
     }));
   }));
 
   const byKey = new Map();
-  definitions.forEach((d) => byKey.set(`${d.key}/${d.part.index}`, d));
+  definitions.forEach((d) => d.covers.forEach((index) => byKey.set(`${d.key}/${index}`, d)));
 
   /**
    * The definition name a fixture's layout entry must quote.
