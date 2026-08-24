@@ -4,7 +4,7 @@
   "description": "A real-time 3D sandbox for lighting rigs, driven by Art-Net",
   "license": "GPL-3.0-only",
   "homepage": "https://beatline.xyz/beam",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "private": true,
   "main": "./out/main/main.js",
   "scripts": {

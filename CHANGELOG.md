@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+Two things: DMX input got a great deal faster, and MadMapper finally takes our
+LED panels the right way up.
+
+### Inbound Art-Net keeps up now
+
+- **60 fps on a 256 x 512 panel**, which previously could not keep pace with its
+  own stream above about eleven.
+
+  The same bytes were travelling two paths. One memcpys a universe into the
+  texture the LED shaders actually read; the other fanned the identical bytes
+  out one channel at a time, through two hash lookups each, into a second copy
+  that nothing in the render path ever read. On a large panel that is tens of
+  millions of lookups a second maintaining a duplicate for a consumer that does
+  not exist.
+
+  Fixtures are indexed as address spans rather than one entry per channel, so
+  patching, unpatching and lookup no longer scale with channel count -- which
+  also takes a large slice off the cost of creating a panel. A bar takes a
+  single block copy per universe, because the write is cheaper than checking
+  what changed.
+
+- **Frames cross to the renderer once instead of twice.** Process isolation was
+  costing two copies of every batch; a transferred message port removes one.
+
+### MadMapper panels import the right way up
+
+- **Panels export as line fixtures.** MadMapper flips a quad fixture vertically
+  when it imports one -- including one of its own exports round-tripped through
+  it -- while a line fixture imports correctly. Reported upstream; this is a
+  workaround, and it will be reverted when a fix ships.
+
+  Nothing is lost by it. A panel band was already described by its centreline,
+  so the line form is the same rectangle with the band's height as its
+  thickness, and it keeps its grid, so the pixel map is unchanged.
+
+- **No more seams between the bands of a large tile.** A tile too big for one
+  MadMapper fixture is split into bands, and the fitted layout was clamping
+  their thickness -- a band drawn narrower than its neighbour is far away leaves
+  a black line down the middle of the panel. A 128 x 256 panel was losing 24
+  units per seam.
+
+- **One definition per tile instead of one per band.** A grid fixture derives
+  its dimensions from where it is placed, so the definitions the bands were
+  each getting were identical. The `(1/4)` suffixes go with them, and so does
+  `(Default)` on every generated LED profile -- it was a mode name, and a
+  generated bar has exactly one mode.
+
+### Smaller
+
+- Creating a generic fixture: changing the type renames the fixture to match,
+  until you have named it yourself.
+- Fixture islands stack rather than sitting side by side on the canvas, so the
+  same island of every fixture lands on one line and a single rubber-band takes
+  the lot.
+
+### Under the floor
+
+- The layer beneath 3D scene objects: models are served over a privileged
+  protocol so a .glb streams from disk rather than being marshalled across
+  process boundaries. Nothing above it is finished -- there is no persistence
+  and no import UI yet.
+
 ## 0.1.0-alpha.3
 
 Almost entirely about large LED panels, which were slow in three separate
