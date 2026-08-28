@@ -85,27 +85,10 @@ export default {
   data() {
     return {
       /**
-       * Currently selected fixture
-       */
-      selectedFixture: null,
-      /**
        * Currently selected group, when a group rather than a fixture is what
        * the patch bay routed to.
        */
       selectedGroup: null,
-      /**
-       * Every fixture in the current selection, primary included.
-       *
-       * The single-fixture widgets edit `selectedFixture` and always will --
-       * there is no sensible "set the model of five fixtures at once". This is
-       * for the tools that act on a whole selection.
-       */
-      selectedFixtures: [],
-      /**
-       * The whole selection as items: a fixture standing on its own, or a
-       * structure, each counting once. What Arrange acts on.
-       */
-      selectedItems: [],
       /**
        * Whether the Arrange panel has been asked for. Driven by the patch
        * bay's button rather than by the selection itself.
@@ -114,6 +97,51 @@ export default {
     };
   },
   computed: {
+    /**
+     * The fixture the single-fixture widgets edit, or null.
+     *
+     * From the store, not the route. The route names one thing at most, and
+     * router navigation is *asynchronous* -- so pushing `?fixtureId=` for the
+     * first of a batch landed after the rest of the selection had been
+     * announced and overwrote it with a single item. Selecting three fixtures
+     * left the panel believing there was one, and Arrange refused to open.
+     *
+     * @returns {Object|null}
+     */
+    selectedFixture() {
+      const { primary } = Selection;
+      if (!primary || primary.kind !== SCENE_ITEM_KINDS.FIXTURE) return null;
+      return this.$show.fixturePool.findFromId(primary.id) || null;
+    },
+    /**
+     * Every fixture in the selection.
+     *
+     * @returns {Array}
+     */
+    selectedFixtures() {
+      return Selection.ofKind(SCENE_ITEM_KINDS.FIXTURE)
+        .map((entry) => this.$show.fixturePool.findFromId(entry.id))
+        .filter(Boolean);
+    },
+    /**
+     * Everything in the selection, of whatever kind.
+     *
+     * Resolved by kind against the pool that owns it -- ids are not unique
+     * between kinds, so one lookup for all of them hands back the wrong thing.
+     *
+     * @returns {Array}
+     */
+    selectedItems() {
+      return Selection.items.map((entry) => {
+        if (entry.kind === SCENE_ITEM_KINDS.STRUCTURE) {
+          return this.$show.structures.find((item) => item.uid === entry.uid);
+        }
+        if (entry.kind === SCENE_ITEM_KINDS.OBJECT) {
+          return this.$show.objects.find((item) => item.uid === entry.uid);
+        }
+        return this.$show.fixturePool.findFromId(entry.id);
+      }).filter(Boolean);
+    },
     /**
      * The selected structure, or null -- read from the selection store.
      *
@@ -192,38 +220,19 @@ export default {
      * @public
      * @param {Number} id fixture id
      */
-    selectFixture(id) {
-      if (id === undefined || id === null) {
-        this.selectedFixture = null;
-        // The route naming no fixture means no fixture selection, and the set
-        // has to follow. Picking a group routes through here on its way past,
-        // and it clears the 3D highlighting without announcing -- so leaving
-        // the set alone would strand it, and dropping the group again would
-        // bring back a selection of fixtures that are no longer selected.
-        this.selectedFixtures = [];
-        this.selectedItems = [];
-        return;
-      }
-      try {
-        this.selectedFixture = this.$show.fixturePool.getFromId(Number(id));
-        // Routing to one fixture *is* a selection of one. Without this a click
-        // in the patch bay list would leave a stale multi-selection standing
-        // and the single-fixture widgets hidden behind it.
-        this.selectedFixtures = [this.selectedFixture];
-        this.selectedItems = [this.selectedFixture];
-        // And it is a selection of *a fixture*, so the other kinds go. This
-        // arrives through the route watcher, which is a different path from
-        // `handleFixturePicked` -- so the clearing that happens there does not
-        // necessarily happen here, and the object widget stayed on screen with
-        // a fixture selected.
-        this.selectedObject = null;
-        this.selectedStructure = null;
-      } catch (err) {
-        this.selectedFixture = null;
-        this.selectedFixtures = [];
-        this.selectedItems = [];
-      }
-    },
+    /**
+     * Kept so the route can still name a fixture, but it no longer *selects*.
+     *
+     * Selection comes from the store. The route is pushed as a consequence of
+     * selecting, so having it write back was a second source of truth -- and an
+     * asynchronous one, which is how it came to overwrite a multi-selection
+     * with a single item after the fact.
+     *
+     * @public
+     * @param {Number} id
+     */
+    // eslint-disable-next-line no-unused-vars, class-methods-use-this
+    selectFixture(id) {},
     /**
      * Fetches the routed group from the show.
      *
@@ -310,44 +319,12 @@ export default {
      *   selectedIds}, or null when cleared
      */
     handleFixturePicked(payload) {
-      if (!payload) {
-        this.highlightMember(false);
-        this.selectedFixture = null;
-        this.selectedGroup = null;
-
-        this.selectedFixtures = [];
-        this.selectedItems = [];
-        return;
-      }
+      // Nothing to copy any more. Every field this used to write -- the
+      // primary, the fixtures, the whole typed selection -- is a computed view
+      // of the selection store, and a view cannot be stale or be overwritten
+      // by whichever channel happened to fire last.
       this.highlightMember(false);
-      // Resolved by kind. A structure id and a fixture id are different
-      // numbering spaces, so asking the pool for both would hand back an
-      // unrelated fixture wherever they happened to collide.
-      this.selectedItems = (payload.selectedItems || []).map((entry) => (
-        entry.kind === 'structure'
-          ? this.$show.structures.find((s) => s.id === entry.id)
-          : this.$show.fixturePool.findFromId(entry.id)
-      )).filter(Boolean);
-      // A structure is one item, not the fixtures inside it. Picking one has
-      // to clear the fixture selection outright, or the single-fixture widgets
-      // stay up editing whichever member was clicked last.
-      // The primary follows the payload, not only the route.
-      //
-      // It used to be set solely by the route watcher, and a selection of
-      // several announces no primary -- so nothing pushed a route, the old
-      // `fixtureId` stayed in the URL, and the single-fixture widgets stayed up
-      // over a multi-selection. The event names the primary or names none, and
-      // that is the answer either way.
-      this.selectedFixture = payload.fixtureId === undefined
-        ? null
-        : this.$show.fixturePool.findFromId(payload.fixtureId);
-
-      // findFromId rather than getFromId: a selection is allowed to name a
-      // fixture that has since been deleted, and that is not worth throwing
-      // over.
-      this.selectedFixtures = (payload.selectedIds || [])
-        .map((id) => this.$show.fixturePool.findFromId(id))
-        .filter(Boolean);
+      if (!payload) this.selectedGroup = null;
     },
   },
 };

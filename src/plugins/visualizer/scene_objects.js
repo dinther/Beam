@@ -337,6 +337,19 @@ function writeInstance(model, index, placement) {
     mesh.setMatrixAt(index, scratch.matrix);
     mesh.count = Math.max(mesh.count, index + 1);
     mesh.instanceMatrix.needsUpdate = true;
+    // The instances have moved, so anything derived from where they were is
+    // wrong. `InstancedMesh.raycast` tests the bounding sphere first and only
+    // computes it when it is null -- so a stale one silently rejects every ray
+    // that should have hit. That is picking *and* box select gone, because both
+    // go through `intersectObjects`, and it appears only once something has
+    // moved far enough to leave the old sphere: arrange three objects apart and
+    // none of them can be clicked again.
+    //
+    // Nulled rather than recomputed, so the cost is paid on the next raycast
+    // rather than on every write. `MovingHead` recomputes on every pick for the
+    // same reason; this is the cheaper half of the same fix.
+    mesh.boundingSphere = null;
+    mesh.boundingBox = null;
   });
 }
 
@@ -419,6 +432,34 @@ function remove(placement) {
  * @public
  * @returns {Array} THREE.InstancedMesh
  */
+/**
+ * Visits every placed object with where it stands, for rubber-band selection.
+ *
+ * The band works on origins projected to the screen rather than on raycasts --
+ * a rectangle drawn over a rig should catch what is inside it, not only what
+ * happens to be facing the camera. Fixtures and bars each offer one of these;
+ * objects did not, which is why a band across three of them selected nothing
+ * while clicking each one worked.
+ *
+ * The vector is reused between calls, so read it inside the callback.
+ *
+ * @public
+ * @param {Function} visit `(owner, worldPosition)`
+ */
+function eachSelectable(visit) {
+  models.forEach((model) => {
+    model.placements.forEach((placement) => {
+      if (!placement.owner) return;
+      scratch.position.set(
+        placement.position.x,
+        placement.position.y,
+        placement.position.z,
+      );
+      visit(placement.owner, scratch.position);
+    });
+  });
+}
+
 function pickObjects() {
   const out = [];
   models.forEach((model) => out.push(...model.meshes));
@@ -552,6 +593,7 @@ function stats() {
 
 export default {
   forget,
+  eachSelectable,
   load,
   place,
   move,

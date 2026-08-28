@@ -349,6 +349,13 @@ export default {
       // Passing in getters does not allow to check for same-reference value though.
       // This is a quick and dirty hack to guarantee refresh only if actual data has changed
       if (this.updateTree(items)) {
+        // The rows are new objects, so whatever was highlighted was matched
+        // against rows that no longer exist -- and `highlightIds` will not
+        // necessarily change again to re-trigger its own watcher. Adding
+        // fixtures changes the selection and the list contents in the same
+        // tick, and whichever arrived first won: select three fixtures at once
+        // and the 3D view showed them while the list showed none.
+        this.applyExternalHighlight(this.highlightIds);
         if (items && items.length && (!oldItems || !oldItems.length)) {
           if (this.autoSelectFirst && this.tree[0]) {
             if (this.tree[0].value.unfold) {
@@ -385,6 +392,10 @@ export default {
   },
   mounted() {
     this.selectedItem = [];
+    // A list built while something is already selected has to show it: the
+    // watcher only fires on a change, and there is none if the selection was
+    // made before this list existed.
+    this.applyExternalHighlight(this.highlightIds);
     if (this.updateTree(this.items)) {
       if (this.autoSelectFirst && this.tree[0]) {
         if (this.tree[0].value.unfold) {

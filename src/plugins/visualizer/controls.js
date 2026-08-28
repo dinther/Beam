@@ -24,6 +24,12 @@ import GroupHandle from './group_handle';
  */
 function selectionKey(item) {
   if (!item) return '';
+  // The uid is unique across every kind, which is the whole reason it exists.
+  // What this did before -- `fixture:${universe}:${id}` for anything that was
+  // not a structure -- gave an object `fixture:undefined:3`, which collides
+  // with an unpatched fixture 3 and would have deduplicated one of them out of
+  // a band selection containing both.
+  if (item.uid !== undefined) return `uid:${item.uid}`;
   if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) return `structure:${item.id}`;
   return `fixture:${item.universe}:${item.id}`;
 }
@@ -557,11 +563,15 @@ class Controls {
       // reaches into. Nothing is emitted for an empty selection, so the key
       // stays free for whatever else has focus.
       if (this.pooledInstances.length) {
-        EventBus.emit('delete_requested', this.pooledInstances.map((item) => {
-          let kind = 'fixture';
-          kind = kindOf(item);
-          return { kind, id: item.id };
-        }));
+        // Straight from the selection store, which already describes every
+        // selected item as `{ kind, id, uid }`. Building the payload here by
+        // hand was a second producer of the same shape, and it did not carry
+        // the uid -- so once the item list started matching on uid, deleting
+        // from the 3D view matched nothing and silently did nothing.
+        //
+        // Copied rather than passed by reference: the consumer deletes what is
+        // in it, and deleting mutates the selection it would be iterating.
+        EventBus.emit('delete_requested', Selection.items.map((entry) => ({ ...entry })));
       }
     } else if (e.key.toLowerCase() === 'h') {
       this.mode = CONTROL_MODES.DISCRETE;
@@ -688,6 +698,12 @@ class Controls {
 
     LedBar.eachSelectable((fixture, worldPosition) => {
       if (inBand(worldPosition)) picked.push(fixture);
+    });
+
+    // Objects are scene items like the rest, and a band drawn over them should
+    // catch them. They were simply never offered here.
+    SceneObjects.eachSelectable((object, worldPosition) => {
+      if (inBand(worldPosition)) picked.push(object);
     });
 
     if (!picked.length) {

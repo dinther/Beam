@@ -105,9 +105,36 @@ class SceneObject {
     // move and an opinion about how much room it takes. An object has no
     // renderer of its own -- its geometry lives in a shared instanced mesh --
     // so it answers for itself.
+    const owner = this;
     this._3DModel = markRaw({
       _dummy: this.transformNode,
       expandBounds: (box) => this.expandBounds(box),
+      /**
+       * Where this is drawn, in metres -- the renderer's answer, not the
+       * model's, which is the whole point of a preview.
+       *
+       * Arrange writes here to show where things would land without the show
+       * hearing about it: "preview writes to the renderers, Apply writes to
+       * the model". A fixture's renderer handle has had these forever; an
+       * object's facade did not, so previewing an arrangement of objects
+       * assigned a plain property that nothing read and they sat still, while
+       * Apply -- which goes through the model's own setter -- worked.
+       */
+      get position() {
+        const at = owner.transformNode.position;
+        return { x: at.x, y: at.y, z: at.z };
+      },
+      set position(value) {
+        owner.previewTransform({ position: value });
+      },
+      /** Where this is drawn, in **radians**, matching what Arrange writes. */
+      get rotation() {
+        const at = owner.transformNode.rotation;
+        return { x: at.x, y: at.y, z: at.z };
+      },
+      set rotation(value) {
+        owner.previewTransform({ rotation: value });
+      },
     });
   }
 
@@ -418,6 +445,29 @@ class SceneObject {
     // to be asked again now the shape has changed.
     Controls.refreshHelpers();
     return attached;
+  }
+
+  /**
+   * Moves what is drawn, without telling the show.
+   *
+   * The model keeps its own position and rotation untouched, so a preview that
+   * is dismissed leaves nothing behind and a preview that is applied goes
+   * through the ordinary setters like any other edit -- which is what keeps the
+   * undo stack honest.
+   *
+   * @public
+   * @param {Object} transform `{ position, rotation }`, rotation in radians
+   */
+  previewTransform({ position, rotation } = {}) {
+    const node = this.transformNode;
+    if (position) node.position.set(position.x, position.y, position.z);
+    if (rotation) node.rotation.set(rotation.x, rotation.y, rotation.z);
+    if (!this._placement) return;
+    SceneObjects.move(this._placement, {
+      position: { x: node.position.x, y: node.position.y, z: node.position.z },
+      rotation: { x: node.rotation.x, y: node.rotation.y, z: node.rotation.z },
+      scale: this._scale,
+    });
   }
 
   /** Pushes the current transform at the node and the instance alike. */
