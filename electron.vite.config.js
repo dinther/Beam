@@ -35,12 +35,22 @@ async function readCommand(command) {
 }
 
 async function prepareVersioningEnv() {
-  // package.json first, git second. The tag lookup fails on any checkout whose
-  // history carries no tag -- `git describe` refuses rather than guessing --
-  // and a version of '' left the splash reading "no-version-data". package.json
-  // is also what electron-builder names the installer after, so the splash and
-  // the file on disk now agree by construction.
-  const described = await readCommand('git describe --tags --abbrev=0');
+  // The nearest tag, but only if it looks like a version. Without the match,
+  // `git describe` takes the nearest tag of *any* shape -- and a repository
+  // picks up tags that are not releases: a restore point before a refactor, a
+  // bookmark, whatever somebody needed a name for. One of those sat between
+  // HEAD and the last release and the splash duly reported the build as
+  // "pre-scene-item-refactor".
+  //
+  // The glob is in double quotes deliberately. This runs through `exec`, which
+  // is cmd.exe on Windows, and cmd.exe does not treat a single quote as a quote
+  // at all -- git would be handed the quotes as part of the pattern and match
+  // nothing. Double quotes are honoured by both cmd.exe and sh.
+  //
+  // package.json is the fallback, and it is also what electron-builder names
+  // the installer after, so a checkout with no version tag at all still has the
+  // splash and the file on disk agreeing.
+  const described = await readCommand('git describe --tags --abbrev=0 --match "[0-9]*"');
   process.env.VITE_APP_VERSION = described || pkg.version || '';
 
   // Dated from the tag when there is one, otherwise from the last commit --
