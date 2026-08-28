@@ -1,6 +1,6 @@
 <template>
   <uk-widget
-    :header="{ title: 'Object', icon: 'structure' }"
+    :header="{ title: 'Object', icon: 'object' }"
     class="object_widget"
   >
     <uk-flex

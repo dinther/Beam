@@ -222,7 +222,7 @@ class SceneObject {
   get listable() {
     return {
       name: this._name,
-      icon: 'structure',
+      icon: 'object',
       id: rowId(SCENE_ITEM_KINDS.OBJECT, this._id),
       kind: this.kind,
       uid: this.uid,

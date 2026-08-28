@@ -895,7 +895,7 @@ export default {
       // Library/Objects, not the contents of a folder called this.
       const row = (model) => ({
         name: model.name,
-        icon: 'structure',
+        icon: 'object',
         object: model,
         // Its size on disk says nothing useful; whether it has been through
         // import decides how it will be scaled and turned, and that is the
@@ -917,7 +917,7 @@ export default {
 
       const folderRow = (name, models) => ({
         name,
-        icon: 'group',
+        icon: 'folder',
         // No `object`, so selecting the folder itself places nothing -- the
         // Add button stays disabled until something inside it is chosen.
         more: `${models.length}`,
