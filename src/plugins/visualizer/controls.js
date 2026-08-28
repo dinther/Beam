@@ -1558,6 +1558,12 @@ class Controls {
     for (let i = this.pooledInstances.length - 1; i >= 0; i--) {
       this.clearPooledInstance(this.pooledInstances[i]);
     }
+    // The store mirrors the pool, so it has to follow every change to it --
+    // not just the ones that get announced. `emitSelection` used to be the only
+    // writer, so `deselectAll` emptied the pool without the store hearing:
+    // after Arrange applied, the item list still showed the old selection while
+    // the 3D view had none and no gizmo.
+    Selection.set(this.pooledInstances);
   }
 
   /**
@@ -1587,6 +1593,9 @@ class Controls {
     // modelViewMatrix, which throws and takes the renderer down with it. The
     // pool holds raw fixtures only; unwrapping here covers every entry point.
     this.pooledInstances.push(toRaw(instance));
+    // Mirrored here too, for the same reason: the pool is the truth and the
+    // store follows it, whether or not anything gets announced afterwards.
+    Selection.set(this.pooledInstances);
     // Selecting a fixture brings the gizmo back in whichever mode was last
     // used, rather than leaving the user to press T/R every time.
     if (this.handle) {

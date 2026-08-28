@@ -293,15 +293,57 @@ export default {
      * @param {Object} item list row
      * @returns {Object|null} the structure, group or fixture it names
      */
-    itemFromRow(item) {
-      if (!item) return null;
-      if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) {
-        return this.$show.structures.find((s) => s.id === item.structureId) || null;
+    /**
+     * The model a kind and an identifier refer to.
+     *
+     * The one resolver. There were two -- this and `placedHandle` -- doing the
+     * same job with different coverage, and each fell through to the fixture
+     * pool for anything it did not recognise. An object row's id is
+     * `object:3`, so `Number()` made it NaN and it resolved to nothing:
+     * objects could not be multi-selected in the list, and nothing said so.
+     *
+     * An unknown kind returns null. "None of the above is a fixture" is what
+     * made every one of those omissions silent instead of obvious.
+     *
+     * @public
+     * @param {String} kind
+     * @param {Object} ref `{ id, uid }` -- uid preferred, being unique across kinds
+     * @returns {Object|null}
+     */
+    itemOfKind(kind, ref = {}) {
+      const { id, uid } = ref;
+      const find = (list) => {
+        if (uid !== undefined) {
+          const byUid = list.find((entry) => entry.uid === uid);
+          if (byUid) return byUid;
+        }
+        return list.find((entry) => entry.id === id) || null;
+      };
+      switch (kind) {
+        case SCENE_ITEM_KINDS.STRUCTURE:
+          return find(this.$show.structures);
+        case SCENE_ITEM_KINDS.GROUP:
+          return find(this.$show.groups);
+        case SCENE_ITEM_KINDS.OBJECT:
+          return find(this.$show.objects);
+        case SCENE_ITEM_KINDS.FIXTURE:
+          return find(this.pool.fixtures);
+        default:
+          return null;
       }
-      if (kindOf(item) === SCENE_ITEM_KINDS.GROUP) {
-        return this.$show.groups.find((g) => g.id === item.groupId) || null;
-      }
-      return this.pool.findFromId(item.id);
+    },
+    /**
+     * The model a list row stands for.
+     *
+     * @public
+     * @param {Object} row
+     * @returns {Object|null}
+     */
+    itemFromRow(row) {
+      if (!row) return null;
+      // Rows carry their own uid, which is unique across kinds -- so unlike the
+      // per-kind id fields it needs no unpicking.
+      return this.itemOfKind(kindOf(row), { id: row.id, uid: row.uid });
     },
     /**
      * Deletes any groups in a deletion, along with the fixtures they hold.
@@ -406,26 +448,23 @@ export default {
      * @param {Array} fixtures listable entries of the highlighted fixtures
      */
     highlightFixtures(fixtures) {
-      if (!fixtures.length) return;
+      const items = (fixtures || []).map((row) => this.itemFromRow(row)).filter(Boolean);
+
+      // The set the list reports *is* the selection, so it is rebuilt rather
+      // than added to. This only ever added: `clearAllHighlighting` clears what
+      // is drawn, not the pool, so an item ctrl-clicked off the list stayed in
+      // the selection and stayed lit -- and an empty set returned early, so
+      // deselecting the last one did nothing at all. Same rule the rubber band
+      // follows: whatever the gesture reports replaces what was selected.
+      Controls.detachAll();
       Controls.clearAllHighlighting();
-      // Rows are resolved by kind rather than run through the fixture pool: a
-      // structure row's id is a string, and asking the pool for it used to
-      // return nothing, so structures dropped silently out of a mixed
-      // selection.
-      fixtures.forEach((fixtureData, index) => {
-        const item = this.itemFromRow(fixtureData);
-        if (!item) return;
-        if (index === 0) {
-          item.highlightSingle(false, false);
-        }
-        item.highlight(true, true);
-      });
-      // Highlighting attaches each fixture to the gizmo, but nothing has said
-      // so out loud -- and anything watching the selection rather than the
-      // list would never hear about a selection made here. Same rule the 3D
-      // view uses: a primary is only named when there is exactly one, since
-      // naming one of many routes the list back to it and collapses the
-      // selection that was just made.
+      if (!items.length) {
+        Controls.deselectAll();
+        return;
+      }
+      items.forEach((item) => item.highlight(true, true));
+      // Only a single selection names a primary; naming one of many routes the
+      // list back to it and collapses what was just built.
       Controls.emitSelection(
         Controls.pooledInstances.length === 1 ? Controls.pooledInstances[0] : null,
       );
@@ -557,6 +596,13 @@ export default {
         return;
       }
 
+      // Both, and in this order. `clearAllHighlighting` clears what is drawn;
+      // `detachAll` empties the selection pool. Only the first was called here,
+      // and the pool happened to be emptied anyway because the first item's
+      // `highlightSingle` calls `detachAll` itself -- a side effect of the kind
+      // rather than anything this path guaranteed. Adding four objects while a
+      // fixture was selected left the fixture in the selection.
+      Controls.detachAll();
       Controls.clearAllHighlighting();
       // Additive from the second on, exactly as holding ctrl would be.
       handles.forEach((handle, index) => Controls.selectItem(handle, index > 0));
@@ -573,9 +619,7 @@ export default {
      * @returns {Object|null}
      */
     placedHandle(kind, id) {
-      if (kind === 'structure') return this.$show.structures.find((s) => s.id === id) || null;
-      if (kind === 'object') return this.$show.objects.find((o) => o.id === id) || null;
-      return this.pool.findFromId(id);
+      return this.itemOfKind(kind, { id });
     },
     /**
      * Displays the patch popup
