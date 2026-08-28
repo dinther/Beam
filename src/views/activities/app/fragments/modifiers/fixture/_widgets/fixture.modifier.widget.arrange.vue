@@ -672,7 +672,21 @@ export default {
      * @public
      */
     dismiss() {
-      Controls.deselectAll();
+      // Closes the panel without dropping the selection.
+      //
+      // This called `deselectAll`, which hid the panel only as a side effect:
+      // the widget is gated on `showsManyItems`, so emptying the selection made
+      // it disappear. The panel closing was the intent; losing the selection
+      // was collateral -- and it threw away the very set that had just been
+      // arranged, so nudging it, arranging it again or moving it all began with
+      // selecting it a second time.
+      //
+      // Re-announcing the selection is what closes it: the patch bay closes the
+      // arrange panel on any new selection, so a stale arrangement cannot act
+      // on the next two things picked.
+      Controls.emitSelection(
+        Controls.pooledInstances.length === 1 ? Controls.pooledInstances[0] : null,
+      );
     },
     /**
      * Abandons the preview and puts every fixture back.
