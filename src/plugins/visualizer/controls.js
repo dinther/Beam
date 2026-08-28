@@ -914,18 +914,29 @@ class Controls {
     // its kinds intact; `selectedIds` is the fixtures in it and nothing else,
     // because everything downstream resolves those against the fixture pool
     // and a structure id sent that way comes back as an unrelated fixture.
+    // Three kinds, not two. An object is not a structure, so it used to fall
+    // through to 'fixture' and its id was emitted as `fixtureId` -- object 3
+    // arriving downstream as fixture 3, an unrelated LED bar, which is exactly
+    // the hazard the note above describes for structures. Objects have their
+    // own numbering space like structures do, so they need their own kind.
+    const kindOf = (item) => {
+      if (item.isObject) return 'object';
+      if (item.isStructure) return 'structure';
+      return 'fixture';
+    };
     const selectedItems = this.pooledInstances.map((item) => ({
-      kind: item.isStructure ? 'structure' : 'fixture',
+      kind: kindOf(item),
       id: item.id,
     }));
     const selectedIds = selectedItems
       .filter((item) => item.kind === 'fixture')
       .map((item) => item.id);
-    const primaryIsStructure = !!(primary && primary.isStructure);
+    const primaryKind = primary ? kindOf(primary) : null;
     EventBus.emit('fixture_picked', {
-      universeId: primary && !primaryIsStructure ? primary.universe : undefined,
-      fixtureId: primary && !primaryIsStructure ? primary.id : undefined,
-      structureId: primaryIsStructure ? primary.id : undefined,
+      universeId: primaryKind === 'fixture' ? primary.universe : undefined,
+      fixtureId: primaryKind === 'fixture' ? primary.id : undefined,
+      structureId: primaryKind === 'structure' ? primary.id : undefined,
+      objectId: primaryKind === 'object' ? primary.id : undefined,
       selectedItems,
       selectedIds,
     });
@@ -1430,6 +1441,24 @@ class Controls {
   hideHelpers() {
     this.handle.detach();
     SceneManager.remove(this.groupedInstances, this.boundingBoxMesh);
+  }
+
+  /**
+   * Rebuilds the selection helpers against the geometry as it now is.
+   *
+   * The outline is sized once, when the selection is made, from what each item
+   * says it occupies. That is right for anything whose shape is fixed -- but a
+   * created object's dimensions are editable, so widening a cube left the white
+   * box around the old one. Tearing the helpers down and building them again is
+   * the same thing a finished drag does; there is nothing cheaper worth having,
+   * since the box position is what the group re-parenting is derived from.
+   *
+   * @public
+   */
+  refreshHelpers() {
+    if (!this.pooledInstances.length) return;
+    this.hideHelpers();
+    this.showHelpers();
   }
 
   /**

@@ -179,6 +179,73 @@ function buildMeshes(primitives, capacity, key) {
 }
 
 /**
+ * Geometry for a shape the user built, in metres and Z up.
+ *
+ * Built rather than loaded: a created object is stored as the numbers the user
+ * chose, so there is no file to fetch and nothing to correct for. Every shape
+ * is centred on its own origin except the plane, which sits on the floor --
+ * a plane is a floor, and burying half of it is never what was wanted.
+ *
+ * @param {Object} primitive `{ type, size }` from the descriptor
+ * @returns {THREE.BufferGeometry}
+ */
+function primitiveGeometry(primitive) {
+  const size = primitive.size || {};
+  const metre = (value, fallback) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  };
+
+  switch (primitive.type) {
+    case 'cylinder': {
+      const radius = metre(size.radius, 0.5);
+      const geometry = new THREE.CylinderGeometry(radius, radius, metre(size.height, 1), 32);
+      // three builds a cylinder around Y; this scene is Z up.
+      geometry.rotateX(Math.PI / 2);
+      return geometry;
+    }
+    case 'sphere':
+      return new THREE.SphereGeometry(metre(size.radius, 0.5), 32, 16);
+    case 'plane': {
+      const geometry = new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
+      // PlaneGeometry is upright in XY, which in a Z-up scene stands it on
+      // edge. Lay it flat, and leave it at z = 0 so it is a floor.
+      return geometry;
+    }
+    case 'cube':
+    default: {
+      const geometry = new THREE.BoxGeometry(
+        metre(size.x, 1),
+        metre(size.y, 1),
+        metre(size.z, 1),
+      );
+      return geometry;
+    }
+  }
+}
+
+/**
+ * Builds a created object, with no file involved.
+ *
+ * @param {Object} descriptor a library entry of kind 'primitive'
+ * @returns {Array} one entry, shaped as `flatten` returns them
+ */
+function buildPrimitive(descriptor) {
+  const geometry = primitiveGeometry(descriptor.primitive);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(descriptor.primitive.color || '#b0b4b8'),
+    roughness: 0.75,
+    metalness: 0,
+    // A plane has no thickness, so it is seen from underneath as often as not.
+    side: descriptor.primitive.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+  });
+  return [{ geometry, material }];
+}
+
+/**
  * Loads a model, or hands back the one already loaded.
  *
  * @public
@@ -186,14 +253,27 @@ function buildMeshes(primitives, capacity, key) {
  * @returns {Promise<Object>} the model record
  */
 async function load(descriptor) {
-  const key = descriptor.name;
+  // The descriptor's own key when it has one. A library model is shared by
+  // name, so every truss placed from one file instances together; an inline
+  // object carries `inline:<id>` instead, because its parameters are its own
+  // and editable, and two of them are not the same geometry even when they
+  // start out identical.
+  const key = descriptor.key || descriptor.name;
   if (models.has(key)) return models.get(key);
   if (loading.has(key)) return loading.get(key);
 
-  const pending = new Promise((resolve, reject) => {
-    loader.load(descriptor.url, resolve, undefined, reject);
-  }).then((gltf) => {
-    const primitives = flatten(gltf, correction(descriptor));
+  // A created object is parameters, not a file: build it and skip the loader
+  // entirely. Everything past this point is the same for both kinds.
+  const fetched = descriptor.kind === 'primitive'
+    ? Promise.resolve(null)
+    : new Promise((resolve, reject) => {
+      loader.load(descriptor.url, resolve, undefined, reject);
+    });
+
+  const pending = fetched.then((gltf) => {
+    const primitives = gltf
+      ? flatten(gltf, correction(descriptor))
+      : buildPrimitive(descriptor);
     const bounds = new THREE.Box3();
     primitives.forEach(({ geometry }) => {
       if (geometry.boundingBox) bounds.union(geometry.boundingBox);
@@ -406,6 +486,33 @@ function syncFromOwners() {
  *
  * @public
  */
+/**
+ * Drops a cached build and everything drawn from it.
+ *
+ * For an inline object whose parameters have changed: the geometry it was
+ * built from is no longer what it should look like, and without this the next
+ * `load` would hand back the old shape from the cache.
+ *
+ * @public
+ * @param {String} key
+ */
+function forget(key) {
+  const model = models.get(key);
+  if (!model) return;
+  model.meshes.forEach((mesh) => {
+    SceneManager.remove(mesh);
+    mesh.dispose();
+  });
+  // The geometry and material were built for this key alone, so unlike a
+  // library model there is nothing else still holding them.
+  model.primitives.forEach(({ geometry, material }) => {
+    if (geometry && geometry.dispose) geometry.dispose();
+    if (material && material.dispose) material.dispose();
+  });
+  models.delete(key);
+  loading.delete(key);
+}
+
 function clear() {
   models.forEach((model) => {
     model.meshes.forEach((mesh) => {
@@ -444,6 +551,7 @@ function stats() {
 }
 
 export default {
+  forget,
   load,
   place,
   move,

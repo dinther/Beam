@@ -3,6 +3,7 @@ import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import LEDField from './led_field';
 import LEDPanel from './led_panel';
 import Perf from './perf_overlay';
+import { ambientCeiling, setAmbientCeiling } from './ambient';
 
 /**
  * @file Debug panel for the LED bar proof of concept.
@@ -83,14 +84,20 @@ export default function createLEDDebugPanel(visualizer, host) {
     dimFloor: emitter.dimFloor.value,
     // Scattered glow
     glowSize: glow.glowSize.value,
+    sizeAtFullHaze: glow.sizeAtFullHaze.value,
     haloFalloff: halo.haloFalloff.value,
     haloRadiance: halo.haloRadiance.value,
     haloBackScatter: halo.haloBackScatter.value,
-    turbulenceScale: glow.turbulenceScale.value,
     // Scene
     hazeDensity: visualizer.globalFoggingDensity,
+    hazeScale: visualizer.globalFoggingScale,
     hazeEnabled: !!visualizer.globalFoggingState,
     turbulence: visualizer.globalFoggingTurbulences,
+    hazeCycle: visualizer.globalHazeCycle,
+    ambient: ambientCeiling(),
+    airHaze: visualizer.ambientHaze ? visualizer.ambientHaze.ceiling : 0,
+    airGrain: visualizer.ambientHaze ? visualizer.ambientHaze.fieldDepth() : 0,
+    airScale: visualizer.ambientHaze ? visualizer.ambientHaze.scaleMultiplier : 1,
     // Measurement
     passes: Perf.getPasses(),
   };
@@ -138,9 +145,13 @@ export default function createLEDDebugPanel(visualizer, host) {
   scatter.add(state, 'haloBackScatter', 0, 1, 0.01)
     .name('omnidirectional')
     .onChange((v) => setUniform('halo', 'haloBackScatter', v));
-  scatter.add(state, 'turbulenceScale', 0.1, 8, 0.1)
-    .name('turbulence scale (m)')
-    .onChange((v) => setUniform('glow', 'turbulenceScale', v));
+  // How far the glow reaches once the air is thick, against its authored size.
+  // Stops at 1.5 because that is the headroom the panel's marched box was built
+  // with; past it the shader clamps, and a slider that keeps moving while
+  // nothing changes is worse than one that stops.
+  scatter.add(state, 'sizeAtFullHaze', 0.5, 1.5, 0.01)
+    .name('reach at full haze x')
+    .onChange((v) => setUniform('glow', 'sizeAtFullHaze', v));
 
   // Haze now multiplies the authored glow values rather than replacing them,
   // so these no longer disturb the sliders above.
@@ -150,15 +161,77 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => {
       visualizer.globalFoggingState = v ? 1 : 0;
     });
+  // Amount, and only amount. This used to be the noise scale as well, so
+  // turning the haze up made its grain coarser instead of making it stronger
+  // -- one control for two quantities, and neither readable off it.
   scene.add(state, 'hazeDensity', 0, 100, 1)
-    .name('density')
+    .name('intensity')
     .onChange((v) => {
       visualizer.globalFoggingDensity = v;
+    });
+  // The other half of what density used to mean. Metres, because it is a size
+  // in the room: fine wisps at the bottom of the range, slow billows at the
+  // top, and the beams themselves are a couple of metres of it.
+  scene.add(state, 'hazeScale', 2, 15, 0.1)
+    .name('haze scale (m)')
+    .onChange((v) => {
+      visualizer.globalFoggingScale = v;
     });
   scene.add(state, 'turbulence', 0, 100, 1)
     .name('turbulence')
     .onChange((v) => {
       visualizer.globalFoggingTurbulences = v;
+    });
+  // Everything below is set-once tuning rather than something to reach for
+  // while working, so it starts closed. Nine controls in one flat list is how
+  // a panel stops being usable.
+  const tuning = scene.addFolder('Room tuning');
+  tuning.close();
+
+  // Palette cycling, done in the shader. The baked field is frozen, so this is
+  // what puts motion back into it -- brightness sweeping along the field's own
+  // contours rather than the field itself changing shape. Inert unless the
+  // beam shader was built with HAZE_MODE 2.
+  tuning.add(state, 'hazeCycle', 0, 100, 1)
+    .name('contour cycling')
+    .onChange((v) => {
+      visualizer.globalHazeCycle = v;
+    });
+
+  // Environment fill at full house lights. The scene had none until
+  // 2026-08-28: one directional light meant every surface facing away from it
+  // rendered pure black. Too much washes the show out, too little brings the
+  // black faces back, and only the eye can settle it against real beams.
+  tuning.add(state, 'ambient', 0, 1.5, 0.01)
+    .name('ambient fill')
+    .onChange((v) => setAmbientCeiling(v));
+
+  // Haze in the air itself, rather than only where a fixture draws geometry.
+  // This is the one with a real per-pixel cost -- six samples over the whole
+  // screen -- so watch gpuMs while dragging it, and zero is exactly the
+  // behaviour that shipped before.
+  scene.add(state, 'airHaze', 0, 2, 0.01)
+    .name('room air')
+    .onChange((v) => {
+      if (visualizer.ambientHaze) visualizer.ambientHaze.setCeiling(v);
+    });
+
+  // How much of the air's density is the noise field rather than uniform.
+  // Zero is perfectly smooth and cannot grain at all; it is the honest dial for
+  // the trade, since grain is the variance of an 8-sample estimate.
+  tuning.add(state, 'airGrain', 0, 1, 0.01)
+    .name('air texture')
+    .onChange((v) => {
+      if (visualizer.ambientHaze) visualizer.ambientHaze.setFieldDepth(v);
+    });
+
+  // Air feature size against the scene's haze scale. 1 matches the beams
+  // exactly, which is the point -- one field, one source. Larger is coarser
+  // air and less grain, which is the trade this was set at 3 for by mistake.
+  tuning.add(state, 'airScale', 0.5, 4, 0.05)
+    .name('air feature size x')
+    .onChange((v) => {
+      if (visualizer.ambientHaze) visualizer.ambientHaze.setScaleMultiplier(v);
     });
 
   const perf = gui.addFolder('Measurement');

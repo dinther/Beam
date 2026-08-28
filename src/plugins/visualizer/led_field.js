@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import DMXStore from './dmx_store';
 import SceneEnv from './scene_env';
 // eslint-disable-next-line import/no-unresolved, import/extensions
-import SIMPLEX_NOISE from './shaders/simplex3d.glsl?raw';
+import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 
 /**
  * @file Every LED strip in the scene, drawn as three meshes.
@@ -85,6 +85,27 @@ const GLOW_BASE_GAIN = 0.8;
 
 /** How much of the glow's reach survives at zero haze. */
 const GLOW_SIZE_AT_ZERO_HAZE = 0.35;
+
+/**
+ * How far the glow reaches at full haze, as a multiple of its authored size.
+ *
+ * Denser air carries light further from its source, so reach has always tracked
+ * the haze amount -- but it used to stop at exactly the authored size, which
+ * made thick air the point where the glow stopped responding rather than the
+ * point where it did the most. Turning the intensity up past the middle changed
+ * brightness and nothing else.
+ *
+ * 1.5 rather than more because that is exactly the headroom the panel path's
+ * marched box was already built with (`HALO_HEADROOM` in led_panel.js), so the
+ * whole range is free: no larger volume, no extra overdraw, only reach that was
+ * always there and never reached for. Going beyond it means raising that
+ * headroom too, and every bit of it is fill nobody sees at the default -- a
+ * dodecahedron puts thirty bars in front of each other, and the overdraw is
+ * what bites first.
+ *
+ * @constant {Number}
+ */
+const GLOW_SIZE_AT_FULL_HAZE = 1.5;
 
 /**
  * How far apart the scattered glow is sampled, as a fraction of its own size.
@@ -253,6 +274,7 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
   uniform float backScatter;
   uniform float hazeAmount;
   uniform float sizeAtZeroHaze;
+  uniform float sizeAtFullHaze;
 
   // How many emitters this one stands in for. Zero means it stands in for none
   // and is not drawn at all.
@@ -280,7 +302,7 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
     // as a multiple of the authored size, which stays under manual control.
     // A skipped sample collapses to a point rather than being drawn dim: a
     // zero-area quad produces no fragments, which is the entire saving.
-    float size = glowSize * mix(sizeAtZeroHaze, 1.0, hazeAmount) * step(0.0001, glowWeight);
+    float size = glowSize * mix(sizeAtZeroHaze, sizeAtFullHaze, hazeAmount) * step(0.0001, glowWeight);
 
     // Camera-facing quad, built in view space so it is never edge-on and
     // reaches past the extrusion's silhouette.
@@ -300,10 +322,10 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
   }
 `;
 
-const GLOW_FRAGMENT = `${SIMPLEX_NOISE}
+const GLOW_FRAGMENT = `${hazeShaderPrelude()}
   uniform float glowFalloff;
   uniform float turbulence;
-  uniform float turbulenceScale;
+  uniform float hazeScale;
   uniform float time;
 
   varying vec3 vGlowColor;
@@ -324,16 +346,17 @@ const GLOW_FRAGMENT = `${SIMPLEX_NOISE}
     float edge = 1.0 / (1.0 + glowFalloff);
     float falloff = max(0.0, (shape - edge) / (1.0 - edge));
 
-    // Light in still air is smooth; real haze drifts and clumps. Sampling the
-    // field in world space, with time as the third axis, makes it churn in
-    // place rather than sliding with the camera.
+    // The same field the beams read, at the same scale, in the same room.
+    //
+    // This used to sample vec3(world.x, world.z, time) / turbulenceScale -- a
+    // flat slice with time standing in for the third axis, and a private 4.8 m
+    // feature size that the haze scale control could not reach. So a glow and a
+    // beam standing in the same air disagreed about how coarse that air was,
+    // and only one of them answered the slider. All three world axes now, and
+    // hazeScale is the scene's own.
     if (turbulence > 0.0) {
-      vec3 coord = vec3(
-        vGlowWorld.x / turbulenceScale,
-        vGlowWorld.z / turbulenceScale,
-        time
-      );
-      float churn = clamp(fogging(coord), 0.0, 1.0);
+      vec3 coord = vGlowWorld / max(hazeScale, 0.01);
+      float churn = clamp(fogging(coord, time * turbulence / 15.0), 0.0, 1.0);
       falloff *= mix(1.0, churn, turbulence);
     }
 
@@ -388,9 +411,12 @@ const GLOW_UNIFORMS = {
   backScatter: { value: 0.45 },
   hazeAmount: { value: SceneEnv.hazeAmount },
   sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
+  sizeAtFullHaze: { value: GLOW_SIZE_AT_FULL_HAZE },
   turbulence: { value: SceneEnv.hazeTurbulence },
-  turbulenceScale: { value: 4.8 },
+  // The scene's feature size, not a private one -- see the note in GLOW_FRAGMENT.
+  hazeScale: { value: SceneEnv.hazeScale },
   time: { value: 0 },
+  ...hazeUniforms(),
 };
 
 /** Pushes the current scene haze into the one uniform that holds it. */
@@ -405,6 +431,7 @@ function syncEnvironment() {
   // drawn and every one of them rasterised black.
   GLOW_UNIFORMS.hazeAmount.value = SceneEnv.hazeAmount;
   GLOW_UNIFORMS.turbulence.value = SceneEnv.hazeTurbulence;
+  GLOW_UNIFORMS.hazeScale.value = SceneEnv.hazeScale;
 
   if (!field.glow) return;
   // Scattered light needs something to scatter off: the shader multiplies its

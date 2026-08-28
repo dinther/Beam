@@ -59,6 +59,13 @@
           />
           <uk-button
             v-if="activeKind === 'objects'"
+            icon="new"
+            label="create object"
+            title="Build a simple shape and store it in the object library"
+            @click="createObjectPopupState = true"
+          />
+          <uk-button
+            v-if="activeKind === 'objects'"
             icon="export"
             label="import object"
             title="Not built yet. Copy a .glb into Library/Objects and it appears here."
@@ -309,6 +316,11 @@
       v-model="createPopupState"
       @created="handleProfileCreated"
     />
+    <create-object-popup
+      v-model="createObjectPopupState"
+      :existing="objects"
+      @created="handleObjectCreated"
+    />
   </uk-popup>
 </template>
 
@@ -319,6 +331,7 @@ import { buildMadMapperFixture } from '@/models/DMX/generic/madmapper';
 import Fixture from '@/models/DMX/fixture.model';
 import { normaliseMatrixProfile } from '@/models/DMX/ofl_matrix';
 import CreateFixturePopup from './popup.create.fixture.vue';
+import CreateObjectPopup from './popup.create.object.vue';
 
 /** How long the export button confirms for, in ms. */
 const EXPORT_FEEDBACK_MS = 1500;
@@ -342,6 +355,7 @@ export default {
   name: 'UkPopupPatch',
   components: {
     CreateFixturePopup,
+    CreateObjectPopup,
   },
   mixins: [PopupMixin],
   compatConfig: {
@@ -362,6 +376,7 @@ export default {
     return {
       headerData: { title: 'Add to show' },
       createPopupState: false,
+      createObjectPopupState: false,
       /**
        * What kind of thing is being added. The list cannot nest three deep --
        * fixtures already spend their one level on manufacturers -- so the
@@ -629,7 +644,9 @@ export default {
       this.loading = false;
       // What was just added is what the user is looking at, so it arrives
       // selected -- the same courtesy the structure path extends.
-      if (placed.length) this.$emit('placed', { kind: 'object', id: placed[0].id });
+      if (placed.length) {
+        this.$emit('placed', { kind: 'object', ids: placed.map((o) => o.id) });
+      }
       this.close();
     },
     /**
@@ -665,7 +682,9 @@ export default {
       // What was just added is what the user is looking at, so it arrives
       // selected. This is not the list picking a default -- that was wrong and
       // is gone -- it is the outcome of an action they took.
-      if (placed.length) this.$emit('placed', { kind: 'structure', id: placed[0].id });
+      if (placed.length) {
+        this.$emit('placed', { kind: 'structure', ids: placed.map((o) => o.id) });
+      }
       // close(), not `state = false`. Setting the local copy alone leaves the
       // parent still holding true, so the next "+ New" assigns true to true,
       // the modelValue watcher never fires, and the dialog cannot be reopened
@@ -731,7 +750,9 @@ export default {
               fixtures.push(fixture);
             }
             this.loading = false;
-            if (fixtures.length) this.$emit('placed', { kind: 'fixture', id: fixtures[0].id });
+            if (fixtures.length) {
+              this.$emit('placed', { kind: 'fixture', ids: fixtures.map((f) => f.id) });
+            }
             this.close();
             return fixtures;
           } catch (err) {
@@ -774,6 +795,43 @@ export default {
      * @async
      * @param {String} key `manufacturer/model` of the new profile
      */
+    /**
+     * Puts a created object in the scene.
+     *
+     * Nothing is written to the library. The parameters go straight into the
+     * show, where the object keeps them and stays editable through its widget;
+     * Save to library is a separate, deliberate act. That is the whole point of
+     * the change -- creating used to mint a permanent library entry, so every
+     * experiment was an artefact and none of them could be adjusted afterwards.
+     *
+     * Placed where the form's position and rotation say, exactly as a library
+     * object would be, and the Add dialog closes because the job is done.
+     *
+     * @public
+     * @async
+     * @param {Object} params `{ type, name, size, color }`
+     */
+    async handleObjectCreated(params) {
+      const spin = { ...this.fixture.rotation };
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      let object = null;
+      try {
+        object = await this.$show.createObject(params, {
+          position: { ...this.fixture.position },
+          rotation: { x: toRad(spin.x), y: toRad(spin.y), z: toRad(spin.z) },
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`[objects] could not create ${params.name}: ${err.message}`);
+        return;
+      }
+      if (!object) return;
+      // Arrives selected, the same courtesy the structure and object paths
+      // extend -- and it is what the new widget needs to edit.
+      this.$emit('placed', { kind: 'object', ids: [object.id] });
+      this.state = false;
+      this.update();
+    },
     async handleProfileCreated(key) {
       this.items = this.buildItems('fixtures');
       const [manufacturer, model] = key.split('/');

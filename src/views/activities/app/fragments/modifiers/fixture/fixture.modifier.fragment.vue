@@ -12,6 +12,15 @@
       :fixture="selectedStructure"
       title="Structure Position"
     />
+    <object-widget
+      v-if="selectedObject"
+      :object="selectedObject"
+    />
+    <position-tool-widget
+      v-if="selectedObject"
+      :fixture="selectedObject"
+      title="Object Position"
+    />
     <model-widget
       v-show="showsOneFixture"
       ref="model"
@@ -36,7 +45,8 @@
       :items="selectedItems"
     />
     <h3
-      v-if="!showsOneFixture && !showsManyItems && !selectedGroup && !selectedStructure"
+      v-if="!showsOneFixture && !showsManyItems && !selectedGroup && !selectedStructure
+        && !selectedObject"
       class="empty_text"
     >
       Nothing Selected
@@ -53,6 +63,7 @@ import ModelWidget from './_widgets/fixture.modifier.widget.model.vue';
 import ArrangeWidget from './_widgets/fixture.modifier.widget.arrange.vue';
 import GroupWidget from '../group/group.modifier.widget.vue';
 import StructureWidget from '../structure/structure.modifier.widget.vue';
+import ObjectWidget from '../object/object.modifier.widget.vue';
 
 export default {
   name: 'FixtureModifierFragment',
@@ -67,6 +78,7 @@ export default {
     ArrangeWidget,
     GroupWidget,
     StructureWidget,
+    ObjectWidget,
   },
   data() {
     return {
@@ -93,6 +105,14 @@ export default {
        * single-fixture widgets do not stay up showing a stale member.
        */
       selectedStructure: null,
+      /**
+       * The object being edited, or null.
+       *
+       * There are no object widgets yet, so this exists to say "an object is
+       * selected, and none of the fixture widgets apply". Without it an object
+       * left the previous fixture's widgets on screen.
+       */
+      selectedObject: null,
       /**
        * The whole selection as items: a fixture standing on its own, or a
        * structure, each counting once. What Arrange acts on.
@@ -179,6 +199,13 @@ export default {
         // and the single-fixture widgets hidden behind it.
         this.selectedFixtures = [this.selectedFixture];
         this.selectedItems = [this.selectedFixture];
+        // And it is a selection of *a fixture*, so the other kinds go. This
+        // arrives through the route watcher, which is a different path from
+        // `handleFixturePicked` -- so the clearing that happens there does not
+        // necessarily happen here, and the object widget stayed on screen with
+        // a fixture selected.
+        this.selectedObject = null;
+        this.selectedStructure = null;
       } catch (err) {
         this.selectedFixture = null;
         this.selectedFixtures = [];
@@ -276,6 +303,7 @@ export default {
         this.selectedFixture = null;
         this.selectedGroup = null;
         this.selectedStructure = null;
+        this.selectedObject = null;
         this.selectedFixtures = [];
         this.selectedItems = [];
         return;
@@ -298,8 +326,32 @@ export default {
       if (this.selectedStructure) {
         this.selectedFixture = null;
         this.selectedFixtures = [];
+        this.selectedObject = null;
         return;
       }
+
+      // Same rule as a structure: an object is one item and none of the
+      // fixture widgets edit it, so picking one clears them outright rather
+      // than leaving whichever fixture was selected last on screen.
+      this.selectedObject = payload.objectId === undefined
+        ? null
+        : this.$show.objects.find((o) => o.id === payload.objectId) || null;
+      if (this.selectedObject) {
+        this.selectedFixture = null;
+        this.selectedFixtures = [];
+        return;
+      }
+
+      // The primary follows the payload, not only the route.
+      //
+      // It used to be set solely by the route watcher, and a selection of
+      // several announces no primary -- so nothing pushed a route, the old
+      // `fixtureId` stayed in the URL, and the single-fixture widgets stayed up
+      // over a multi-selection. The event names the primary or names none, and
+      // that is the answer either way.
+      this.selectedFixture = payload.fixtureId === undefined
+        ? null
+        : this.$show.fixturePool.findFromId(payload.fixtureId);
 
       // findFromId rather than getFromId: a selection is allowed to name a
       // fixture that has since been deleted, and that is not worth throwing

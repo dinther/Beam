@@ -55,6 +55,28 @@
  * @component Popup A slotted popup component that will automatically be appended to app's body.
  * @story Default {"header":{"title":"Default"},"value":true}
  */
+/**
+ * How many modal popups are open, so each new one stacks above the last.
+ *
+ * Module scope because the stack is a property of the page, not of any one
+ * popup: two of these can be open at once -- create-fixture sits inside the
+ * patch dialog -- and the second has to cover the first.
+ */
+let modalDepth = 0;
+
+/**
+ * Where a modal layer starts, above `.popup`'s own 200.
+ *
+ * A backdrop used to be z-index 100 against every popup's 200, so it covered
+ * the app but never another popup: the dialog underneath stayed clickable and
+ * "modal" meant nothing between popups. A modal now takes a pair of levels
+ * above all of them -- backdrop first, its own window one above that.
+ */
+const MODAL_BASE_Z = 300;
+
+/** Levels each modal claims: one for its backdrop, one for itself. */
+const MODAL_STRIDE = 10;
+
 export default {
   name: 'UkPopup',
   compatConfig: {
@@ -168,19 +190,44 @@ export default {
     this.update();
   },
   beforeUnmount() {
-    const { body } = document;
     window.removeEventListener('keydown', this.handleKeydown);
-    if (this.backdrop && this.backdropEl) {
-      body.removeChild(this.backdropEl);
-    }
-    if (this.opaque) {
-      const app = document.getElementById('app');
-      if (app) {
-        app.classList.remove('blurred-sm');
-      }
-    }
+    this.removeBackdrop();
   },
   methods: {
+    /**
+     * Takes the backdrop off the page, if this popup still has one up.
+     *
+     * The reference is dropped as well as the node. It was not before, so a
+     * popup that had been opened and closed still held a detached element, and
+     * unmounting it called `removeChild` on a node that was no longer a child
+     * -- `NotFoundError: The node to be removed is not a child of this node`.
+     * Only a modal popup that unmounts during a session reaches that, which is
+     * why it surfaced the day the first nested one was made modal.
+     *
+     * `remove()` rather than `removeChild` so a node already gone is not an
+     * error in the first place.
+     *
+     * @public
+     */
+    removeBackdrop() {
+      if (this.backdropEl) {
+        this.backdropEl.remove();
+        this.backdropEl = null;
+      }
+      if (this.modalLevel) {
+        modalDepth = Math.max(0, modalDepth - 1);
+        this.modalLevel = 0;
+        // Back to the shared level, so this popup stops outranking its peers
+        // once it is no longer the modal one.
+        if (this.$el && this.$el.style) this.$el.style.zIndex = '';
+      }
+      if (this.opaque) {
+        const app = document.getElementById('app');
+        if (app) {
+          app.classList.remove('blurred-sm');
+        }
+      }
+    },
     /**
      * Update popup based on provided properties
      *
@@ -193,23 +240,32 @@ export default {
         window.addEventListener('keydown', this.handleKeydown);
       }
       if (this.displayed && this.backdrop) {
-        this.backdropEl = document.createElement('div');
-        this.backdropEl.className = `backdrop${this.opaque ? ' opaque' : ''}`;
-        body.appendChild(this.backdropEl);
+        // Only if there is not one already: `update` runs on every change of
+        // `modelValue`, and building a second backdrop would strand the first
+        // on the page with nothing holding a reference to take it off again.
+        if (!this.backdropEl) {
+          this.backdropEl = document.createElement('div');
+          this.backdropEl.className = `backdrop${this.opaque ? ' opaque' : ''}`;
+          modalDepth += 1;
+          this.modalLevel = modalDepth;
+          const base = MODAL_BASE_Z + (this.modalLevel - 1) * MODAL_STRIDE;
+          this.backdropEl.style.zIndex = String(base);
+          body.appendChild(this.backdropEl);
+          // On the next tick: `update` runs from the watcher, before `displayed`
+          // has rendered, so the root is still the transition's placeholder and
+          // has no style to set.
+          this.$nextTick(() => {
+            if (this.$el && this.$el.style) this.$el.style.zIndex = String(base + 1);
+          });
+        }
         if (this.opaque) {
           const app = document.getElementById('app');
           if (app) {
             app.classList.add('blurred-sm');
           }
         }
-      } else if (this.backdrop && this.backdropEl) {
-        body.removeChild(this.backdropEl);
-        if (this.opaque) {
-          const app = document.getElementById('app');
-          if (app) {
-            app.classList.remove('blurred-sm');
-          }
-        }
+      } else {
+        this.removeBackdrop();
       }
     },
     /**

@@ -121,6 +121,19 @@ contextBridge.exposeInMainWorld('library', {
    * @returns {Promise<Array>} `{ name, file, url, bytes, modified }`
    */
   objects: () => ipcRenderer.invoke('library:objects'),
+  /**
+   * Writes a created object into `Library/Objects` as a descriptor.
+   *
+   * A built shape is parameters, not geometry, so it is stored as the numbers
+   * the user chose and rebuilt on load -- which keeps it editable and keeps a
+   * cube from costing a megabyte. Refuses a name already taken by anything in
+   * that folder, model or object.
+   *
+   * @param {String} name
+   * @param {Object} primitive `{ type, size, color }`
+   * @returns {Promise<Object>} `{ ok, name, file }` or `{ ok: false, reason }`
+   */
+  createObject: (name, primitive) => ipcRenderer.invoke('library:createObject', name, primitive),
 });
 
 /**

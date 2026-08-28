@@ -270,6 +270,12 @@ function setupLibrary() {
   // The folder is the catalogue: whatever is in Library/Objects is what the
   // app offers, with no index to fall out of step with it.
   ipcMain.handle('library:objects', () => objectstore.list());
+  // Creating an object writes a descriptor rather than a model: a built shape
+  // is a handful of numbers, so it stays editable and costs nothing to store.
+  ipcMain.handle(
+    'library:createObject',
+    (event, name, primitive) => objectstore.writePrimitive(name, primitive),
+  );
 }
 
 /**

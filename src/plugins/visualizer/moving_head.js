@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import ModelInstancer from './model_instancer';
+import SceneEnv from './scene_env';
 // TODO: find a way for the linter to acces vite's '?' syntax
 import VOLUMETRIC_BEAM_VERTEX_SHADER from './shaders/beam.vertex.glsl?raw';
 import VOLUMETRIC_BEAM_FRAGMENT_SHADER from './shaders/beam.fragment.glsl?raw';
+import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 
 const MODEL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x000000,
@@ -46,6 +48,17 @@ const BEAM_SEGMENTS = 1;
 const BEAM_LENGTH = 100;
 const BEAM_TOP_RADIUS = 0.09;
 const BEAM_MAX_ANGLE = 45;
+
+/**
+ * The beam fragment shader, with the scene's haze configuration prepended.
+ *
+ * The mode, the field and its constants live in `haze_noise.js` and reach every
+ * renderer through the same prelude, so a beam and an LED glow cannot end up
+ * scattering through different air.
+ *
+ * @constant {String}
+ */
+const BEAM_FRAGMENT_SHADER = hazeShaderPrelude() + VOLUMETRIC_BEAM_FRAGMENT_SHADER;
 
 const SPOTLIGHT_PHYSICALLY_CORRECT_DISTANCE = 0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY = 100.0;
@@ -1124,7 +1137,7 @@ class MovingHead {
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       vertexShader: VOLUMETRIC_BEAM_VERTEX_SHADER,
-      fragmentShader: VOLUMETRIC_BEAM_FRAGMENT_SHADER,
+      fragmentShader: BEAM_FRAGMENT_SHADER,
       fog: false,
       toneMapped: false,
       dithering: false,
@@ -1161,6 +1174,10 @@ class MovingHead {
           type: 'f',
           value: 1.0,
         },
+        fogScale: {
+          type: 'f',
+          value: SceneEnv.hazeScale,
+        },
         fogTurbulence: {
           type: 'f',
           value: 1.0,
@@ -1169,6 +1186,9 @@ class MovingHead {
           type: 'f',
           value: 1.0,
         },
+        // The shared haze field: the volume itself, and the cycling amount
+        // when the scene is built with it. Empty in mode 0.
+        ...hazeUniforms(),
       },
     }), MAX_INSTANCES);
 
@@ -1277,6 +1297,14 @@ class MovingHead {
 
   static get fogDensity() {
     return beamMesh.material.uniforms.fogFactor.value;
+  }
+
+  static set fogScale(value) {
+    beamMesh.material.uniforms.fogScale.value = value;
+  }
+
+  static get fogScale() {
+    return beamMesh.material.uniforms.fogScale.value;
   }
 
   static set fogTurbulence(value) {

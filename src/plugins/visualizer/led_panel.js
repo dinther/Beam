@@ -10,7 +10,7 @@ import {
   gridSteps, gridPitch, START_CORNERS, SCAN_AXES,
 } from '../../models/DMX/generic/led_bar';
 // eslint-disable-next-line import/no-unresolved, import/extensions
-import SIMPLEX_NOISE from './shaders/simplex3d.glsl?raw';
+import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 
 /**
  * @file Grid LED fixtures, drawn as surfaces rather than as swarms.
@@ -534,7 +534,7 @@ const PANEL_GLOW_VERTEX = /* glsl */`
   }
 `;
 
-const PANEL_GLOW_FRAGMENT = `${SIMPLEX_NOISE /* glsl */}
+const PANEL_GLOW_FRAGMENT = `${hazeShaderPrelude() /* glsl */}
   // Declared here on purpose. three puts modelMatrix in the vertex prefix but
   // not the fragment one -- only viewMatrix and cameraPosition reach a
   // fragment shader by default -- so using it without this compiles to nothing
@@ -563,8 +563,9 @@ const PANEL_GLOW_FRAGMENT = `${SIMPLEX_NOISE /* glsl */}
   uniform float haloBackScatter;
   uniform float hazeAmount;
   uniform float sizeAtZeroHaze;
+  uniform float sizeAtFullHaze;
   uniform float turbulence;
-  uniform float turbulenceScale;
+  uniform float hazeScale;
   uniform float time;
 
   varying vec3 vLocal;
@@ -583,8 +584,10 @@ const PANEL_GLOW_FRAGMENT = `${SIMPLEX_NOISE /* glsl */}
     // Live reach, clamped to the box that was actually built to hold it.
     float r = min(
       reach * (glowSize / ${GLOW_BASE_SIZE.toFixed(1)})
-        // Denser air carries light further from its source.
-        * mix(sizeAtZeroHaze, 1.0, hazeAmount),
+        // Denser air carries light further from its source. The upper bound is
+        // the box's own headroom, so thick air uses the volume that was always
+        // built for it rather than stopping halfway through it.
+        * mix(sizeAtZeroHaze, sizeAtFullHaze, hazeAmount),
       min(boxHalf.x - halfBody.x, min(boxHalf.y - halfBody.y, boxHalf.z - halfBody.z))
     );
 
@@ -634,12 +637,14 @@ const PANEL_GLOW_FRAGMENT = `${SIMPLEX_NOISE /* glsl */}
         mipLevel
       ).rgb;
 
-      // Light in still air is smooth; real haze drifts and clumps. Sampled in
-      // world space so it churns in place rather than sliding with the camera.
+      // The same field the beams and the strip glows read, at the same scale.
+      // This sampled a flat x/z slice with time in the third axis, through a
+      // private 4.8 m feature size the haze scale control never reached.
       if (turbulence > 0.0) {
         vec3 world = (modelMatrix * vec4(p, 1.0)).xyz;
-        vec3 coord = vec3(world.x / turbulenceScale, world.z / turbulenceScale, time);
-        falloff *= mix(1.0, clamp(fogging(coord), 0.0, 1.0), turbulence);
+        vec3 coord = world / max(hazeScale, 0.01);
+        float churn = clamp(fogging(coord, time * turbulence / 15.0), 0.0, 1.0);
+        falloff *= mix(1.0, churn, turbulence);
       }
 
       total += color * falloff;
@@ -845,8 +850,11 @@ function createPanel(params) {
       haloBackScatter: HALO_UNIFORMS.haloBackScatter,
       hazeAmount: GLOW_UNIFORMS.hazeAmount,
       sizeAtZeroHaze: GLOW_UNIFORMS.sizeAtZeroHaze,
+      sizeAtFullHaze: GLOW_UNIFORMS.sizeAtFullHaze,
       turbulence: GLOW_UNIFORMS.turbulence,
-      turbulenceScale: GLOW_UNIFORMS.turbulenceScale,
+      hazeScale: GLOW_UNIFORMS.hazeScale,
+      // The volume, and the cycling amount when built with it. Empty in mode 0.
+      ...hazeUniforms(),
       time: GLOW_UNIFORMS.time,
     },
     vertexShader: PANEL_GLOW_VERTEX,

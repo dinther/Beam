@@ -2,6 +2,7 @@
   <uk-popup
     v-model="state"
     cancelable
+    backdrop
     :valid="valid"
     :header="headerData"
     @submit="create"
@@ -305,6 +306,11 @@ export default {
       if (value !== this.autoModel) this.modelEdited = true;
     },
     state(open) {
+      // No `update()` here, unlike the object dialog: this component does not
+      // use PopupMixin. Its `state` is a computed whose setter emits
+      // `update:modelValue` directly, so the parent is already in step and
+      // there is nothing to forward -- and `this.update` does not exist.
+      //
       // The dialog keeps its geometry between visits on purpose -- one bar is
       // usually followed by a variant of it -- but the name of the thing just
       // created is taken by definition, so reopening met a warning about a

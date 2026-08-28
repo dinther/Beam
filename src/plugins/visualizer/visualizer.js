@@ -38,6 +38,9 @@ const LED_FIXTURE_LED_CAPACITY = 0;
 /** How far a press may travel and still count as a click on the gizmo. */
 const VIEW_CUBE_CLICK_SLOP_PX = 4;
 import SceneEnv from './scene_env';
+import { hazeCycle, setHazeCycle } from './haze_noise';
+import { installAmbient, setHouseBrightness } from './ambient';
+import AmbientHazeEffect from './ambient_haze';
 import Perf from './perf_overlay';
 import Preferences from './preferences';
 import createLEDDebugPanel from './led_debug_panel';
@@ -69,6 +72,12 @@ let finalComposer = null;
  * screen-space glare a fair stand-in for scattering, at no geometry cost.
  */
 let bloomEffect = null;
+
+/**
+ * Ambient haze pass, kept accessible so the debug panel and the house lights
+ * can reach it. Module-scoped for the same reason the composer is.
+ */
+let ambientHazeEffect = null;
 
 /**
  * Scene reference helpers.
@@ -117,6 +126,18 @@ function applyHelperVisibility() {
  */
 const USE_BLOOM = false;
 
+/**
+ * Background shown while the house lights are up.
+ *
+ * rgb(60, 60, 60). Work light means a lit room, and a lit room does not have a
+ * near-black void behind it -- the stored background is for a show, where the
+ * dark is the point. The preference is not overwritten: this is what is on
+ * screen, not what was chosen.
+ *
+ * @constant {String}
+ */
+const HOUSE_LIGHTS_BACKGROUND = '#3c3c3c';
+
 /** Bloom response to fog density, which arrives as 0..1. */
 const BLOOM_BY_FOG = {
   // Haze off is not glow off: a bright emitter still glares in any lens or eye.
@@ -151,8 +172,12 @@ THREE.Vector3.prototype.round = function vector3RoundPolyfill(digits) {
  */
 const DEFAULT_PREFERENCES = {
   FOGGING_STATE: true,
-  FOGGING_DENSITY: 18,
-  GLOBAL_FOGGING_TURBULENCES: 0,
+  // Full haze. This was 18 when it doubled as the noise scale; as an amount
+  // that would be a beam at a fifth of its brightness.
+  FOGGING_DENSITY: 100,
+  /** Width of one haze feature, in metres. Size, not amount. */
+  FOGGING_SCALE: 4.9,
+  GLOBAL_FOGGING_TURBULENCES: 100,
   GLOBAL_BRIGHTNESS: 100,
   BRIGHTNESS_HOUSE_OFF: 30,
 };
@@ -217,6 +242,9 @@ class Visualizer {
     // The switch first: it decides which of the two brightnesses is the one
     // to dress the scene with.
     this._houseLights = source.houseLights !== false;
+    // Straight to SceneEnv too: this assigns the field rather than going
+    // through the setter, and `hazeAmount` is folded on the house lights.
+    SceneEnv.houseLights = this._houseLights;
     this._brightnessUp = Visualizer.asBrightness(
       source.globalBrightness,
       DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS,
@@ -227,6 +255,7 @@ class Visualizer {
     );
     this.applyBrightness();
     this.globalFoggingDensity = source.globalFoggingDensity;
+    this.globalFoggingScale = source.globalFoggingScale;
     this.globalFoggingState = source.globalFoggingState;
     this.globalFoggingTurbulences = source.globalFoggingTurbulences;
     this.snapEnabled = source.snapEnabled !== false;
@@ -236,6 +265,9 @@ class Visualizer {
     this.showFloor = source.showFloor;
     this.debug = source.debug;
     this.backgroundColor = source.backgroundColor;
+    // The stored colour may be undefined, and the house switch was read above,
+    // so settle what is actually on screen either way.
+    this.applyBackground();
   }
 
   /**
@@ -247,14 +279,32 @@ class Visualizer {
    *
    * @type {String}
    */
-  // eslint-disable-next-line class-methods-use-this
   set backgroundColor(value) {
     if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) return;
     Preferences.set('backgroundColor', value);
+    // Through `applyBackground`, so choosing a colour with the house up stores
+    // it without fighting the work-light background for the screen.
+    this.applyBackground();
+  }
+
+  /**
+   * Puts whichever background is in force onto the scene.
+   *
+   * Set on the existing colour rather than replaced: the scene's background is
+   * a Color instance and swapping it for a string would drop whatever else
+   * three.js hangs off it.
+   *
+   * @public
+   */
+  // eslint-disable-next-line class-methods-use-this
+  applyBackground() {
+    const stored = Preferences.get('backgroundColor');
+    const colour = SceneEnv.houseLights ? HOUSE_LIGHTS_BACKGROUND : stored;
+    if (typeof colour !== 'string') return;
     if (SceneManager.background && SceneManager.background.set) {
-      SceneManager.background.set(value);
+      SceneManager.background.set(colour);
     } else {
-      SceneManager.background = new THREE.Color(value);
+      SceneManager.background = new THREE.Color(colour);
     }
   }
 
@@ -354,6 +404,7 @@ class Visualizer {
     MovingHead.fogState = SceneEnv.hazeEnabled;
     Preferences.set('globalFoggingState', SceneEnv.hazeEnabled ? 1 : 0);
     this.applyFogToBloom();
+    this.applyHaze();
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -370,7 +421,7 @@ class Visualizer {
     SceneEnv.hazeDensity = Number.isFinite(value)
       ? Math.min(Math.max(value, 0), 100) / 100
       : DEFAULT_PREFERENCES.FOGGING_DENSITY / 100;
-    MovingHead.fogDensity = SceneEnv.hazeDensity;
+    this.applyHaze();
     Preferences.set('globalFoggingDensity', SceneEnv.hazeDensity * 100);
     this.applyFogToBloom();
   }
@@ -378,6 +429,27 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   get globalFoggingDensity() {
     return SceneEnv.hazeDensity * 100;
+  }
+
+  /**
+   * Global scene haze feature size, in metres.
+   *
+   * Size, not amount -- a small value gives fine wisps and a large one slow
+   * billows, while `globalFoggingDensity` decides how much of it there is.
+   * The two were the same control until 2026-08-24, which is why turning the
+   * haze up used to change its grain rather than its strength.
+   *
+   * @type {Number} metres
+   */
+  set globalFoggingScale(value) {
+    SceneEnv.hazeScale = Number.isFinite(value) ? value : DEFAULT_PREFERENCES.FOGGING_SCALE;
+    MovingHead.fogScale = SceneEnv.hazeScale;
+    Preferences.set('globalFoggingScale', SceneEnv.hazeScale);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get globalFoggingScale() {
+    return SceneEnv.hazeScale;
   }
 
   /**
@@ -399,6 +471,27 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   get globalFoggingTurbulences() {
     return SceneEnv.hazeTurbulence * 100;
+  }
+
+  /**
+   * How much contour cycling is mixed into the scene haze, 0..100.
+   *
+   * Reaches every fixture type at once -- the cycling uniform is shared by
+   * reference, the way the haze volume is. Only the baked-volume path reads it,
+   * and only in its cycling mode (`HAZE_MODE` 2 in `haze_noise.js`); the setter
+   * is harmless otherwise. Deliberately not persisted yet: it is a tuning knob
+   * for judging the field, not a settled control.
+   *
+   * @type {Number} 0..100
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set globalHazeCycle(value) {
+    setHazeCycle(Number.isFinite(value) ? Math.min(Math.max(value, 0), 100) / 100 : 0);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get globalHazeCycle() {
+    return hazeCycle() * 100;
   }
 
   /**
@@ -478,12 +571,38 @@ class Visualizer {
    */
   set houseLights(on) {
     this._houseLights = !!on;
+    // House up means work light, and work light means a clear view -- so the
+    // haze goes with it. SceneEnv folds this into `hazeAmount`, which every
+    // renderer that scatters light already reads.
+    SceneEnv.houseLights = this._houseLights;
+    this.applyHaze();
+    this.applyBackground();
     Preferences.set('houseLights', this._houseLights);
     this.applyBrightness();
   }
 
   get houseLights() {
     return !!this._houseLights;
+  }
+
+  /**
+   * Puts the effective haze onto the beams.
+   *
+   * Every other renderer reads `SceneEnv.hazeAmount` itself and follows the
+   * `changed` event, but the beam shader carries its own `fogFactor` uniform,
+   * so the one number has to be pushed to it. Guarded because the beam mesh
+   * does not exist until `prepareInstanciation` has run, and preferences are
+   * applied before that.
+   *
+   * @public
+   */
+  // eslint-disable-next-line class-methods-use-this
+  applyHaze() {
+    try {
+      MovingHead.fogDensity = SceneEnv.hazeAmount;
+    } catch (err) {
+      // No beams yet; `main()` pushes the value once instancing is prepared.
+    }
   }
 
   /**
@@ -496,6 +615,10 @@ class Visualizer {
     if (this.globalLightHandle) {
       this.globalLightHandle.intensity = this._globalBrightness * 0.25;
     }
+    // The environment is fill for the same room, so it follows the same
+    // control rather than being a second thing to remember to turn down.
+    setHouseBrightness(this._globalBrightness);
+    if (ambientHazeEffect) ambientHazeEffect.setHouseBrightness(this._globalBrightness);
   }
 
   /**
@@ -721,6 +844,7 @@ class Visualizer {
     // Safe only now: MovingHead's fog getters read through the beam mesh,
     // which does not exist until instancing has been prepared.
     this.applyFogToBloom();
+    this.applyHaze();
 
     AnimationManager.add((t) => {
       MovingHead.update(t);
@@ -870,6 +994,8 @@ class Visualizer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.prepareComposer();
+    // Needs the renderer, so it cannot run any earlier than this.
+    installAmbient(this.renderer, SceneManager);
     Perf.init(this.renderer);
   }
 
@@ -904,8 +1030,25 @@ class Visualizer {
       mode: ToneMappingMode.ACES_FILMIC,
     });
 
-    const effects = bloomEffect ? [bloomEffect, toneMapping] : [toneMapping];
+    // Before bloom and tone mapping: the air is part of the image, so it has
+    // to be there when glare and the tone curve are worked out. It reads the
+    // depth buffer, which is why it cannot be a plain material on geometry.
+    ambientHazeEffect = new AmbientHazeEffect(this.camera);
+
+    const effects = bloomEffect
+      ? [ambientHazeEffect, bloomEffect, toneMapping]
+      : [ambientHazeEffect, toneMapping];
     finalComposer.addPass(new EffectPass(this.camera, ...effects));
+  }
+
+  /**
+   * The ambient haze pass, once the composer has been built.
+   *
+   * @returns {AmbientHazeEffect|null}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  get ambientHaze() {
+    return ambientHazeEffect;
   }
 
   /**

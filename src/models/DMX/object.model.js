@@ -45,6 +45,23 @@ class SceneObject {
 
     /** Library key. The bytes are not ours and are not copied here. */
     this.model = data.model;
+
+    /**
+     * Parameters, for an object the user built rather than imported.
+     *
+     * An object is one of two things. A **reference** carries `model` and gets
+     * its geometry from the library. An **inline** object carries this instead:
+     * the numbers it is defined by, held in the show, editable at any time, and
+     * belonging to this object alone.
+     *
+     * Inline is what "create" produces now. Writing every created shape to the
+     * library made a library of near duplicates and froze the parameters, so
+     * widening a cube meant making a second cube. Save to library copies these
+     * numbers out as a template; it does not turn this object into a reference,
+     * because then editing it later would silently edit every object stamped
+     * from the same entry.
+     */
+    this.primitive = data.primitive ? { ...data.primitive } : null;
     this._name = data.name || data.model || 'object';
     this._position = {
       x: (data.position || {}).x || 0,
@@ -96,7 +113,7 @@ class SceneObject {
    * @param {Object} box THREE.Box3 to expand
    */
   expandBounds(box) {
-    const local = SceneObjects.boundsOf(this.model);
+    const local = SceneObjects.boundsOf(this.renderKey);
     if (!local || local.isEmpty()) {
       // Geometry not loaded, or a model with nothing in it: give the gizmo
       // something to hold rather than an empty box at the origin.
@@ -200,13 +217,75 @@ class SceneObject {
    * @type {Object}
    */
   get showData() {
-    return {
+    const data = {
       id: this._id,
       model: this.model,
       name: this._name,
       position: { ...this._position },
       rotation: { ...this._rotation },
       scale: this._scale,
+    };
+    // An inline object's geometry is these numbers, so the show has to keep
+    // them: there is no library entry to resolve it against on reload.
+    //
+    // Deep, not a spread. `size` is a nested object, and on a reactive
+    // SceneObject a spread leaves it as a Vue Proxy -- which `structuredClone`
+    // refuses when the show crosses IPC to be written ("Object could not be
+    // cloned"). Flattening here is what a showfile holds anyway.
+    if (this.primitive) {
+      data.primitive = {
+        type: this.primitive.type,
+        size: { ...(this.primitive.size || {}) },
+        color: this.primitive.color,
+      };
+    }
+    return data;
+  }
+
+  /**
+   * Whether this object carries its own parameters rather than a library key.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  get isInline() {
+    return !!this.primitive;
+  }
+
+  /**
+   * The key its geometry is cached and instanced under.
+   *
+   * A reference shares one mesh set per library model, which is the whole
+   * point of instancing a truss. An inline object cannot: its parameters are
+   * its own and editable, so two of them are not the same geometry even when
+   * they start out identical. One key each, and editing one leaves the rest
+   * alone.
+   *
+   * @readonly
+   * @type {String}
+   */
+  get renderKey() {
+    return this.primitive ? `inline:${this._id}` : this.model;
+  }
+
+  /**
+   * What `SceneObjects` needs to build this, for an inline object.
+   *
+   * @readonly
+   * @type {Object|null}
+   */
+  get inlineDescriptor() {
+    if (!this.primitive) return null;
+    return {
+      name: this._name,
+      key: this.renderKey,
+      kind: 'primitive',
+      primitive: { ...this.primitive },
+      // Built shapes are authored in metres, Z up, about their own origin --
+      // there is no file whose convention could disagree.
+      scale: 1,
+      upAxis: 'z',
+      offset: { x: 0, y: 0, z: 0 },
     };
   }
 
@@ -281,12 +360,15 @@ class SceneObject {
    * @returns {Promise<Boolean>} whether the geometry is now drawn
    */
   async attach(descriptor) {
-    if (!descriptor) {
+    // An inline object needs nothing from the library: it describes itself,
+    // so whatever the caller found (or did not find) there is beside the point.
+    const source = this.primitive ? this.inlineDescriptor : descriptor;
+    if (!source) {
       this.unresolved = true;
       return false;
     }
     try {
-      this._placement = await SceneObjects.place(descriptor, {
+      this._placement = await SceneObjects.place(source, {
         position: this._position,
         rotation: this._rotation,
         scale: this._scale,
@@ -301,6 +383,35 @@ class SceneObject {
       console.error(`[object] ${this._name} could not load ${this.model}: ${err.message}`);
       return false;
     }
+  }
+
+  /**
+   * Replaces this object's parameters and rebuilds its geometry.
+   *
+   * Only for an inline object -- a reference has no parameters of its own to
+   * change. The placement is torn down and remade rather than patched, because
+   * the geometry itself is different: a wider cube is not the old cube moved.
+   *
+   * @public
+   * @async
+   * @param {Object} primitive `{ type, size, color }`
+   * @returns {Promise<Boolean>} whether the geometry is drawn
+   */
+  async setPrimitive(primitive) {
+    if (!this.primitive || !primitive) return false;
+    this.primitive = { ...primitive };
+    if (this._placement) {
+      SceneObjects.remove(this._placement);
+      this._placement = null;
+    }
+    // The cached build is keyed on this object alone, so dropping it throws
+    // nothing else away -- and without dropping it the old shape comes back.
+    SceneObjects.forget(this.renderKey);
+    const attached = await this.attach(null);
+    // The white selection outline was sized from the old geometry, so it has
+    // to be asked again now the shape has changed.
+    Controls.refreshHelpers();
+    return attached;
   }
 
   /** Pushes the current transform at the node and the instance alike. */

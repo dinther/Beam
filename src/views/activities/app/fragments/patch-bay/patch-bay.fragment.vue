@@ -231,6 +231,32 @@ export default {
      * @public
      * @param {Number} structureId id of the structure to select
      */
+    /**
+     * Selects an object from the item list.
+     *
+     * Objects had no branch of their own here, so a row fell through to the
+     * fixture path and was looked up with `findFromId`, which compares against
+     * `Number(id)` -- and an object's list id is `object:3`, so that is `NaN`
+     * and never matches. The lookup returned null and the handler bailed
+     * *before* `clearAllHighlighting`, so clicking an object selected nothing
+     * and left whatever was selected before still lit. Two symptoms, one
+     * missing branch.
+     *
+     * @public
+     * @param {Number} objectId
+     */
+    selectObject(objectId) {
+      const object = this.$show.objects.find((o) => o.id === objectId);
+      if (!object) return;
+      this.$router.push({ path: '/patch', query: { objectId } }).catch(() => {});
+      Controls.detachAll();
+      Controls.clearAllHighlighting();
+      // Does the attaching itself, the way a structure's does.
+      object.highlightSingle(true, true);
+      // An object has no route the modifier watches, so it is announced --
+      // the same courtesy the structure path extends.
+      Controls.emitSelection(object);
+    },
     selectStructure(structureId) {
       const structure = this.$show.structures.find((s) => s.id === structureId);
       if (!structure) return;
@@ -339,6 +365,10 @@ export default {
         this.selectStructure(fixtureData.structureId);
         return;
       }
+      if (fixtureData.isObject) {
+        this.selectObject(fixtureData.objectId);
+        return;
+      }
       this.$router.push({ path: '/patch', query: { fixtureId: fixtureData.id } }).catch(() => {});
       // The route drives the modifier widgets; the 3D view has to be told
       // separately. uk-list emits 'highlight' only for multi-selection, so a
@@ -424,9 +454,15 @@ export default {
       this.setArrangeOpen(false);
       // Built from the typed selection, so a structure highlights its own row
       // rather than whichever fixture happens to share its number.
-      this.highlightedIds = (payload.selectedItems || []).map((item) => (
-        item.kind === 'structure' ? `structure:${item.id}` : item.id
-      ));
+      // Row ids are namespaced by kind, because the three are separate
+      // numbering spaces -- `listable` builds them the same way. An object
+      // mapped to a bare number matched no row at all, so an object picked in
+      // the 3D view never lit up in the list.
+      this.highlightedIds = (payload.selectedItems || []).map((item) => {
+        if (item.kind === 'structure') return `structure:${item.id}`;
+        if (item.kind === 'object') return `object:${item.id}`;
+        return item.id;
+      });
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
     },
@@ -477,16 +513,59 @@ export default {
      * thing they just created is the part that was actually wanted.
      *
      * @public
-     * @param {Object} placed {kind, id} of the first item added
+     * Everything added is selected, not just the first of a batch: adding
+     * four fixtures and finding one of them selected means arranging them is a
+     * re-selection away, when the set is already exactly what was wanted.
+     *
+     * A single item routes the list as a plain click would, so its widgets come
+     * up. Several go through `Controls.selectItem`, which is the same path
+     * ctrl-clicking them one by one would take.
+     *
+     * @public
+     * @param {Object} placed `{ kind, ids }` of everything just added
      */
     selectPlaced(placed) {
       if (!placed) return;
-      if (placed.kind === 'structure') {
-        this.selectStructure(placed.id);
+      // `id` is still accepted so an emitter that has not been updated, or one
+      // added later, does not silently select nothing.
+      const ids = (placed.ids && placed.ids.length)
+        ? placed.ids
+        : [placed.id].filter((id) => id !== undefined);
+      const handles = ids
+        .map((id) => this.placedHandle(placed.kind, id))
+        .filter(Boolean);
+      if (!handles.length) return;
+
+      if (handles.length === 1) {
+        if (placed.kind === 'structure') {
+          this.selectStructure(handles[0].id);
+        } else if (placed.kind === 'object') {
+          this.selectObject(handles[0].id);
+        } else {
+          this.displayFixture(this.describeFixture(handles[0]));
+        }
         return;
       }
-      const fixture = this.pool.findFromId(placed.id);
-      if (fixture) this.displayFixture(this.describeFixture(fixture));
+
+      Controls.clearAllHighlighting();
+      // Additive from the second on, exactly as holding ctrl would be.
+      handles.forEach((handle, index) => Controls.selectItem(handle, index > 0));
+    },
+    /**
+     * The model an added item's id refers to, by kind.
+     *
+     * Kinds are separate numbering spaces -- object 3 and fixture 3 are
+     * different things -- so the kind decides where to look.
+     *
+     * @public
+     * @param {String} kind 'fixture', 'structure' or 'object'
+     * @param {Number} id
+     * @returns {Object|null}
+     */
+    placedHandle(kind, id) {
+      if (kind === 'structure') return this.$show.structures.find((s) => s.id === id) || null;
+      if (kind === 'object') return this.$show.objects.find((o) => o.id === id) || null;
+      return this.pool.findFromId(id);
     },
     /**
      * Displays the patch popup

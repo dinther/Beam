@@ -1041,16 +1041,44 @@ class Show extends EventEmitter {
    * @returns {Promise<Object>} the object
    */
   async placeObject(descriptor, transform = {}) {
+    // Two kinds of thing arrive here. A **library entry** is referenced by
+    // name and shares its geometry with every other placement of it. A
+    // **created** object arrives as parameters and carries them itself, so it
+    // stays editable and belongs to this show alone -- see `SceneObject`.
+    const inline = descriptor && descriptor.primitive
+      ? { ...descriptor.primitive, type: descriptor.primitive.type || descriptor.type }
+      : null;
     const object = new SceneObject({
-      model: descriptor.name,
+      model: inline ? undefined : descriptor.name,
+      primitive: inline,
       name: this.numberedObjectName(descriptor.name),
       position: transform.position,
       rotation: transform.rotation,
       scale: transform.scale,
     });
-    await object.attach(descriptor);
+    await object.attach(inline ? null : descriptor);
     this.objects.push(object);
     return object;
+  }
+
+  /**
+   * Adds a created object to the scene from the parameters the dialog gathered.
+   *
+   * The library is not involved. Everything the object is, it carries.
+   *
+   * @public
+   * @async
+   * @param {Object} params `{ type, name, size, color }`
+   * @param {Object} [transform] `{ position, rotation, scale }`
+   * @returns {Promise<Object>} the object
+   */
+  async createObject(params, transform = {}) {
+    const primitive = {
+      type: params.type,
+      size: { ...(params.size || {}) },
+      color: params.color,
+    };
+    return this.placeObject({ name: params.name, primitive }, transform);
   }
 
   /**

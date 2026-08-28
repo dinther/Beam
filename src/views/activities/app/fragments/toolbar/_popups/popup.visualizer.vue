@@ -41,9 +41,9 @@
       </uk-flex>
       <uk-flex center-h>
         <div>
-          <h4>Density:</h4>
+          <h4>Intensity:</h4>
           <p class="subtitle">
-            Sets the global scene fog density amount.
+            How much haze there is. None leaves a clean beam.
           </p>
         </div>
         <uk-spacer />
@@ -51,6 +51,22 @@
           v-model="$show.visualizerHandle.globalFoggingDensity"
           :min="0"
           :max="100"
+          style="width: 100px"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Scale:</h4>
+          <p class="subtitle">
+            How wide one clump of haze is, in metres.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-num-input
+          v-model="$show.visualizerHandle.globalFoggingScale"
+          :min="2"
+          :max="15"
+          :precision="1"
           style="width: 100px"
         />
       </uk-flex>
@@ -259,6 +275,7 @@ export default {
     resetInitialValues() {
       this.$show.visualizerHandle.globalFoggingState = this.initialValues.globalFoggingState;
       this.$show.visualizerHandle.globalFoggingDensity = this.initialValues.globalFoggingDensity;
+      this.$show.visualizerHandle.globalFoggingScale = this.initialValues.globalFoggingScale;
       // eslint-disable-next-line max-len
       this.$show.visualizerHandle.globalFoggingTurbulences = this.initialValues.globalFoggingTurbulences;
       this.$show.visualizerHandle.houseLightsUp = this.initialValues.globalBrightness;

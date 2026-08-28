@@ -105,14 +105,25 @@ float snoise(vec3 v) {
 }
 
 /**
- * Fractal sum of simplex noise -- the same octave weights the beam shader uses,
- * so haze looks consistent between fixture types.
+ * Fractal sum of simplex noise -- the procedural haze field, `HAZE_MODE` 0.
+ *
+ * Signature and octave behaviour match `haze_field.glsl` exactly, so a renderer
+ * calls `fogging(coord, drift)` without knowing which path was compiled.
+ *
+ * Each octave drifts at its own speed. Moving them together slides one rigid
+ * pattern sideways; moving them apart lets the fine detail run through the
+ * coarse shape, which is what reads as haze turning over rather than being
+ * dragged. The offset is added before the frequency multiply, so the rates are
+ * speeds through the room rather than through each octave's own space.
+ *
+ * @param coord fog coordinates, in noise units (world position / haze scale)
+ * @param drift how far the haze has travelled, in the same units
  */
-float fogging(vec3 coord) {
+float fogging(vec3 coord, float drift) {
   float fog = 0.0;
-  fog += abs(snoise(coord)) * 1.0;
-  fog += abs(snoise(coord * 2.0)) * 0.5;
-  fog += abs(snoise(coord * 4.0)) * 0.25;
-  fog += abs(snoise(coord * 8.0)) * 0.125;
+  fog += abs(snoise((coord + vec3(drift * 1.0, 0.0, 0.0)) * 1.0)) * 1.0;
+  fog += abs(snoise((coord + vec3(drift * 1.2, 0.0, 0.0)) * 2.0)) * 0.5;
+  fog += abs(snoise((coord + vec3(drift * 2.0, 0.0, 0.0)) * 4.0)) * 0.25;
+  fog += abs(snoise((coord + vec3(drift * 2.8, 0.0, 0.0)) * 8.0)) * 0.125;
   return fog;
 }

@@ -16,7 +16,9 @@ const SAVE_DELAY = 400;
 
 const DEFAULTS = {
   globalFoggingState: 1,
-  globalFoggingDensity: 18,
+  globalFoggingDensity: 100,
+  /** Width of one haze feature, in metres. Size, not amount. */
+  globalFoggingScale: 4,
   globalFoggingTurbulences: 50,
   /**
    * Global brightness with the house lights up. The scene keeps two, because
