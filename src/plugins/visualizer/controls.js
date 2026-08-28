@@ -22,6 +22,22 @@ import GroupHandle from './group_handle';
  * @param {Object} item fixture or structure
  * @return {String} a key unique across every kind of item
  */
+/**
+ * Everything that draws something selectable.
+ *
+ * Each answers two questions and nothing else is asked of it: `pickObjects()`
+ * for what a raycast should test, and `eachSelectable(visit)` for the band,
+ * which projects origins rather than casting rays. How a renderer stores a
+ * position -- instanced, per fixture, per model -- stays inside it.
+ *
+ * Adding a renderer means implementing two methods. It used to mean
+ * remembering to edit selection code in three places, and forgetting is
+ * exactly how objects came to be pickable but not band-selectable.
+ *
+ * @constant {Array}
+ */
+const SELECTION_RENDERERS = [MovingHead, LedBar, SceneObjects];
+
 function selectionKey(item) {
   if (!item) return '';
   // The uid is unique across every kind, which is the whole reason it exists.
@@ -114,12 +130,6 @@ const MIN_PIVOT_DISTANCE = 0.2;
  */
 const pointer = new THREE.Vector2();
 /**
- * Scratch objects used to project instances to screen space for band selection
- *
- * @constant {Object} pickMatrix
- */
-const pickMatrix = new THREE.Matrix4();
-/**
  * @constant {Object} pickPosition
  */
 const pickPosition = new THREE.Vector3();
@@ -130,8 +140,6 @@ const pickPosition = new THREE.Vector3();
  */
 const frustum = new THREE.Frustum();
 
-/** Scratch world position, read out of an instance matrix before projecting. */
-const pickOrigin = new THREE.Vector3();
 
 /** Scratch world position, for the floor test during a drag. */
 const floorProbe = new THREE.Vector3();
@@ -684,26 +692,16 @@ class Controls {
       return x >= left && x <= right && y >= top && y <= bottom;
     };
 
-    const mesh = MovingHead.instancedMesh;
-    if (mesh) {
-      for (let i = 0; i < mesh.count; i++) {
-        mesh.getMatrixAt(i, pickMatrix);
-        pickOrigin.setFromMatrixPosition(pickMatrix);
-        if (inBand(pickOrigin)) {
-          const instance = MovingHead.getInstance(i);
-          if (instance && instance.fixtureHandle) picked.push(instance.fixtureHandle);
-        }
-      }
-    }
-
-    LedBar.eachSelectable((fixture, worldPosition) => {
-      if (inBand(worldPosition)) picked.push(fixture);
-    });
-
-    // Objects are scene items like the rest, and a band drawn over them should
-    // catch them. They were simply never offered here.
-    SceneObjects.eachSelectable((object, worldPosition) => {
-      if (inBand(worldPosition)) picked.push(object);
+    // Every renderer answers the same question the same way, so this knows
+    // nothing about how any of them stores a position -- heads are instanced,
+    // bars are not, objects are instanced per model, and none of that belongs
+    // here. It used to: this ran the head instance loop itself, which is why
+    // adding a renderer meant remembering to edit selection code, and why
+    // objects were missing from band selection until somebody noticed.
+    SELECTION_RENDERERS.forEach((renderer) => {
+      renderer.eachSelectable((item, worldPosition) => {
+        if (inBand(worldPosition)) picked.push(item);
+      });
     });
 
     if (!picked.length) {
@@ -800,11 +798,9 @@ class Controls {
     pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
     raycaster.setFromCamera(pointer, this.cameraHandle);
 
-    const targets = [
-      MovingHead.instancedMesh,
-      ...LedBar.pickObjects(),
-      ...SceneObjects.pickObjects(),
-    ].filter(Boolean);
+    const targets = SELECTION_RENDERERS
+      .flatMap((renderer) => renderer.pickObjects())
+      .filter(Boolean);
     const hit = raycaster.intersectObjects(targets, false)[0];
     if (hit) {
       pivotPoint.copy(hit.point);
@@ -846,15 +842,13 @@ class Controls {
     // box per bar. Both are invisible, and invisible objects still raycast,
     // which is what they exist for. Tested together so the nearest wins
     // regardless of which kind of fixture it belongs to.
-    const targets = [
-      MovingHead.instancedMesh,
-      ...LedBar.pickObjects(),
-      // Objects are picked from the geometry itself rather than from a proxy:
-      // a truss is its own shape, and a box round one would swallow every
-      // fixture standing inside it.
-      ...SceneObjects.pickObjects(),
-    ];
-    const hits = raycaster.intersectObjects(targets.filter(Boolean), false);
+    // Objects are picked from the geometry itself rather than from a proxy: a
+    // truss is its own shape, and a box round one would swallow every fixture
+    // standing inside it. Each renderer decides that for itself.
+    const targets = SELECTION_RENDERERS
+      .flatMap((renderer) => renderer.pickObjects())
+      .filter(Boolean);
+    const hits = raycaster.intersectObjects(targets, false);
     const hit = hits.find((h) => h.instanceId !== undefined
       || (h.object && h.object.userData.ledBar));
     if (!hit) return null;
@@ -1122,16 +1116,15 @@ class Controls {
   // eslint-disable-next-line class-methods-use-this
   sceneBounds(box) {
     box.makeEmpty();
-    const mesh = MovingHead.instancedMesh;
-    if (mesh) {
-      for (let i = 0; i < mesh.count; i += 1) {
-        const instance = MovingHead.getInstance(i);
-        if (instance && instance.expandBounds) instance.expandBounds(box);
-      }
-    }
-    LedBar.eachSelectable((fixture) => {
-      const model = fixture._3DModel;
-      if (model && model.expandBounds) model.expandBounds(box);
+    // Every renderer, through the same enumerator the band uses. This walked
+    // heads and bars and not objects, so framing the scene ignored them --
+    // the third instance of one omission, which is the argument for there
+    // being one list of renderers rather than three hand-written loops.
+    SELECTION_RENDERERS.forEach((renderer) => {
+      renderer.eachSelectable((item) => {
+        const model = item._3DModel;
+        if (model && model.expandBounds) model.expandBounds(box);
+      });
     });
     return box;
   }

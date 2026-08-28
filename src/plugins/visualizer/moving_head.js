@@ -145,6 +145,10 @@ let scene_handle = null;
 
 const instances = [];
 
+/** Scratch for the selection walk; read inside the callback. */
+const selectionMatrix = new THREE.Matrix4();
+const selectionOrigin = new THREE.Vector3();
+
 /**
  * How many fixtures may cast a shadow at once.
  *
@@ -1318,6 +1322,44 @@ class MovingHead {
   static get instancedMesh() {
     boundingBoxMesh.computeBoundingSphere();
     return boundingBoxMesh;
+  }
+
+  /**
+   * Objects a raycast should test.
+   *
+   * The same question `LedBar` and `SceneObjects` answer, asked the same way.
+   * This used to be reachable only as `instancedMesh`, so the caller had to
+   * know heads are instanced and bars are not, and dispatch on it.
+   *
+   * @static
+   * @returns {Array} pick proxies
+   */
+  static pickObjects() {
+    return [this.instancedMesh].filter(Boolean);
+  }
+
+  /**
+   * Visits every head with its world position, for rectangle selection.
+   *
+   * Where the instance loop belongs: reading matrices out of a shared
+   * `InstancedMesh` is how *this* renderer stores positions, and no caller
+   * should have to know that. `selectFixturesInBand` used to run this loop
+   * itself, which is why adding a renderer meant remembering to edit selection
+   * code -- and why objects were silently missing from band selection until
+   * somebody noticed.
+   *
+   * @static
+   * @param {Function} visit called with (fixtureHandle, worldPosition)
+   */
+  static eachSelectable(visit) {
+    const mesh = this.instancedMesh;
+    if (!mesh) return;
+    for (let i = 0; i < mesh.count; i += 1) {
+      mesh.getMatrixAt(i, selectionMatrix);
+      selectionOrigin.setFromMatrixPosition(selectionMatrix);
+      const instance = instances[i];
+      if (instance && instance.fixtureHandle) visit(instance.fixtureHandle, selectionOrigin);
+    }
   }
 
   static getInstance(id) {
