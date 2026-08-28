@@ -373,8 +373,17 @@ export default {
           // `studio_` this carried was ASLS Studio's, and outlived the rename.
           link.download = `beam_${this.$show.documentTitle.toLowerCase()}_rec`;
           link.href = uri;
+          // Added before it is clicked, because it was being *removed* without
+          // ever having been added -- `removeChild` on a node that is not a
+          // child throws NotFoundError, after the click, so the download
+          // started and the handler died on the next line.
+          document.body.appendChild(link);
           link.click();
-          document.body.removeChild(link);
+          link.remove();
+          // And the blob is released. Nothing did, so every recording stayed
+          // in memory for the life of the session -- which for video is the
+          // expensive kind of leak.
+          URL.revokeObjectURL(uri);
         };
       }
     },

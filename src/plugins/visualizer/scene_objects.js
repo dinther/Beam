@@ -246,6 +246,43 @@ function buildPrimitive(descriptor) {
 }
 
 /**
+ * Builds a model's geometry without putting it in the scene.
+ *
+ * For thumbnails. `load` is the wrong tool: it caches the result under the
+ * model's key and adds instanced meshes to the scene, so rendering a preview
+ * through it would populate the scene with every object in the library and
+ * poison the cache with meshes nobody placed.
+ *
+ * The caller owns what comes back and must dispose of it.
+ *
+ * @public
+ * @param {Object} descriptor a library entry
+ * @returns {Promise<Object>} `{ primitives, bounds }`
+ */
+async function buildPreview(descriptor) {
+  const source = descriptor.staticPath
+    ? `${import.meta.env.VITE_STATIC_URL}/${descriptor.staticPath}`
+    : descriptor.url;
+
+  const gltf = descriptor.kind === 'primitive'
+    ? null
+    : await new Promise((resolve, reject) => {
+      loader.load(source, resolve, undefined, reject);
+    });
+
+  const primitives = gltf
+    ? flatten(gltf, correction(descriptor))
+    : buildPrimitive(descriptor);
+
+  const bounds = new THREE.Box3();
+  primitives.forEach(({ geometry }) => {
+    if (geometry.boundingBox) bounds.union(geometry.boundingBox);
+  });
+
+  return { primitives, bounds };
+}
+
+/**
  * Loads a model, or hands back the one already loaded.
  *
  * @public
@@ -616,6 +653,7 @@ function stats() {
 
 export default {
   forget,
+  buildPreview,
   eachSelectable,
   clearHighlighting,
   load,

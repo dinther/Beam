@@ -276,6 +276,12 @@ function setupLibrary() {
     'library:createObject',
     (event, name, primitive) => objectstore.writePrimitive(name, primitive),
   );
+  // Previews are rendered in the renderer -- it is the one with a GPU and a
+  // loader -- and stored here, beside the model they picture.
+  ipcMain.handle(
+    'library:writeThumbnail',
+    (event, key, dataUrl) => objectstore.writeThumbnail(key, dataUrl),
+  );
 }
 
 /**

@@ -134,6 +134,14 @@ contextBridge.exposeInMainWorld('library', {
    * @returns {Promise<Object>} `{ ok, name, file }` or `{ ok: false, reason }`
    */
   createObject: (name, primitive) => ipcRenderer.invoke('library:createObject', name, primitive),
+  /**
+   * Stores a rendered preview beside the model it pictures.
+   *
+   * @param {String} key the library key
+   * @param {String} dataUrl a PNG data url
+   * @returns {Promise<Object>} `{ ok }` or `{ ok: false, reason }`
+   */
+  writeThumbnail: (key, dataUrl) => ipcRenderer.invoke('library:writeThumbnail', key, dataUrl),
 });
 
 /**

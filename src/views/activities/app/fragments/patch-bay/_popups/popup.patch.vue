@@ -24,14 +24,25 @@
             @click="selectKind(kind.id)"
           />
         </uk-flex>
+        <!-- Objects get a grid of square tiles: a name says very little about
+             a shape. Every other kind keeps the list. -->
+        <object-browser
+          v-if="activeKind === 'objects'"
+          class="fixture_list"
+          :models="objects"
+          :selected-key="selectedObject ? selectedObject.key : null"
+          @select="selectObjectModel"
+          @confirm="confirmObjectModel"
+        />
         <uk-list
+          v-else
           class="fixture_list"
           :items="items"
           filterable
           @select="selectItem"
         />
         <h4
-          v-if="!items.length"
+          v-if="activeKind !== 'objects' && !items.length"
           class="kind_empty"
         >
           {{ emptyMessage }}
@@ -332,6 +343,8 @@ import Fixture from '@/models/DMX/fixture.model';
 import { normaliseMatrixProfile } from '@/models/DMX/ofl_matrix';
 import CreateFixturePopup from './popup.create.fixture.vue';
 import CreateObjectPopup from './popup.create.object.vue';
+import ObjectBrowser from './object.browser.vue';
+import { generateMissing } from '@/plugins/visualizer/thumbnailer';
 
 /** How long the export button confirms for, in ms. */
 const EXPORT_FEEDBACK_MS = 1500;
@@ -359,6 +372,7 @@ export default {
   components: {
     CreateFixturePopup,
     CreateObjectPopup,
+    ObjectBrowser,
   },
   mixins: [PopupMixin],
   compatConfig: {
@@ -380,6 +394,8 @@ export default {
       headerData: { title: 'Add to show' },
       createPopupState: false,
       createObjectPopupState: false,
+      /** Guards the preview render, so opening the tab twice does not run it twice. */
+      thumbnailing: false,
       /**
        * What kind of thing is being added. The list cannot nest three deep --
        * fixtures already spend their one level on manufacturers -- so the
@@ -876,6 +892,37 @@ export default {
         this.objects = [];
       }
       if (this.activeKind === 'objects') this.items = this.buildItems('objects');
+      await this.ensureThumbnails();
+    },
+    /**
+     * Renders a preview for any object that has none, then re-reads the list.
+     *
+     * Deliberately after the catalogue is already on screen: the browser shows
+     * placeholders immediately and the pictures arrive as they are drawn, which
+     * is better than an empty panel while fifty models render. Each is written
+     * beside its model, so this happens once in the life of a library rather
+     * than once per session.
+     *
+     * Failures are ordinary here -- a model that will not load, a read-only
+     * install -- and leave the placeholder, which is honest about it.
+     *
+     * @public
+     * @async
+     */
+    async ensureThumbnails() {
+      if (this.thumbnailing) return;
+      this.thumbnailing = true;
+      try {
+        const written = await generateMissing(this.objects);
+        if (written) {
+          this.objects = await window.library.objects();
+          if (this.activeKind === 'objects') this.items = this.buildItems('objects');
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[thumbnail] batch failed: ${err.message}`);
+      }
+      this.thumbnailing = false;
     },
     /**
      * One row per object, with folders as unfoldable rows above them.
@@ -965,6 +1012,28 @@ export default {
      * @async
      * @param {Object} item selected list entry
      */
+    /**
+     * Picks a model in the object browser.
+     *
+     * @public
+     * @param {Object} model a library entry
+     */
+    selectObjectModel(model) {
+      this.selectedObject = model;
+      this.fixture.name = model.name;
+      this.patchError = false;
+    },
+    /**
+     * Double-clicking a tile picks it and places it, since that is the only
+     * thing anyone opened this dialog to do.
+     *
+     * @public
+     * @param {Object} model
+     */
+    confirmObjectModel(model) {
+      this.selectObjectModel(model);
+      this.submit();
+    },
     async selectItem(item) {
       if (this.activeKind === 'fixtures') {
         await this.loadFixture(item);

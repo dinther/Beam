@@ -1,11 +1,13 @@
 <template>
   <uk-widget
-    :header="{ title: 'Object', icon: 'object' }"
     class="object_widget"
+    dockable
+    :header="{ title: 'Object', icon: 'object' }"
   >
     <uk-flex
       v-if="!object"
       col
+      class="object_widget_body"
     >
       <span class="object_widget_empty">No object selected</span>
     </uk-flex>
@@ -14,6 +16,7 @@
       v-else-if="!object.isInline"
       col
       :gap="8"
+      class="object_widget_body"
     >
       <span class="object_widget_section">Library model</span>
       <span class="object_widget_note">
@@ -28,6 +31,7 @@
       v-else
       col
       :gap="8"
+      class="object_widget_body"
     >
       <!-- The very same component the create dialog uses. A created object is
            its parameters, so the fields that make one and the fields that
@@ -193,28 +197,47 @@ export default {
 </script>
 
 <style scoped>
+/*
+ * Follows `structure.modifier.widget.vue`, which documents what the widget
+ * shell does to a body left to itself: it centres vertically, so a short one
+ * floats with padding above and below, and it sets `white-space: nowrap` and
+ * clips the overflow, so anything that reads as prose is truncated. Filling the
+ * height and opting back into wrapping is what every other tool here does.
+ */
+.object_widget_body {
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  white-space: normal;
+}
+
 .object_widget_section {
+  font-family: Roboto-Regular;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  opacity: 0.6;
+  color: var(--secondary-light-alt);
 }
 
 .object_widget_empty,
 .object_widget_note {
-  font-size: 12px;
-  opacity: 0.7;
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--secondary-lighter);
+  margin: 0;
 }
 
 .object_widget_warning {
   margin: 0;
-  color: var(--accent-red, #d9534f);
-  font-size: 12px;
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--accent-red);
 }
 
 .object_widget_ok {
   margin: 0;
-  font-size: 12px;
-  opacity: 0.8;
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--secondary-lighter);
 }
 </style>

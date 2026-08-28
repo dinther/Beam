@@ -265,14 +265,18 @@ export default {
 
 <style scoped>
 .object_params {
-  padding: 8px 0;
+  /* No padding of its own: the create dialog and the widget each provide their
+     own, and a form that pads itself as well is inset twice in one of them. */
+  width: 100%;
+  white-space: normal;
 }
 
 .object_params_section {
+  font-family: Roboto-Regular;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  opacity: 0.6;
+  color: var(--secondary-light-alt);
 }
 
 .object_params_colour {
@@ -283,7 +287,7 @@ export default {
   width: 48px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--secondary-darker);
+  border: 1px solid var(--primary-dark);
   border-radius: 3px;
   background: none;
   cursor: pointer;

@@ -117,6 +117,12 @@ export default {
 </script>
 
 <style scoped>
+/* The dialog provides the inset the form deliberately does not. */
+.create_object_form,
+:deep(.object_params) {
+  padding: 8px 0;
+}
+
 .create_object_warning {
   margin: 0;
   color: var(--accent-red, #d9534f);

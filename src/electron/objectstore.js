@@ -264,6 +264,28 @@ function entriesIn(root, folder, shipped = false) {
   // blob, and `resolve` splits on `/` before touching the filesystem.
   const segmentsFor = (file) => (folder ? [folder, file] : [file]);
 
+  /**
+   * A preview image sitting beside the model, if there is one.
+   *
+   * `<name>.png` next to `<name>.glb`, the same convention the metadata
+   * sidecar already follows -- so it needs no index, works in folders, works
+   * for shipped and user objects alike, and a user who wants a better picture
+   * drops one in. `.png`, `.jpg` and `.webp` are already served over
+   * `library://` because a glTF may reference them as textures.
+   *
+   * @param {String} base the model's name without extension
+   * @returns {Object|null} `{ url }` or `{ staticPath }`, whichever addresses it
+   */
+  const thumbnailFor = (base) => {
+    const found = ['.png', '.jpg', '.webp']
+      .map((ext) => `${base}${ext}`)
+      .find((candidate) => fs.existsSync(path.join(dir, candidate)));
+    if (!found) return null;
+    return shipped
+      ? { thumbnailStaticPath: [SHIPPED_DIR, ...segmentsFor(found)].map(encodeURIComponent).join('/') }
+      : { thumbnailUrl: `library://objects/${segmentsFor(found).map(encodeURIComponent).join('/')}` };
+  };
+
   // A user model is served over `library://`, which exists because the user's
   // library is outside the app and nothing else can reach it. A shipped one is
   // already part of the renderer's assets, so it goes the way every other
@@ -299,6 +321,7 @@ function entriesIn(root, folder, shipped = false) {
         kind: 'model',
         url: urlFor(entry.name),
         staticPath: staticPathFor(entry.name),
+        ...(thumbnailFor(path.basename(entry.name, path.extname(entry.name))) || {}),
         shipped,
         bytes: stats.size,
         modified: stats.mtimeMs,
@@ -323,6 +346,7 @@ function entriesIn(root, folder, shipped = false) {
         kind: PRIMITIVE_KIND,
         primitive,
         shipped,
+        ...(thumbnailFor(path.basename(entry.name, '.json')) || {}),
         bytes: stats.size,
         modified: stats.mtimeMs,
         // A built shape is authored in metres, Z up, about its own origin --
@@ -473,6 +497,54 @@ function writePrimitive(name, primitive, folder = null) {
 }
 
 /**
+ * Stores a generated preview image beside its model.
+ *
+ * Beside the model rather than in a cache directory, because that is where an
+ * author-supplied image goes -- so `list` finds it with the code it already
+ * has, folders work, the user can replace or delete one like any other file,
+ * and there is no second place for a picture to hide.
+ *
+ * The key is resolved through `list` rather than by rebuilding a path from it:
+ * the catalogue already knows which root and which folder every key came from,
+ * and reconstructing that here would be a second answer to the same question.
+ *
+ * Never overwrites: an image that exists was either supplied by the user or
+ * generated already, and neither wants replacing behind their back.
+ *
+ * @public
+ * @param {String} key the library key, `folder/name` or `name`
+ * @param {String} dataUrl a `data:image/png;base64,...` url
+ * @returns {Object} `{ ok }` or `{ ok: false, reason }`
+ */
+function writeThumbnail(key, dataUrl) {
+  const entry = list().find((candidate) => candidate.key === key);
+  if (!entry) return { ok: false, reason: 'No such object.' };
+
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+  if (!match) return { ok: false, reason: 'Not a PNG data url.' };
+
+  // A shipped model lives inside the install and is not ours to write to at
+  // runtime. Those are rendered once during development, where `public/` is an
+  // ordinary writable folder, and committed with the build.
+  const root = entry.shipped ? shippedRoot() : objectsRoot();
+  const dir = entry.folder ? path.join(root, entry.folder) : root;
+  const base = path.basename(entry.file, path.extname(entry.file));
+  const target = path.join(dir, `${base}.png`);
+  if (fs.existsSync(target)) return { ok: false, reason: 'A preview already exists.' };
+
+  try {
+    fs.writeFileSync(target, Buffer.from(match[1], 'base64'));
+  } catch (err) {
+    // A read-only install is the ordinary case here, not a fault: the browser
+    // simply keeps showing the placeholder.
+    return { ok: false, reason: `Could not write ${target}: ${err.message}` };
+  }
+  return {
+    ok: true, file: `${base}.png`, folder: entry.folder, shipped: entry.shipped,
+  };
+}
+
+/**
  * Resolves a `library://` request to a file, or refuses it.
  *
  * Refusing is most of the job. The renderer is not trusted to name a path:
@@ -537,6 +609,7 @@ export default {
   metadataFor,
   objectsRoot,
   writePrimitive,
+  writeThumbnail,
   safeName,
   MODEL_EXTENSIONS,
   PRIMITIVE_TYPES,
