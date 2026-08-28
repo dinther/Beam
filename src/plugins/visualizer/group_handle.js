@@ -38,6 +38,30 @@ class GroupHandle {
    *
    * @static
    */
+  /**
+   * Nothing to raycast.
+   *
+   * A structure or a group is not picked in its own right: a ray hits one of
+   * its members and `itemFor` resolves up to the owner. Part of the renderer
+   * interface all the same, so the registry can call it without asking what
+   * kind of renderer this is.
+   *
+   * @static
+   * @returns {Array} always empty
+   */
+  // eslint-disable-next-line class-methods-use-this
+  static pickObjects() {
+    return [];
+  }
+
+  /**
+   * Nothing to band-select, for the same reason.
+   *
+   * @static
+   */
+  // eslint-disable-next-line class-methods-use-this, no-unused-vars
+  static eachSelectable(visit) {}
+
   static clearHighlighting() {
     instances.forEach((handle) => {
       handle.highlighted = false;

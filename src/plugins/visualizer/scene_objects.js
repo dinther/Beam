@@ -460,6 +460,20 @@ function eachSelectable(visit) {
   });
 }
 
+/**
+ * Clears any highlight this renderer draws.
+ *
+ * A no-op today: an object's selection is the shared outline box and the
+ * gizmo, neither of which belongs to this module, so there is no per-instance
+ * state to reset. It exists so the renderer registry can call it without
+ * checking, and so that the day an object gets a highlight material nobody has
+ * to remember to add it to a list -- which is exactly how this renderer came
+ * to be missing from band selection and from `sceneBounds`.
+ *
+ * @public
+ */
+function clearHighlighting() {}
+
 function pickObjects() {
   const out = [];
   models.forEach((model) => out.push(...model.meshes));
@@ -594,6 +608,7 @@ function stats() {
 export default {
   forget,
   eachSelectable,
+  clearHighlighting,
   load,
   place,
   move,

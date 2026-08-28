@@ -554,7 +554,7 @@ class MovingHead {
     instance.highlighted = true;
   }
 
-  static clearHiglighting() {
+  static clearHighlighting() {
     instances.forEach((instance) => {
       instance.highlighted = false;
     });

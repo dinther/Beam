@@ -25,18 +25,28 @@ import GroupHandle from './group_handle';
 /**
  * Everything that draws something selectable.
  *
- * Each answers two questions and nothing else is asked of it: `pickObjects()`
- * for what a raycast should test, and `eachSelectable(visit)` for the band,
- * which projects origins rather than casting rays. How a renderer stores a
- * position -- instanced, per fixture, per model -- stays inside it.
+ * Each answers the same three questions and nothing else is asked of it:
  *
- * Adding a renderer means implementing two methods. It used to mean
- * remembering to edit selection code in three places, and forgetting is
- * exactly how objects came to be pickable but not band-selectable.
+ * - `pickObjects()` -- what a raycast should test.
+ * - `eachSelectable(visit)` -- every instance with its world position, for the
+ *   rubber band, which projects origins rather than casting rays.
+ * - `clearHighlighting()` -- drop whatever highlight this renderer draws.
+ *
+ * How a renderer stores a position -- instanced, per fixture, per model --
+ * stays inside it, and a renderer that has nothing to offer for one of these
+ * implements it as a no-op rather than being left out of a list somewhere.
+ *
+ * **One list, not several.** There were two: this, and a hand-written trio
+ * inside `clearAllHighlighting` that included `GroupHandle` and omitted
+ * `SceneObjects`. Overlapping but not equal, each maintained separately --
+ * which is how objects came to be pickable but not band-selectable, missing
+ * from `sceneBounds`, and absent from highlight clearing. Adding a renderer is
+ * now three methods, and forgetting one is a missing method rather than a
+ * silent omission at a call site nobody thinks to look at.
  *
  * @constant {Array}
  */
-const SELECTION_RENDERERS = [MovingHead, LedBar, SceneObjects];
+const SCENE_RENDERERS = [MovingHead, LedBar, SceneObjects, GroupHandle];
 
 function selectionKey(item) {
   if (!item) return '';
@@ -698,7 +708,7 @@ class Controls {
     // here. It used to: this ran the head instance loop itself, which is why
     // adding a renderer meant remembering to edit selection code, and why
     // objects were missing from band selection until somebody noticed.
-    SELECTION_RENDERERS.forEach((renderer) => {
+    SCENE_RENDERERS.forEach((renderer) => {
       renderer.eachSelectable((item, worldPosition) => {
         if (inBand(worldPosition)) picked.push(item);
       });
@@ -798,7 +808,7 @@ class Controls {
     pointer.y = (-((e.clientY - rect.top) / rect.height) * 2) + 1;
     raycaster.setFromCamera(pointer, this.cameraHandle);
 
-    const targets = SELECTION_RENDERERS
+    const targets = SCENE_RENDERERS
       .flatMap((renderer) => renderer.pickObjects())
       .filter(Boolean);
     const hit = raycaster.intersectObjects(targets, false)[0];
@@ -845,7 +855,7 @@ class Controls {
     // Objects are picked from the geometry itself rather than from a proxy: a
     // truss is its own shape, and a box round one would swallow every fixture
     // standing inside it. Each renderer decides that for itself.
-    const targets = SELECTION_RENDERERS
+    const targets = SCENE_RENDERERS
       .flatMap((renderer) => renderer.pickObjects())
       .filter(Boolean);
     const hits = raycaster.intersectObjects(targets, false);
@@ -1120,7 +1130,7 @@ class Controls {
     // heads and bars and not objects, so framing the scene ignored them --
     // the third instance of one omission, which is the argument for there
     // being one list of renderers rather than three hand-written loops.
-    SELECTION_RENDERERS.forEach((renderer) => {
+    SCENE_RENDERERS.forEach((renderer) => {
       renderer.eachSelectable((item) => {
         const model = item._3DModel;
         if (model && model.expandBounds) model.expandBounds(box);
@@ -1311,9 +1321,7 @@ class Controls {
    */
   // eslint-disable-next-line class-methods-use-this
   clearAllHighlighting() {
-    MovingHead.clearHiglighting();
-    LedBar.clearHighlighting();
-    GroupHandle.clearHighlighting();
+    SCENE_RENDERERS.forEach((renderer) => renderer.clearHighlighting());
   }
 
   setFocus(state, { force = false } = {}) {
