@@ -4,6 +4,7 @@ import {
   TransformControls,
 } from 'three/examples/jsm/controls/TransformControls.js';
 import EventBus from '@/plugins/eventbus';
+import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 import LedBar from './led_bar';
@@ -22,7 +23,7 @@ import GroupHandle from './group_handle';
  */
 function selectionKey(item) {
   if (!item) return '';
-  if (item.isStructure) return `structure:${item.id}`;
+  if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) return `structure:${item.id}`;
   return `fixture:${item.universe}:${item.id}`;
 }
 
@@ -557,8 +558,7 @@ class Controls {
       if (this.pooledInstances.length) {
         EventBus.emit('delete_requested', this.pooledInstances.map((item) => {
           let kind = 'fixture';
-          if (item.isStructure) kind = 'structure';
-          if (item.isObject) kind = 'object';
+          kind = kindOf(item);
           return { kind, id: item.id };
         }));
       }
@@ -919,14 +919,10 @@ class Controls {
     // arriving downstream as fixture 3, an unrelated LED bar, which is exactly
     // the hazard the note above describes for structures. Objects have their
     // own numbering space like structures do, so they need their own kind.
-    const kindOf = (item) => {
-      if (item.isObject) return 'object';
-      if (item.isStructure) return 'structure';
-      return 'fixture';
-    };
     const selectedItems = this.pooledInstances.map((item) => ({
       kind: kindOf(item),
       id: item.id,
+      uid: item.uid,
     }));
     const selectedIds = selectedItems
       .filter((item) => item.kind === 'fixture')
@@ -1365,7 +1361,9 @@ class Controls {
       // Structures move exactly as groups do: their members are not in the
       // selection, so the transform is written to the item and the members
       // follow through their own setters.
-      if ((!instance.isGroup && !instance.isStructure) || !instance._3DModel) return;
+      const instanceKind = kindOf(instance);
+      if ((instanceKind !== SCENE_ITEM_KINDS.GROUP
+        && instanceKind !== SCENE_ITEM_KINDS.STRUCTURE) || !instance._3DModel) return;
       const dummy = instance._3DModel._dummy;
       dummy.updateMatrixWorld(true);
       dummy.getWorldPosition(position);

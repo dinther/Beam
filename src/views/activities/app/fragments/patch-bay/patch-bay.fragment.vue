@@ -61,6 +61,7 @@
 <script>
 import EventBus from '@/plugins/eventbus';
 import Controls from '@/plugins/visualizer/controls';
+import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import PatchPopup from './_popups/popup.patch.vue';
 
 export default {
@@ -132,9 +133,10 @@ export default {
         return {
           name: group.name,
           icon: 'group',
-          id: `group:${group.id}`,
+          id: rowId(SCENE_ITEM_KINDS.GROUP, group.id),
+          kind: group.kind,
+          uid: group.uid,
           groupId: group.id,
-          isGroup: true,
           unfold: group.members.map((member) => this.describeFixture(member)),
         };
       });
@@ -202,7 +204,9 @@ export default {
       return {
         name: fixture.name,
         icon: fixture.isBar ? 'ledbar' : 'movinghead',
-        id: fixture.id,
+        id: rowId(SCENE_ITEM_KINDS.FIXTURE, fixture.id),
+        kind: fixture.kind,
+        uid: fixture.uid,
         universe: fixture.universe,
         address: fixture.address,
         more: `U${fixture.universe} - CH${fixture.chStart + 1}`,
@@ -278,10 +282,10 @@ export default {
      */
     itemFromRow(item) {
       if (!item) return null;
-      if (item.isStructure) {
+      if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) {
         return this.$show.structures.find((s) => s.id === item.structureId) || null;
       }
-      if (item.isGroup) {
+      if (kindOf(item) === SCENE_ITEM_KINDS.GROUP) {
         return this.$show.groups.find((g) => g.id === item.groupId) || null;
       }
       return this.pool.findFromId(item.id);
@@ -294,7 +298,7 @@ export default {
      * @returns {Boolean} whether a group was handled
      */
     deleteGroups(items) {
-      const groupItems = items.filter((item) => item && item.isGroup);
+      const groupItems = items.filter((item) => kindOf(item) === SCENE_ITEM_KINDS.GROUP);
       if (!groupItems.length) return false;
       groupItems.forEach((item) => {
         const group = this.$show.groups.find((candidate) => candidate.id === item.groupId);
@@ -340,11 +344,13 @@ export default {
     reparentItem({ item, target }) {
       // A structure is one item, and what it holds is not in this list, so
       // there is nothing to drag into or out of one.
-      if (!item || item.isGroup || item.isStructure) return;
-      if (target && target.isStructure) return;
+      const itemKind = kindOf(item);
+      if (!item || itemKind === SCENE_ITEM_KINDS.GROUP
+        || itemKind === SCENE_ITEM_KINDS.STRUCTURE) return;
+      if (kindOf(target) === SCENE_ITEM_KINDS.STRUCTURE) return;
       const fixture = this.pool.findFromId(item.id);
       if (!fixture) return;
-      const group = target && target.isGroup
+      const group = kindOf(target) === SCENE_ITEM_KINDS.GROUP
         ? this.$show.groups.find((g) => g.id === target.groupId)
         : null;
       this.$show.moveToGroup(fixture, group);
@@ -357,15 +363,15 @@ export default {
      */
     displayFixture(fixtureData) {
       if (!fixtureData) return;
-      if (fixtureData.isGroup) {
+      if (kindOf(fixtureData) === SCENE_ITEM_KINDS.GROUP) {
         this.selectGroup(fixtureData.groupId);
         return;
       }
-      if (fixtureData.isStructure) {
+      if (kindOf(fixtureData) === SCENE_ITEM_KINDS.STRUCTURE) {
         this.selectStructure(fixtureData.structureId);
         return;
       }
-      if (fixtureData.isObject) {
+      if (kindOf(fixtureData) === SCENE_ITEM_KINDS.OBJECT) {
         this.selectObject(fixtureData.objectId);
         return;
       }
@@ -425,16 +431,16 @@ export default {
       // Deleting a structure or a group takes its contents with it; explode
       // and ungroup are what leave them behind.
       this.deleteGroups(fixtures);
-      fixtures.filter((item) => item && item.isStructure).forEach((item) => {
+      fixtures.filter((item) => kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE).forEach((item) => {
         const structure = this.$show.structures.find((s) => s.id === item.structureId);
         if (structure) this.$show.deleteStructure(structure);
       });
-      fixtures.filter((item) => item && item.isObject).forEach((item) => {
+      fixtures.filter((item) => kindOf(item) === SCENE_ITEM_KINDS.OBJECT).forEach((item) => {
         const object = this.$show.objects.find((o) => o.id === item.objectId);
         if (object) this.$show.removeObject(object);
       });
       fixtures
-        .filter((item) => item && !item.isGroup && !item.isStructure && !item.isObject)
+        .filter((item) => kindOf(item) === SCENE_ITEM_KINDS.FIXTURE)
         .forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
     },
     /**
@@ -478,11 +484,12 @@ export default {
      * @param {Array} selection `{kind, id}` entries from the 3D view
      */
     requestDeletion(selection) {
-      const rows = this.listable.filter((row) => (selection || []).some((entry) => {
-        if (entry.kind === 'structure') return row.isStructure && row.structureId === entry.id;
-        if (entry.kind === 'object') return row.isObject && row.objectId === entry.id;
-        return !row.isStructure && !row.isGroup && !row.isObject && row.id === entry.id;
-      }));
+      // One comparison for every kind, now that a row carries its own. This
+      // was three branches that each had to know about the others, and the
+      // fixture case was "none of the above" -- so a kind nobody had added yet
+      // quietly matched fixtures.
+      const rows = this.listable.filter((row) => (selection || [])
+        .some((entry) => kindOf(row) === entry.kind && row.uid === entry.uid));
       if (rows.length) this.deleteFixtures(rows);
     },
     /**

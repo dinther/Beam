@@ -8,6 +8,7 @@ import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.mod
 import MovingHead from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
 import Controls from '../../plugins/visualizer/controls';
+import { SCENE_ITEM_KINDS, newUid } from './scene_item';
 
 /**
  * Splitting pattern for parsing fine channels
@@ -189,6 +190,10 @@ class Fixture extends Proxify {
    */
   constructor(data = DEFAULT_FIXTURE_DATA) {
     super();
+    /** What this is, for everything that treats scene items alike. */
+    this.kind = SCENE_ITEM_KINDS.FIXTURE;
+    /** Unique across every kind of scene item; see scene_item.js. */
+    this.uid = newUid();
     if (!data.isStub) {
       this.OFLData = data.OFLData;
       // Resolved once here so the panel and the renderer read the same number.

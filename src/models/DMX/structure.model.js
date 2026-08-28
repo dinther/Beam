@@ -3,6 +3,7 @@ import { markRaw } from 'vue';
 import { Proxify } from '../utils/proxify.utils';
 import GroupHandle from '../../plugins/visualizer/group_handle';
 import Controls from '../../plugins/visualizer/controls';
+import { SCENE_ITEM_KINDS, newUid, rowId } from './scene_item';
 
 /**
  * @file One scene item built out of several, placed and moved as a unit.
@@ -50,6 +51,10 @@ class Structure extends Proxify {
    */
   constructor(data = {}) {
     super();
+    /** What this is, for everything that treats scene items alike. */
+    this.kind = SCENE_ITEM_KINDS.STRUCTURE;
+    /** Unique across every kind of scene item; see scene_item.js. */
+    this.uid = newUid();
     this._id = data.id !== undefined ? data.id : structureCount;
     structureCount = Math.max(structureCount, this._id + 1);
     this._name = data.name || 'untitled';
@@ -147,9 +152,10 @@ class Structure extends Proxify {
     return {
       name: this._name,
       icon: 'structure',
-      id: `structure:${this._id}`,
+      id: rowId(SCENE_ITEM_KINDS.STRUCTURE, this._id),
+      kind: this.kind,
+      uid: this.uid,
       structureId: this._id,
-      isStructure: true,
       more: `${this.members.length} item${this.members.length === 1 ? '' : 's'}`,
     };
   }

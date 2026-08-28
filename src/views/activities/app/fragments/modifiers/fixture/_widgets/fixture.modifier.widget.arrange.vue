@@ -204,6 +204,7 @@
 <script>
 import * as THREE from 'three';
 import Controls from '@/plugins/visualizer/controls';
+import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
 import {
   LAYOUT,
   AIM,
@@ -493,7 +494,7 @@ export default {
       if (!this.kind || this.items.length < 2) return;
       this.capture();
       this.placements().forEach(({ item, position, rotation }) => {
-        if (item.isStructure) {
+        if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) {
           this.previewStructure(item, position, rotation);
           return;
         }

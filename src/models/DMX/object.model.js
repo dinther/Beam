@@ -3,6 +3,7 @@ import { markRaw } from 'vue';
 import SceneObjects from '../../plugins/visualizer/scene_objects';
 import SceneManager from '../../plugins/visualizer/scene_manager';
 import Controls from '../../plugins/visualizer/controls';
+import { SCENE_ITEM_KINDS, newUid, rowId } from './scene_item';
 
 /**
  * @file A 3D model standing in the scene.
@@ -39,6 +40,10 @@ class SceneObject {
    * @param {Number} [data.scale] uniform, on top of the model's own units
    */
   constructor(data = {}) {
+    /** What this is, for everything that treats scene items alike. */
+    this.kind = SCENE_ITEM_KINDS.OBJECT;
+    /** Unique across every kind of scene item; see scene_item.js. */
+    this.uid = newUid();
     nextId += 1;
     this._id = data.id === undefined ? nextId : data.id;
     if (this._id >= nextId) nextId = this._id + 1;
@@ -203,9 +208,10 @@ class SceneObject {
     return {
       name: this._name,
       icon: 'structure',
-      id: `object:${this._id}`,
+      id: rowId(SCENE_ITEM_KINDS.OBJECT, this._id),
+      kind: this.kind,
+      uid: this.uid,
       objectId: this._id,
-      isObject: true,
       more: this.unresolved ? `missing: ${this.model}` : this.model,
     };
   }

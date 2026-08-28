@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Proxify } from '../utils/proxify.utils';
 import GroupHandle from '../../plugins/visualizer/group_handle';
+import { SCENE_ITEM_KINDS, newUid } from './scene_item';
 
 /**
  * @file A named group of scene objects that moves as one.
@@ -37,6 +38,10 @@ class Group extends Proxify {
    */
   constructor(data = {}) {
     super();
+    /** What this is, for everything that treats scene items alike. */
+    this.kind = SCENE_ITEM_KINDS.GROUP;
+    /** Unique across every kind of scene item; see scene_item.js. */
+    this.uid = newUid();
     this._id = data.id !== undefined ? data.id : groupCount;
     groupCount = Math.max(groupCount, this._id + 1);
     this._name = data.name || `Group ${this._id + 1}`;
