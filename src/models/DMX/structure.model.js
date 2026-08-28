@@ -88,18 +88,6 @@ class Structure extends Proxify {
     this._3DModel.sync();
   }
 
-  /**
-   * A structure is not a fixture, but selection treats the two alike; this is
-   * how it tells them apart without instanceof across module lines.
-   *
-   * @readonly
-   * @type {Boolean}
-   */
-  // eslint-disable-next-line class-methods-use-this
-  get isStructure() {
-    return true;
-  }
-
   get id() {
     return this._id;
   }

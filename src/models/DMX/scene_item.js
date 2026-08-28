@@ -79,22 +79,19 @@ export function newUid() {
 /**
  * The kind of an item, however it declares itself.
  *
- * Prefers `kind`, and falls back to the old boolean flags so that anything not
- * yet converted -- including a plain list row built elsewhere -- still answers
- * correctly rather than silently reading as a fixture, which is what the
- * `? :` chains did.
+ * Null for anything that does not declare one. It used to fall back to the old
+ * boolean flags and, failing those, to fixture -- which is the very default
+ * that made every missed kind silent: a thing nobody had handled quietly
+ * became a fixture and failed later, somewhere else. Every model and every
+ * list row carries `kind` now, so a null here means a genuine omission and
+ * should look like one.
  *
  * @public
  * @param {Object} item a model or a list row
  * @returns {String|null} one of `SCENE_ITEM_KINDS`, or null
  */
 export function kindOf(item) {
-  if (!item) return null;
-  if (item.kind) return item.kind;
-  if (item.isGroup) return SCENE_ITEM_KINDS.GROUP;
-  if (item.isStructure) return SCENE_ITEM_KINDS.STRUCTURE;
-  if (item.isObject) return SCENE_ITEM_KINDS.OBJECT;
-  return SCENE_ITEM_KINDS.FIXTURE;
+  return (item && item.kind) || null;
 }
 
 /**

@@ -211,21 +211,29 @@ class Show extends EventEmitter {
    *
    * @type {Number}
    */
-  // eslint-disable-next-line class-methods-use-this
-  // eslint-disable-next-line class-methods-use-this
   /**
-   * @method undo
-   * forward undo instruction to prify instance
+   * Steps the undo stack back one.
+   *
+   * An **instance** method, not static. It was static while its only caller --
+   * the Edit menu -- wrote `this.$show.undo()`, so Undo threw
+   * `this.$show.undo is not a function` every time it was clicked and had
+   * never worked. Every other thing the app asks of the show goes through
+   * `$show`, so the call site was right and the declaration was wrong.
+   *
+   * @public
    */
-  static undo() {
+  // eslint-disable-next-line class-methods-use-this
+  undo() {
     ProxifySingleton.undo();
   }
 
   /**
-   * @method redo
-   * forward redo instruction to prify instance
+   * Steps the undo stack forward one.
+   *
+   * @public
    */
-  static redo() {
+  // eslint-disable-next-line class-methods-use-this
+  redo() {
     ProxifySingleton.redo();
   }
 

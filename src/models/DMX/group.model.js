@@ -71,18 +71,6 @@ class Group extends Proxify {
     this._3DModel.sync();
   }
 
-  /**
-   * A group is not a fixture, but selection treats the two alike; this is how
-   * it tells them apart without resorting to instanceof across module lines.
-   *
-   * @readonly
-   * @type {Boolean}
-   */
-  // eslint-disable-next-line class-methods-use-this
-  get isGroup() {
-    return true;
-  }
-
   get id() {
     return this._id;
   }

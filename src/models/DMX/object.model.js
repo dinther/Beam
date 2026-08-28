@@ -197,18 +197,6 @@ class SceneObject {
     }
   }
 
-  /**
-   * Selection treats items alike and tells them apart by these rather than by
-   * `instanceof`, which does not survive module boundaries here.
-   *
-   * @readonly
-   * @type {Boolean}
-   */
-  // eslint-disable-next-line class-methods-use-this
-  get isObject() {
-    return true;
-  }
-
   get id() {
     return this._id;
   }
