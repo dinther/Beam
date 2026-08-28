@@ -5,6 +5,7 @@ import {
 } from 'three/examples/jsm/controls/TransformControls.js';
 import EventBus from '@/plugins/eventbus';
 import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
+import Selection from '@/models/DMX/selection';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 import LedBar from './led_bar';
@@ -919,6 +920,11 @@ class Controls {
     // arriving downstream as fixture 3, an unrelated LED bar, which is exactly
     // the hazard the note above describes for structures. Objects have their
     // own numbering space like structures do, so they need their own kind.
+    // The store first: it is what the item list and the modifier panel read,
+    // and it is the only place the selection is actually kept. The event stays
+    // for anything still listening, and carries the same answer.
+    Selection.set(this.pooledInstances, primary);
+
     const selectedItems = this.pooledInstances.map((item) => ({
       kind: kindOf(item),
       id: item.id,

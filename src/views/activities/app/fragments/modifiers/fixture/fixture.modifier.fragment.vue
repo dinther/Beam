@@ -56,6 +56,8 @@
 
 <script>
 import EventBus from '@/plugins/eventbus';
+import Selection from '@/models/DMX/selection';
+import { SCENE_ITEM_KINDS } from '@/models/DMX/scene_item';
 
 import FixtureSettingsWidget from './_widgets/fixture.modifier.widget.settings.vue';
 import PositionToolWidget from './_widgets/fixture.modifier.widget.position.tool.vue';
@@ -100,20 +102,6 @@ export default {
        */
       selectedFixtures: [],
       /**
-       * Currently selected structure, when a whole structure is what the pick
-       * resolved to. Its own widget is not built yet; this is here so the
-       * single-fixture widgets do not stay up showing a stale member.
-       */
-      selectedStructure: null,
-      /**
-       * The object being edited, or null.
-       *
-       * There are no object widgets yet, so this exists to say "an object is
-       * selected, and none of the fixture widgets apply". Without it an object
-       * left the previous fixture's widgets on screen.
-       */
-      selectedObject: null,
-      /**
        * The whole selection as items: a fixture standing on its own, or a
        * structure, each counting once. What Arrange acts on.
        */
@@ -126,6 +114,30 @@ export default {
     };
   },
   computed: {
+    /**
+     * The selected structure, or null -- read from the selection store.
+     *
+     * Derived, not kept. This was a field that several code paths had to
+     * remember to clear, and the one that forgot left a structure's widgets on
+     * screen over a fixture. A view cannot be stale.
+     *
+     * @returns {Object|null}
+     */
+    selectedStructure() {
+      const { primary } = Selection;
+      if (!primary || primary.kind !== SCENE_ITEM_KINDS.STRUCTURE) return null;
+      return this.$show.structures.find((item) => item.uid === primary.uid) || null;
+    },
+    /**
+     * The selected object, or null -- read from the selection store.
+     *
+     * @returns {Object|null}
+     */
+    selectedObject() {
+      const { primary } = Selection;
+      if (!primary || primary.kind !== SCENE_ITEM_KINDS.OBJECT) return null;
+      return this.$show.objects.find((item) => item.uid === primary.uid) || null;
+    },
     /**
      * Whether the single-fixture widgets should be showing.
      *
@@ -302,8 +314,7 @@ export default {
         this.highlightMember(false);
         this.selectedFixture = null;
         this.selectedGroup = null;
-        this.selectedStructure = null;
-        this.selectedObject = null;
+
         this.selectedFixtures = [];
         this.selectedItems = [];
         return;
@@ -320,28 +331,6 @@ export default {
       // A structure is one item, not the fixtures inside it. Picking one has
       // to clear the fixture selection outright, or the single-fixture widgets
       // stay up editing whichever member was clicked last.
-      this.selectedStructure = payload.structureId === undefined
-        ? null
-        : this.$show.structures.find((s) => s.id === payload.structureId) || null;
-      if (this.selectedStructure) {
-        this.selectedFixture = null;
-        this.selectedFixtures = [];
-        this.selectedObject = null;
-        return;
-      }
-
-      // Same rule as a structure: an object is one item and none of the
-      // fixture widgets edit it, so picking one clears them outright rather
-      // than leaving whichever fixture was selected last on screen.
-      this.selectedObject = payload.objectId === undefined
-        ? null
-        : this.$show.objects.find((o) => o.id === payload.objectId) || null;
-      if (this.selectedObject) {
-        this.selectedFixture = null;
-        this.selectedFixtures = [];
-        return;
-      }
-
       // The primary follows the payload, not only the route.
       //
       // It used to be set solely by the route watcher, and a selection of

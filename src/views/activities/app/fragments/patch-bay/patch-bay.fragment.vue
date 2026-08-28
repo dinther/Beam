@@ -62,6 +62,7 @@
 import EventBus from '@/plugins/eventbus';
 import Controls from '@/plugins/visualizer/controls';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
+import Selection from '@/models/DMX/selection';
 import PatchPopup from './_popups/popup.patch.vue';
 
 export default {
@@ -87,7 +88,6 @@ export default {
        * a fixture is its numeric id, a structure the `structure:N` its row
        * carries, since the two number themselves independently.
        */
-      highlightedIds: [],
       /**
        * Whether the Arrange panel is open.
        *
@@ -107,6 +107,19 @@ export default {
     };
   },
   computed: {
+    /**
+     * Which rows are lit, straight from the selection store.
+     *
+     * Derived rather than kept: the list, the 3D view and the modifier panel
+     * all showed the same selection from their own copies of it, and the copies
+     * disagreed. Row ids are namespaced by kind because ids are not unique
+     * between kinds, and `rowId` is the one place that is spelled out.
+     *
+     * @returns {Array}
+     */
+    highlightedIds() {
+      return Selection.items.map((item) => rowId(item.kind, item.id));
+    },
     /**
      * Whether there is anything to arrange. One item has no arrangement.
      *
@@ -450,25 +463,15 @@ export default {
      * @param {Object} payload {fixtureId, selectedIds}, or null to clear
      */
     handleFixturePicked(payload) {
-      if (!payload) {
-        this.highlightedIds = [];
-        return;
-      }
+      if (!payload) return;
       // A new selection closes the panel. Left open it would re-arrange the
       // next two things picked, which is the surprise this button exists to
       // remove.
       this.setArrangeOpen(false);
-      // Built from the typed selection, so a structure highlights its own row
-      // rather than whichever fixture happens to share its number.
-      // Row ids are namespaced by kind, because the three are separate
-      // numbering spaces -- `listable` builds them the same way. An object
-      // mapped to a bare number matched no row at all, so an object picked in
-      // the 3D view never lit up in the list.
-      this.highlightedIds = (payload.selectedItems || []).map((item) => {
-        if (item.kind === 'structure') return `structure:${item.id}`;
-        if (item.kind === 'object') return `object:${item.id}`;
-        return item.id;
-      });
+      // Nothing to copy: `highlightedIds` is a computed view of the selection
+      // store. It used to be rebuilt here by hand with a branch per kind, and
+      // an object mapped to a bare number matched no row at all -- so an
+      // object picked in the 3D view never lit up in the list.
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
     },
