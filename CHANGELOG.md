@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+Haze got about ten times cheaper and now fills the room rather than only the
+beams, the scene finally has ambient light, and objects can be built, edited and
+organised without leaving the app.
+
+### Haze costs a tenth of what it did
+
+- **About 10 ms of GPU time down to about 1 ms**, measured across twelve beams
+  filling the screen.
+
+  Every fragment of every beam was evaluating four octaves of simplex noise --
+  a lattice permutation, eight gradient dots and a normalisation, four times
+  over, for each pixel the beams covered. The same field is now baked once into
+  a small tiling 3D texture and read back with four filtered fetches.
+
+  Those four fetches cost what one did, which says the bottleneck was never
+  bandwidth. There is room to spend on quality if it is ever wanted.
+
+- **One field for every fixture type.** Beams, LED strips and panel halos read
+  the same noise at the same scale through one shared shader. The glows had been
+  sampling a flat slice with time standing in for the third axis, through a
+  private feature size the haze scale control could not reach -- so a glow and a
+  beam standing in the same air disagreed about how coarse that air was.
+
+### The room has light of its own
+
+- **Ambient light**, where there was none. A single directional lamp meant every
+  surface facing away from one corner rendered pure black. An environment lights
+  them now, which also gives metals something to reflect.
+
+- **Haze in the air itself.** Everything that showed haze was geometry -- a beam
+  cone, a glow billboard -- so the space between fixtures was perfectly clear. A
+  depth-aware pass now walks each view ray through the same field, so the room
+  has body.
+
+- **House lights up clears the room**, the way work light does, while beams and
+  LED glows keep theirs. The background lifts to a working grey and returns to
+  the chosen colour when the house goes down.
+
+### Objects
+
+- **Build them in the app.** Cubes, cylinders, spheres and planes, with a name,
+  a size in millimetres of a metre, and a colour.
+
+- **They stay editable.** A created object keeps its parameters in the show, so
+  it can be widened or recoloured whenever -- select it and the same fields that
+  made it are there to change. Creating one used to mint a permanent library
+  entry and freeze it, so a wider cube meant a second cube.
+
+- **Save to library is a separate, deliberate act**, and it saves a template:
+  the object in the scene keeps its own parameters, so editing it later cannot
+  reach back and change everything else stamped from that entry.
+
+- **Folders**, one level, in the object library. Objects are referenced by path
+  now, so two folders may each hold a truss; shows written before folders
+  existed still resolve.
+
+- **A library that ships with the app**, merged with your own. Yours wins on a
+  clash, so a supplied model can be replaced without deleting anything, and
+  deleting yours brings it back.
+
+- **A browser with pictures.** The Objects tab is folders of square tiles, and a
+  preview is rendered for anything that has none and stored beside the model --
+  once in the life of a library, not once per session.
+
+### Fixed
+
+- **Undo and redo have never worked.** They were declared static while the Edit
+  menu called them on the show, so both threw the moment they were clicked.
+
+- **Selection is one thing now.** It had been kept in three places at once --
+  the route, an event and the 3D view -- with each consumer holding its own
+  copy and nothing reconciling them. Adding several fixtures left the
+  single-fixture panel up; an object picked in 3D never lit its row; selecting a
+  fixture left another kind's widgets on screen. Everything that shows a
+  selection now reads one source.
+
+- **Everything added to the scene arrives selected** -- all of it, not just the
+  first of a batch -- so the next step is available without selecting it again.
+  Applying an arrangement keeps the selection too.
+
+- **Screen recordings no longer leak.** Each one stayed in memory for the rest
+  of the session, and the download threw on its way out.
+
 ## 0.1.0-alpha.4
 
 Two things: DMX input got a great deal faster, and MadMapper finally takes our
