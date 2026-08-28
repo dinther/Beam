@@ -264,10 +264,19 @@ async function load(descriptor) {
 
   // A created object is parameters, not a file: build it and skip the loader
   // entirely. Everything past this point is the same for both kinds.
+  // A shipped model is part of the renderer's own assets, so it is addressed
+  // the way every other shipped asset is. Main hands over the relative path
+  // rather than a finished url, because the prefix is a renderer concern:
+  // `VITE_STATIC_URL` is empty in development, where Vite serves `public/`
+  // itself, and `static://` only exists in a packaged build.
+  const source = descriptor.staticPath
+    ? `${import.meta.env.VITE_STATIC_URL}/${descriptor.staticPath}`
+    : descriptor.url;
+
   const fetched = descriptor.kind === 'primitive'
     ? Promise.resolve(null)
     : new Promise((resolve, reject) => {
-      loader.load(descriptor.url, resolve, undefined, reject);
+      loader.load(source, resolve, undefined, reject);
     });
 
   const pending = fetched.then((gltf) => {

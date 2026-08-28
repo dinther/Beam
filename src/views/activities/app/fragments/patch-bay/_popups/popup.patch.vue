@@ -351,6 +351,9 @@ const DEFAULT_FIXTURE_DATA = {
   loaded: false,
 };
 
+/** What the root objects are gathered under once folders exist. */
+const UNSORTED_FOLDER = 'Unsorted';
+
 export default {
   name: 'UkPopupPatch',
   components: {
@@ -874,19 +877,76 @@ export default {
       }
       if (this.activeKind === 'objects') this.items = this.buildItems('objects');
     },
+    /**
+     * One row per object, with folders as unfoldable rows above them.
+     *
+     * A folder in `Library/Objects` is a category, and one level of them is all
+     * the catalogue offers -- which happens to be exactly what `uk-list` nests,
+     * so this is the same shape the group rows already use.
+     *
+     * Root objects come first and unfoldered, so a library nobody has organised
+     * looks exactly as it did before folders existed.
+     *
+     * @public
+     * @returns {Array} list rows
+     */
+    objectRows() {
+      // Last, and named for what it is: these are the objects sitting loose in
+      // Library/Objects, not the contents of a folder called this.
+      const row = (model) => ({
+        name: model.name,
+        icon: 'structure',
+        object: model,
+        // Its size on disk says nothing useful; whether it has been through
+        // import decides how it will be scaled and turned, and that is the
+        // thing worth knowing before placing one.
+        more: [
+          model.described ? `${model.scale}x ${String(model.upAxis).toUpperCase()}-up` : 'not imported',
+          // Worth saying: a shipped model cannot be edited or deleted from
+          // here, and one of the same name in the user's library replaces it.
+          model.shipped ? 'supplied' : null,
+        ].filter(Boolean).join(' · '),
+      });
+
+      const roots = this.objects.filter((model) => !model.folder);
+      const folders = new Map();
+      this.objects.filter((model) => model.folder).forEach((model) => {
+        if (!folders.has(model.folder)) folders.set(model.folder, []);
+        folders.get(model.folder).push(model);
+      });
+
+      const folderRow = (name, models) => ({
+        name,
+        icon: 'group',
+        // No `object`, so selecting the folder itself places nothing -- the
+        // Add button stays disabled until something inside it is chosen.
+        more: `${models.length}`,
+        unfold: models.map(row),
+      });
+
+      const folderRows = [...folders.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([folder, models]) => folderRow(folder, models));
+
+      // Nothing filed yet: show the objects themselves rather than one folder
+      // holding all of them, which would be a category that says nothing.
+      if (!folderRows.length) return roots.map(row);
+
+      // Otherwise the top level is folders and only folders. Six loose files
+      // above four folders is more clutter than catalogue, and the loose ones
+      // are the least likely to be what is being looked for -- they are the
+      // ones nobody has got round to filing.
+      //
+      // `Unsorted` is not a directory on disk, and saying so matters: renaming
+      // or moving it in Explorer will not do anything, because it is the
+      // absence of a folder rather than the presence of one.
+      return roots.length
+        ? [...folderRows, folderRow(UNSORTED_FOLDER, roots)]
+        : folderRows;
+    },
     buildItems(id) {
       if (id === 'fixtures') return this.prepareFixtures();
-      if (id === 'objects') {
-        return this.objects.map((model) => ({
-          name: model.name,
-          icon: 'structure',
-          object: model,
-          // Its size on disk says nothing useful; whether it has been through
-          // import decides how it will be scaled and turned, and that is the
-          // thing worth knowing before placing one.
-          more: model.described ? `${model.scale}x ${String(model.upAxis).toUpperCase()}-up` : 'not imported',
-        }));
-      }
+      if (id === 'objects') return this.objectRows();
       if (id === 'structures') {
         const structures = this.$show.structureLibrary || {};
         return Object.keys(structures).map((name) => ({

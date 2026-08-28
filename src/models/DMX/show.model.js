@@ -1030,8 +1030,18 @@ class Show extends EventEmitter {
     if (!window.library || !window.library.objects) return;
     try {
       const listed = await window.library.objects();
+      // Keyed by the library key, which is `folder/name` for anything in a
+      // folder. It has to be the path: two folders may each hold a `truss`,
+      // and a show that stored only the name could not say which it meant.
+      //
+      // The bare name is registered too, but never over a real key -- that is
+      // what keeps shows written before folders existed resolving. An object
+      // that was at the root and has since been filed into a folder still
+      // finds itself; one whose name is now ambiguous resolves to the first
+      // listed, which is better than resolving to nothing.
       this.objectLibrary = listed.reduce((all, model) => {
-        all[model.name] = model;
+        all[model.key] = model;
+        if (!all[model.name]) all[model.name] = model;
         return all;
       }, {});
     } catch (err) {
@@ -1057,7 +1067,9 @@ class Show extends EventEmitter {
       ? { ...descriptor.primitive, type: descriptor.primitive.type || descriptor.type }
       : null;
     const object = new SceneObject({
-      model: inline ? undefined : descriptor.name,
+      // The key, not the name: it is what the showfile stores and what
+      // `objectLibrary` is keyed by.
+      model: inline ? undefined : (descriptor.key || descriptor.name),
       primitive: inline,
       name: this.numberedObjectName(descriptor.name),
       position: transform.position,
