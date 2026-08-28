@@ -28,6 +28,23 @@ const SHOWFILE_EXTENSIONS = {
 const fixtureDataCache = {};
 
 /**
+ * A model reference, folded so two spellings of one file name meet.
+ *
+ * Library keys are file names, and the filesystems Beam runs on do not agree
+ * about whether case is part of a name -- Windows and macOS say no, Linux says
+ * yes. A show carries whatever spelling was current when the object was placed,
+ * so an exact compare turns a harmless rename into a show that has lost its
+ * models. Folded here rather than at each call site so the reference and the
+ * library are always compared the same way.
+ *
+ * @param {String} key a library key or model name
+ * @returns {String} the key, folded for comparison only
+ */
+function foldModelKey(key) {
+  return String(key === undefined || key === null ? '' : key).toLowerCase();
+}
+
+/**
  * Fetches a library profile, or null if there is not one to be had.
  *
  * Validated rather than merely fetched. The dev server answers an unknown path
@@ -1009,7 +1026,7 @@ class Show extends EventEmitter {
     if (!this.objects.length) return;
     await this.preloadObjectLibrary();
     this.objects.forEach((object) => {
-      object.attach(this.objectLibrary[object.model] || null);
+      object.attach(this.objectLibrary[foldModelKey(object.model)] || null);
     });
     const missing = this.objects.filter((object) => object.unresolved);
     if (missing.length) {
@@ -1039,9 +1056,19 @@ class Show extends EventEmitter {
       // that was at the root and has since been filed into a folder still
       // finds itself; one whose name is now ambiguous resolves to the first
       // listed, which is better than resolving to nothing.
+      //
+      // Registered under a folded key, and looked up the same way. A library
+      // key is a file name, and on Windows a file's capitalisation can change
+      // without anything looking like it changed -- but this lookup is an exact
+      // string compare, so `Audio/Sub_Speaker` stopped finding
+      // `Audio/Sub_speaker` and every object placed from it silently became
+      // unresolved. It bit hardest between a development checkout and an
+      // installed build, where the two copies of a model had drifted in case
+      // alone.
       this.objectLibrary = listed.reduce((all, model) => {
-        all[model.key] = model;
-        if (!all[model.name]) all[model.name] = model;
+        all[foldModelKey(model.key)] = model;
+        const name = foldModelKey(model.name);
+        if (!all[name]) all[name] = model;
         return all;
       }, {});
     } catch (err) {

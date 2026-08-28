@@ -8,6 +8,7 @@
   "private": true,
   "main": "./out/main/main.js",
   "scripts": {
+    "test": "node test/build.mjs && node test/run.mjs",
     "start": "vite",
     "build": "vite build",
     "lint": "eslint --ext .js,.vue --ignore-path .gitignore --fix src",

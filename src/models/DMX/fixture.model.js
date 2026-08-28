@@ -8,7 +8,8 @@ import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.mod
 import MovingHead from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
 import Controls from '../../plugins/visualizer/controls';
-import { SCENE_ITEM_KINDS, newUid } from './scene_item';
+import withTransform from './scene_item.transform';
+import { SCENE_ITEM_KINDS } from './scene_item';
 
 /**
  * Splitting pattern for parsing fine channels
@@ -173,7 +174,7 @@ const DEFAULT_FIXTURE_DATA = {
  * @class
  * @classdesc Definition of a DMX512 Fixture model
  */
-class Fixture extends Proxify {
+class Fixture extends withTransform(Proxify) {
   /**
    * @param {Object} data Fixture initialisation data
    * @param {Object} data.OFLData OFL Object fixture configuration
@@ -191,9 +192,9 @@ class Fixture extends Proxify {
   constructor(data = DEFAULT_FIXTURE_DATA) {
     super();
     /** What this is, for everything that treats scene items alike. */
-    this.kind = SCENE_ITEM_KINDS.FIXTURE;
-    /** Unique across every kind of scene item; see scene_item.js. */
-    this.uid = newUid();
+    // Kind and uid together: both are the scene-item identity, and every kind
+    // stamps it the same way. See scene_item.js.
+    this.initSceneItem(SCENE_ITEM_KINDS.FIXTURE);
     if (!data.isStub) {
       this.OFLData = data.OFLData;
       // Resolved once here so the panel and the renderer read the same number.
@@ -339,70 +340,6 @@ class Fixture extends Proxify {
     };
   }
 
-  /** *******************************************
-   * POSITION MODIFIERS                        *
-   ******************************************** */
-
-  /**
-   * Fixture's X position in 3D space (meter)
-   *
-   * @type {Number}
-   */
-  set posX(xVal) {
-    if (!Number.isNaN(xVal)) {
-      Controls.detach(this);
-      this._position.x = xVal;
-      this._3DModel.position = this.position;
-      Controls.attach(this);
-    } else {
-      this._position.x = this.position.x;
-    }
-  }
-
-  get posX() {
-    return this.position.x;
-  }
-
-  /**
-   * Fixture's Y position in 3D space (meter)
-   *
-   * @type {Number}
-   */
-  set posY(yVal) {
-    if (!Number.isNaN(yVal)) {
-      Controls.detach(this);
-      this._position.y = yVal;
-      this._3DModel.position = this.position;
-      Controls.attach(this);
-    } else {
-      this._position.y = this.position.y;
-    }
-  }
-
-  get posY() {
-    return this.position.y;
-  }
-
-  /**
-   * Fixture's Z position in 3D space (meter)
-   *
-   * @type {Number}
-   */
-  set posZ(zVal) {
-    if (!Number.isNaN(zVal)) {
-      Controls.detach(this);
-      this._position.z = zVal;
-      this._3DModel.position = this.position;
-      Controls.attach(this);
-    } else {
-      this._position.z = this.position.z;
-    }
-  }
-
-  get posZ() {
-    return this.position.z;
-  }
-
   /**
    * A coordinate the renderer can actually use, or the one already held.
    *
@@ -422,6 +359,20 @@ class Fixture extends Proxify {
    *
    * @type {Object}
    */
+  /**
+   * A fixture is drawn by its 3D model, so a changed transform has to reach it.
+   *
+   * Only the field that moved is pushed. Writing both on every keystroke would
+   * re-assert a rotation the head may have animated away from since.
+   *
+   * @param {String} field `'_position'`, `'_rotation'`, or undefined for both
+   */
+  applyTransform(field) {
+    if (!this._3DModel) return;
+    if (field !== '_rotation') this._3DModel.position = this._position;
+    if (field !== '_position') this._3DModel.rotation = this._rotation;
+  }
+
   set position(positionData) {
     // A non-finite coordinate is not a position, it is a fixture that stops
     // being drawn: NaN reaches the renderer, poisons the world matrix, and the
@@ -443,54 +394,6 @@ class Fixture extends Proxify {
       y: this._position.y,
       z: this._position.z,
     };
-  }
-
-  /**
-   * Fixture's X rotation in 3D space (degree)
-   *
-   * @type {Number}
-   */
-  set rotX(xVal) {
-    Controls.detach(this);
-    this._rotation.x = Fixture.degToRad(xVal);
-    this._3DModel.rotation = this._rotation;
-    Controls.attach(this);
-  }
-
-  get rotX() {
-    return this.rotation.x;
-  }
-
-  /**
-   * Fixture's Y rotation in 3D space (degree)
-   *
-   * @type {Number}
-   */
-  set rotY(yVal) {
-    Controls.detach(this);
-    this._rotation.y = Fixture.degToRad(yVal);
-    this._3DModel.rotation = this._rotation;
-    Controls.attach(this);
-  }
-
-  get rotY() {
-    return this.rotation.y;
-  }
-
-  /**
-   * Fixture's Z rotation in 3D space (degree)
-   *
-   * @type {Number}
-   */
-  set rotZ(zVal) {
-    Controls.detach(this);
-    this._rotation.z = Fixture.degToRad(zVal);
-    this._3DModel.rotation = this._rotation;
-    Controls.attach(this);
-  }
-
-  get rotZ() {
-    return this.rotation.z;
   }
 
   /**
@@ -517,29 +420,6 @@ class Fixture extends Proxify {
       y: Fixture.radToDeg(this._rotation.y),
       z: Fixture.radToDeg(this._rotation.z),
     };
-  }
-
-  /**
-   * Rotation in radians, as the renderers and matrix maths want it. The plain
-   * `rotation` accessor is in degrees, for the UI.
-   *
-   * @type {Object}
-   */
-  get rotationRad() {
-    return { ...this._rotation };
-  }
-
-  set rotationRad(rotationData) {
-    if (rotationData) {
-      this._rotation = {
-        x: rotationData.x,
-        y: rotationData.y,
-        z: rotationData.z,
-      };
-      if (this._3DModel) {
-        this._3DModel.rotation = this._rotation;
-      }
-    }
   }
 
   /** *******************************************************************

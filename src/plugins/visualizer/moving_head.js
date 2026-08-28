@@ -285,13 +285,18 @@ class MovingHead {
     this._colorWheel = data.colorWheel;
     this._activeColorPreset = false;
     /**
+     * The colour the wheel currently puts in front of the lamp, or null for an
+     * open slot. Kept rather than written straight to the beam because on a
+     * fixture that also mixes colour the two are in series -- see
+     * `recomputeBeamColor`.
+     */
+    this._wheelColor = null;
+    /**
      * Raw 0-1 intensity per emitter, keyed by normalised OFL colour name. The
      * beam colour is derived from these rather than written channel by channel,
      * so white and amber can add to red/green/blue instead of overwriting them.
      */
     this._emitters = {};
-    /** Whether any colour channel has ever been driven. */
-    this._hasColorMix = false;
     this._highlighted = false;
 
     this.prepareInstance();
@@ -583,14 +588,24 @@ class MovingHead {
    * @type {Number}
    */
   set colorWheelSlot(slotId) {
-    if (this._colorWheel.length && slotId < this._colorWheel.length) {
-      const slotValue = this._colorWheel[slotId];
-      if (slotValue.type === SLOT_TYPES.COLOR) {
-        this.color = slotValue.colors ? slotValue.colors[0] : 'white';
-      } else if (slotValue.type === SLOT_TYPES.OPEN) {
-        this.colorTemp = this._colorTemp;
-      }
+    // `slotId >= 0` matters: a slot number of zero computes an index of -1,
+    // which passed the upper bound, read past the start of the wheel and threw
+    // on the undefined it found.
+    if (slotId < 0 || slotId >= this._colorWheel.length) return;
+    const slotValue = this._colorWheel[slotId];
+    if (slotValue.type === SLOT_TYPES.COLOR) {
+      this._wheelColor = new THREE.Color(slotValue.colors ? slotValue.colors[0] : 'white');
+    } else if (slotValue.type === SLOT_TYPES.OPEN) {
+      this._wheelColor = null;
+    } else {
+      // A shake or a rotation is not a colour; leave the beam as it is.
+      return;
     }
+    // Through the mix rather than straight onto the beam: a head with a wheel
+    // *and* CMY has both in the light path, and whichever wrote last used to
+    // win. Writing the beam here meant the wheel won for one channel and lost
+    // for the next three, every frame.
+    this.recomputeBeamColor();
   }
 
   /**
@@ -669,25 +684,42 @@ class MovingHead {
   recomputeBeamColor() {
     if (this._activeColorPreset) return;
 
-    // Before any colour channel is touched -- and for fixtures that have none
-    // at all -- the beam is simply the fixture's own white.
-    if (!this._hasColorMix) {
-      const [r, g, b] = this.whitePoint;
-      this.color = new THREE.Color(r, g, b);
-      return;
-    }
-
     const white = this.whitePoint;
     const mix = [0, 0, 0];
+
+    // What the head *makes*: the sum of its own emitters.
+    let additive = false;
     Object.keys(this._emitters).forEach((name) => {
+      if (SUBTRACTIVE_EMITTERS[name] !== undefined) return;
       const level = this._emitters[name];
       if (!level) return;
       const tint = WHITE_EMITTERS.includes(name) ? white : EMITTER_TINTS[name];
       if (!tint) return;
+      additive = true;
       mix[0] += tint[0] * level;
       mix[1] += tint[1] * level;
       mix[2] += tint[2] * level;
     });
+
+    // A head with no emitters of its own does not make colour, it *removes* it:
+    // one lamp, a colour wheel and a set of CMY filters in the light path. So
+    // the mix starts as what the lamp is actually putting out -- the wheel's
+    // slot if one is in, the fixture's own white otherwise -- and the filters
+    // below take from it.
+    //
+    // Starting from black instead is why an Ayrton Diablo-S went dark the
+    // moment its Cyan channel was written: it has no additive emitter to sum,
+    // so the mix stayed [0,0,0] and the subtractive step multiplied zero by
+    // zero. It also discarded the colour wheel, which had been written earlier
+    // in the same frame by a lower channel number.
+    if (!additive) {
+      const [r, g, b] = this._wheelColor
+        ? [this._wheelColor.r, this._wheelColor.g, this._wheelColor.b]
+        : white;
+      mix[0] = r;
+      mix[1] = g;
+      mix[2] = b;
+    }
 
     Object.keys(SUBTRACTIVE_EMITTERS).forEach((name) => {
       const level = this._emitters[name];
@@ -747,7 +779,6 @@ class MovingHead {
       && !WHITE_EMITTERS.includes(name)
       && SUBTRACTIVE_EMITTERS[name] === undefined) return;
     this._emitters[name] = channelData.colorBrightness;
-    this._hasColorMix = true;
     this.recomputeBeamColor();
   }
 

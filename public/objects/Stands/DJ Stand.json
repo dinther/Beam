@@ -1,0 +1,12 @@
+{
+  "kind": "primitive",
+  "name": "DJ Stand",
+  "type": "cube",
+  "size": {
+    "x": 3,
+    "y": 1,
+    "z": 1
+  },
+  "color": "#0d0d0d",
+  "created": "2026-08-28T02:52:18.112Z"
+}

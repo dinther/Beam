@@ -1,0 +1,12 @@
+{
+  "kind": "primitive",
+  "name": "Stage",
+  "type": "cube",
+  "size": {
+    "x": 7,
+    "y": 5,
+    "z": 0.6
+  },
+  "color": "#333333",
+  "created": "2026-08-28T02:15:31.743Z"
+}

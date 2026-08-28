@@ -20,6 +20,7 @@ import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
 import documentstore from './documentstore';
+import environmentstore from './environmentstore';
 import fileexport from './fileexport';
 
 // GPU timer queries are disabled by default because precise timing is a
@@ -282,6 +283,13 @@ function setupLibrary() {
     'library:writeThumbnail',
     (event, key, dataUrl) => objectstore.writeThumbnail(key, dataUrl),
   );
+
+  // Environment images. Listed rather than browsed: the renderer picks a name
+  // out of the library, and `objectstore.resolve` turns that name into a file.
+  ipcMain.handle('library:environments', () => environmentstore.list());
+  // The dialog is attached to the window so it is modal to Beam rather than
+  // floating loose, which is how every other file prompt here behaves.
+  ipcMain.handle('library:addEnvironment', () => environmentstore.add(mainWindow));
 }
 
 /**

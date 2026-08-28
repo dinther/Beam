@@ -34,6 +34,23 @@ const OBJECTS_DIR = 'Objects';
  */
 const SHIPPED_DIR = 'objects';
 
+/** Where the user's radiance images live, under the library root. */
+const ENVIRONMENTS_DIR = 'Environments';
+
+/**
+ * Image containers an environment may be stored in.
+ *
+ * Both are high dynamic range and interchangeable in purpose: `.hdr` is
+ * Radiance RGBE, which is what most environment libraries publish and what
+ * `RGBELoader` reads; `.exr` is OpenEXR, higher precision and larger, read by
+ * `EXRLoader`. An 8-bit image is deliberately not accepted -- an environment
+ * whose brightest value is white cannot light anything, and letting one in
+ * would look like a broken environment rather than an unsuitable file.
+ *
+ * @constant {Array<String>}
+ */
+const ENVIRONMENT_EXTENSIONS = ['.hdr', '.exr'];
+
 /**
  * Folders the `library://` protocol will serve, by the host segment naming them.
  *
@@ -41,10 +58,16 @@ const SHIPPED_DIR = 'objects';
  * the folder on disk is capitalised. Anything not listed here is unreachable,
  * whatever it is called or however the request is spelled.
  *
+ * Each kind carries the extensions it will serve, because they no longer agree:
+ * a model folder serves geometry and the textures a glTF references, while an
+ * environment folder serves radiance images and nothing else. A null list means
+ * the model set, which is the older behaviour written down.
+ *
  * @constant {Object}
  */
 const SERVED_DIRS = {
-  objects: OBJECTS_DIR,
+  objects: { dir: OBJECTS_DIR, extensions: null },
+  environments: { dir: ENVIRONMENTS_DIR, extensions: ENVIRONMENT_EXTENSIONS },
 };
 
 /**
@@ -399,9 +422,16 @@ function list() {
   // then user library then shipped -- so somebody can replace a supplied truss
   // with their own without deleting anything, and get the supplied one back by
   // removing theirs.
+  // Merged case-insensitively. The keys come from file names on a filesystem
+  // that does not distinguish `Sub_Speaker` from `Sub_speaker`, so two spellings
+  // of one model are one model -- and a user copy has to override the supplied
+  // one even when the two were saved with different capitalisation. Compared
+  // folded, stored unfolded: the entry keeps the key it was found under, which
+  // is what a show records and what the browser shows.
   const merged = new Map();
-  catalogue(shippedRoot(), true).forEach((entry) => merged.set(entry.key, entry));
-  catalogue(objectsRoot(), false).forEach((entry) => merged.set(entry.key, entry));
+  const fold = (key) => String(key).toLowerCase();
+  catalogue(shippedRoot(), true).forEach((entry) => merged.set(fold(entry.key), entry));
+  catalogue(objectsRoot(), false).forEach((entry) => merged.set(fold(entry.key), entry));
 
   return [...merged.values()].sort((a, b) => {
     // Root objects first, then folders alphabetically, then by name -- so the
@@ -568,19 +598,27 @@ function resolve(requestPath) {
   // up here. That also means only the folders named below are reachable at all,
   // which is a better guarantee than refusing the rest by extension.
   const [kind, ...rest] = requestPath.split('/').filter(Boolean);
-  const dir = SERVED_DIRS[String(kind || '').toLowerCase()];
-  if (!dir || !rest.length) return null;
+  const served = SERVED_DIRS[String(kind || '').toLowerCase()];
+  if (!served || !rest.length) return null;
+  const { dir } = served;
 
   // `path.resolve` collapses `..` before the containment test, so the test is
   // made against where the path actually lands rather than how it is written.
-  const target = path.resolve(root, dir, `.${path.sep}${rest.join(path.sep)}`);
-  const relative = path.relative(root, target);
+  //
+  // Contained in the *kind's* folder, not merely in the library. Tested against
+  // the library root until 2026-08-29, which let `environments/../x.hdr` land on
+  // a file beside the folder and be served -- inside the library, so the test
+  // passed, and with an allowed extension, so nothing else stopped it. The
+  // comment above already claimed the folders were the guarantee; this is that
+  // claim made true.
+  const base = path.join(root, dir);
+  const target = path.resolve(base, `.${path.sep}${rest.join(path.sep)}`);
+  const relative = path.relative(base, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
 
   const extension = path.extname(target).toLowerCase();
-  if (!MODEL_EXTENSIONS.includes(extension) && !COMPANION_EXTENSIONS.includes(extension)) {
-    return null;
-  }
+  const allowed = served.extensions || [...MODEL_EXTENSIONS, ...COMPANION_EXTENSIONS];
+  if (!allowed.includes(extension)) return null;
 
   // A symlink inside the root may still point outside it, so the containment
   // test is repeated against what the path really is.
@@ -590,13 +628,14 @@ function resolve(requestPath) {
   } catch (err) {
     return null;
   }
-  let realRoot;
+  let realBase;
   try {
-    realRoot = fs.realpathSync(root);
+    realBase = fs.realpathSync(base);
   } catch (err) {
+    // No folder of that kind yet, so there is nothing in it to serve.
     return null;
   }
-  const realRelative = path.relative(realRoot, real);
+  const realRelative = path.relative(realBase, real);
   if (!realRelative || realRelative.startsWith('..') || path.isAbsolute(realRelative)) return null;
 
   return fs.statSync(real).isFile() ? real : null;
@@ -612,6 +651,8 @@ export default {
   writeThumbnail,
   safeName,
   MODEL_EXTENSIONS,
+  ENVIRONMENTS_DIR,
+  ENVIRONMENT_EXTENSIONS,
   PRIMITIVE_TYPES,
   PRIMITIVE_KIND,
   DEFAULT_METADATA,

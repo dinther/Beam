@@ -3,7 +3,8 @@ import { markRaw } from 'vue';
 import { Proxify } from '../utils/proxify.utils';
 import GroupHandle from '../../plugins/visualizer/group_handle';
 import Controls from '../../plugins/visualizer/controls';
-import { SCENE_ITEM_KINDS, newUid, rowId } from './scene_item';
+import withTransform from './scene_item.transform';
+import { SCENE_ITEM_KINDS, rowId } from './scene_item';
 
 /**
  * @file One scene item built out of several, placed and moved as a unit.
@@ -41,7 +42,7 @@ const scratch = {
 
 let structureCount = 0;
 
-class Structure extends Proxify {
+class Structure extends withTransform(Proxify) {
   /**
    * @param {Object} [data] structure configuration
    * @param {Number} [data.id] stable id, generated when absent
@@ -51,10 +52,9 @@ class Structure extends Proxify {
    */
   constructor(data = {}) {
     super();
-    /** What this is, for everything that treats scene items alike. */
-    this.kind = SCENE_ITEM_KINDS.STRUCTURE;
-    /** Unique across every kind of scene item; see scene_item.js. */
-    this.uid = newUid();
+    // Kind and uid together: both are the scene-item identity, and every kind
+    // stamps it the same way. See scene_item.js.
+    this.initSceneItem(SCENE_ITEM_KINDS.STRUCTURE);
     this._id = data.id !== undefined ? data.id : structureCount;
     structureCount = Math.max(structureCount, this._id + 1);
     this._name = data.name || 'untitled';
@@ -202,90 +202,6 @@ class Structure extends Proxify {
     };
   }
 
-  get rotationRad() {
-    return { ...this._rotation };
-  }
-
-  set rotationRad(rotation) {
-    this._rotation = { x: rotation.x, y: rotation.y, z: rotation.z };
-    this.applyToMembers();
-  }
-
-  /**
-   * Single-axis accessors, matching the ones a fixture offers.
-   *
-   * The position tool binds straight to these, so a structure can be typed
-   * into place exactly as a fixture can. Detaching first is what a fixture
-   * does too, and for the same reason: while the gizmo holds the transform
-   * node it is the one saying where the item is, and a write made underneath
-   * it is discarded the next time the gizmo flushes.
-   *
-   * @type {Number}
-   */
-  get posX() {
-    return this._position.x;
-  }
-
-  set posX(value) {
-    this.writeAxis('_position', 'x', value);
-  }
-
-  get posY() {
-    return this._position.y;
-  }
-
-  set posY(value) {
-    this.writeAxis('_position', 'y', value);
-  }
-
-  get posZ() {
-    return this._position.z;
-  }
-
-  set posZ(value) {
-    this.writeAxis('_position', 'z', value);
-  }
-
-  get rotX() {
-    return THREE.MathUtils.radToDeg(this._rotation.x);
-  }
-
-  set rotX(value) {
-    this.writeAxis('_rotation', 'x', THREE.MathUtils.degToRad(value));
-  }
-
-  get rotY() {
-    return THREE.MathUtils.radToDeg(this._rotation.y);
-  }
-
-  set rotY(value) {
-    this.writeAxis('_rotation', 'y', THREE.MathUtils.degToRad(value));
-  }
-
-  get rotZ() {
-    return THREE.MathUtils.radToDeg(this._rotation.z);
-  }
-
-  set rotZ(value) {
-    this.writeAxis('_rotation', 'z', THREE.MathUtils.degToRad(value));
-  }
-
-  /**
-   * Writes one axis and moves the members to match.
-   *
-   * @public
-   * @param {String} field `_position` or `_rotation`
-   * @param {String} axis x, y or z
-   * @param {Number} value new value, in metres or radians
-   */
-  writeAxis(field, axis, value) {
-    if (Number.isNaN(value)) return;
-    Controls.detach(this);
-    this[field][axis] = value;
-    this.applyToMembers();
-    Controls.attach(this);
-  }
-
   /**
    * Whether this structure is selected.
    *
@@ -424,6 +340,17 @@ class Structure extends Proxify {
       scratch.scale,
     );
     member.localTransform = scratch.inverse.multiply(world).clone();
+  }
+
+  /**
+   * A structure carries its members: the fixtures are where the structure says
+   * they are, so a moved structure has to move them.
+   *
+   * @param {String} field unused; both transforms reach members the same way
+   */
+  // eslint-disable-next-line no-unused-vars
+  applyTransform(field) {
+    this.applyToMembers();
   }
 
   /**

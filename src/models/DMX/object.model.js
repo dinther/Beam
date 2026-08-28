@@ -3,7 +3,8 @@ import { markRaw } from 'vue';
 import SceneObjects from '../../plugins/visualizer/scene_objects';
 import SceneManager from '../../plugins/visualizer/scene_manager';
 import Controls from '../../plugins/visualizer/controls';
-import { SCENE_ITEM_KINDS, newUid, rowId } from './scene_item';
+import withTransform from './scene_item.transform';
+import { SCENE_ITEM_KINDS, rowId } from './scene_item';
 
 /**
  * @file A 3D model standing in the scene.
@@ -30,7 +31,7 @@ import { SCENE_ITEM_KINDS, newUid, rowId } from './scene_item';
 /** Ids are unique within a run, and shows carry their own. */
 let nextId = 0;
 
-class SceneObject {
+class SceneObject extends withTransform(Object) {
   /**
    * @param {Object} data
    * @param {String} data.model library key, e.g. 'Silo_gantry'
@@ -40,10 +41,10 @@ class SceneObject {
    * @param {Number} [data.scale] uniform, on top of the model's own units
    */
   constructor(data = {}) {
-    /** What this is, for everything that treats scene items alike. */
-    this.kind = SCENE_ITEM_KINDS.OBJECT;
-    /** Unique across every kind of scene item; see scene_item.js. */
-    this.uid = newUid();
+    super();
+    // Kind and uid together: both are the scene-item identity, and every kind
+    // stamps it the same way. See scene_item.js.
+    this.initSceneItem(SCENE_ITEM_KINDS.OBJECT);
     nextId += 1;
     this._id = data.id === undefined ? nextId : data.id;
     if (this._id >= nextId) nextId = this._id + 1;
@@ -343,20 +344,6 @@ class SceneObject {
     this.sync();
   }
 
-  /** Radians, as the renderers want them. */
-  get rotationRad() {
-    return { ...this._rotation };
-  }
-
-  set rotationRad(rotation) {
-    this._rotation = {
-      x: (rotation || {}).x || 0,
-      y: (rotation || {}).y || 0,
-      z: (rotation || {}).z || 0,
-    };
-    this.sync();
-  }
-
   get scale() {
     return this._scale;
   }
@@ -459,6 +446,17 @@ class SceneObject {
   }
 
   /** Pushes the current transform at the node and the instance alike. */
+  /**
+   * An object is one row in an instanced buffer, so a changed transform is a
+   * rewritten matrix.
+   *
+   * @param {String} field unused; the matrix is rebuilt from both either way
+   */
+  // eslint-disable-next-line no-unused-vars
+  applyTransform(field) {
+    this.sync();
+  }
+
   sync() {
     this.transformNode.position.set(this._position.x, this._position.y, this._position.z);
     this.transformNode.rotation.set(this._rotation.x, this._rotation.y, this._rotation.z);

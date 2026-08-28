@@ -31,6 +31,20 @@ const DEFAULTS = {
   /** Which of the two is in force. */
   houseLights: true,
   /**
+   * Environment image lighting the room, one per house-lights state.
+   *
+   * A file name in `Library/Environments`, or one of the built-in rooms:
+   * `'room'` for the procedural studio three ships, `'venue'` for a dark room
+   * lit mostly from the floor, or `'none'` for no bounce at all. A name rather
+   * than a path so the setting survives the library moving between machines.
+   *
+   * Both default to the built-in room, which is what the scene had before
+   * there was a choice.
+   */
+  environmentHouseOn: 'room',
+  /** Environment image with the house lights down. */
+  environmentHouseOff: 'room',
+  /**
    * Grid spacing, in metres, and the distance the gizmo snaps by. One number
    * for all three axes: a grid that reads as squares and a snap that lands on
    * the lines you can see are the same setting wearing two hats.

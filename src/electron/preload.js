@@ -142,6 +142,25 @@ contextBridge.exposeInMainWorld('library', {
    * @returns {Promise<Object>} `{ ok }` or `{ ok: false, reason }`
    */
   writeThumbnail: (key, dataUrl) => ipcRenderer.invoke('library:writeThumbnail', key, dataUrl),
+  /**
+   * Environment images in `Library/Environments`.
+   *
+   * Metadata only. Each carries a `library://` url, which is what `RGBELoader`
+   * and `EXRLoader` are given -- a radiance image is megabytes of binary, and a
+   * URL lets it stream rather than crossing IPC as a structured clone.
+   *
+   * @returns {Promise<Array>} `{ key, name, url }`
+   */
+  environments: () => ipcRenderer.invoke('library:environments'),
+  /**
+   * Asks for a radiance image and copies it into the library.
+   *
+   * Copied rather than referenced so that a preference names a file inside the
+   * library, never an absolute path from outside it.
+   *
+   * @returns {Promise<Object>} `{ ok, entry }` or `{ ok: false, reason }`
+   */
+  addEnvironment: () => ipcRenderer.invoke('library:addEnvironment'),
 });
 
 /**

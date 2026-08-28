@@ -39,7 +39,9 @@ const LED_FIXTURE_LED_CAPACITY = 0;
 const VIEW_CUBE_CLICK_SLOP_PX = 4;
 import SceneEnv from './scene_env';
 import { hazeCycle, setHazeCycle } from './haze_noise';
-import { installAmbient, setHouseBrightness } from './ambient';
+import {
+  installAmbient, setHouseBrightness, setHouseState, setEnvironments,
+} from './ambient';
 import AmbientHazeEffect from './ambient_haze';
 import Perf from './perf_overlay';
 import Preferences from './preferences';
@@ -202,7 +204,10 @@ class Visualizer {
     this.globalBrightness = 100;
     this.globalLightHandle = null;
     this.autoRotate = false;
-    this.autoFocus = true;
+    // Off by default: selecting something flies the camera to it, which is
+    // help when you are looking for a fixture and an interruption when you
+    // have already framed the shot you want to judge.
+    this.autoFocus = false;
     this.stats = new Stats();
     this.stats.showPanel(0);
     this.stats.dom.style.position = 'absolute';
@@ -245,6 +250,13 @@ class Visualizer {
     // Straight to SceneEnv too: this assigns the field rather than going
     // through the setter, and `hazeAmount` is folded on the house lights.
     SceneEnv.houseLights = this._houseLights;
+    // Which image lights each state, then which state is showing. Named before
+    // the switch is set so the first environment built is the right one rather
+    // than the default being built and immediately replaced.
+    this._environmentHouseOn = source.environmentHouseOn || 'room';
+    this._environmentHouseOff = source.environmentHouseOff || 'room';
+    setEnvironments({ on: this._environmentHouseOn, off: this._environmentHouseOff });
+    setHouseState(this._houseLights);
     this._brightnessUp = Visualizer.asBrightness(
       source.globalBrightness,
       DEFAULT_PREFERENCES.GLOBAL_BRIGHTNESS,
@@ -562,6 +574,40 @@ class Visualizer {
   }
 
   /**
+   * Environment image with the house lights up.
+   *
+   * Held on the instance for the same reason the brightnesses are: Preferences
+   * is a plain module, so a settings panel bound to it reads once and shows
+   * that first answer for ever.
+   *
+   * @type {String}
+   */
+  set environmentHouseOn(value) {
+    this._environmentHouseOn = value || 'room';
+    Preferences.set('environmentHouseOn', this._environmentHouseOn);
+    setEnvironments({ on: this._environmentHouseOn, off: this._environmentHouseOff });
+  }
+
+  get environmentHouseOn() {
+    return this._environmentHouseOn || 'room';
+  }
+
+  /**
+   * Environment image with the house lights down.
+   *
+   * @type {String}
+   */
+  set environmentHouseOff(value) {
+    this._environmentHouseOff = value || 'room';
+    Preferences.set('environmentHouseOff', this._environmentHouseOff);
+    setEnvironments({ on: this._environmentHouseOn, off: this._environmentHouseOff });
+  }
+
+  get environmentHouseOff() {
+    return this._environmentHouseOff || 'room';
+  }
+
+  /**
    * Whether the house lights are up.
    *
    * Two settings rather than one dimmer: a rig is inspected with the room lit
@@ -571,6 +617,9 @@ class Visualizer {
    */
   set houseLights(on) {
     this._houseLights = !!on;
+    // The room changes, not just its brightness: each state names its own
+    // environment image and they are swapped rather than faded.
+    setHouseState(this._houseLights);
     // House up means work light, and work light means a clear view -- so the
     // haze goes with it. SceneEnv folds this into `hazeAmount`, which every
     // renderer that scatters light already reads.

@@ -127,6 +127,50 @@
           style="width: 100px"
         />
       </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Room, house up:</h4>
+          <p class="subtitle">
+            The image lighting the room with the house lights on.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-select-input
+          v-model="environmentUpIndex"
+          style="width: 120px"
+          :options="environmentOptions"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Room, show:</h4>
+          <p class="subtitle">
+            And with them off. A dark room still wants something in it, or
+            metal and gloss have nothing to reflect.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-select-input
+          v-model="environmentDownIndex"
+          style="width: 120px"
+          :options="environmentOptions"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Add a room:</h4>
+          <p class="subtitle">
+            Copies a .hdr or .exr into your library, where both lists read
+            from.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-button
+          label="Add..."
+          style="width: 120px"
+          @click="addEnvironment"
+        />
+      </uk-flex>
       <div class="separator" />
       <uk-flex
         :gap="8"
@@ -229,9 +273,80 @@ export default {
        * Popup header data
        */
       headerData: { title: 'Visualizer settings' },
+      /** Environment images in the library, as `{ key, name, url }`. */
+      environments: [],
     };
   },
   computed: {
+    /**
+     * Every choice the two room lists offer.
+     *
+     * The two sentinels first, then whatever is in the library. A setting whose
+     * file has since been deleted is appended rather than dropped: silently
+     * showing the first entry instead would look like the setting had changed
+     * itself.
+     *
+     * @type {Array}
+     */
+    environmentEntries() {
+      const entries = [
+        { key: 'room', name: 'Built-in room' },
+        { key: 'venue', name: 'Dark venue' },
+        { key: 'none', name: 'None' },
+        ...this.environments,
+      ];
+      const handle = this.$show.visualizerHandle;
+      if (handle) {
+        [handle.environmentHouseOn, handle.environmentHouseOff].forEach((spec) => {
+          if (spec && !entries.some((entry) => entry.key === spec)) {
+            entries.push({ key: spec, name: `${spec} (missing)` });
+          }
+        });
+      }
+      return entries;
+    },
+    /** @type {Array<String>} what the selects display */
+    environmentOptions() {
+      return this.environmentEntries.map((entry) => entry.name);
+    },
+    /**
+     * The house-up room, as the index the select works in.
+     *
+     * `uk-select-input` is an index, and the setting is a file name, so the two
+     * are mapped here rather than storing an index -- an index would move under
+     * the setting whenever the library gained or lost a file.
+     *
+     * @type {Number}
+     */
+    environmentUpIndex: {
+      get() {
+        return this.indexOfEnvironment(this.$show.visualizerHandle
+          && this.$show.visualizerHandle.environmentHouseOn);
+      },
+      set(index) {
+        const entry = this.environmentEntries[index];
+        if (entry && this.$show.visualizerHandle) {
+          this.$show.visualizerHandle.environmentHouseOn = entry.key;
+        }
+      },
+    },
+    /**
+     * The show-time room, as the index the select works in.
+     *
+     * @type {Number}
+     */
+    environmentDownIndex: {
+      get() {
+        return this.indexOfEnvironment(this.$show.visualizerHandle
+          && this.$show.visualizerHandle.environmentHouseOff);
+      },
+      set(index) {
+        const entry = this.environmentEntries[index];
+        if (entry && this.$show.visualizerHandle) {
+          this.$show.visualizerHandle.environmentHouseOff = entry.key;
+        }
+      },
+    },
     /**
      * Floor image, as the index the select works in.
      *
@@ -263,10 +378,48 @@ export default {
       // had already been accepted with OK.
       if (state && this.$show.visualizerHandle) {
         this.initialValues = this.$show.visualizerHandle.showData;
+        // Re-read the folder on every opening: the user may have put a file in
+        // it since, and the dialog is the only place that would show it.
+        this.loadEnvironments();
       }
     },
   },
   methods: {
+    /**
+     * Where a named environment sits in the option list.
+     *
+     * @param {String} spec a file name, or one of the sentinels
+     * @returns {Number} an index, falling back to the built-in room
+     */
+    indexOfEnvironment(spec) {
+      const index = this.environmentEntries.findIndex((entry) => entry.key === spec);
+      return index < 0 ? 0 : index;
+    },
+    /**
+     * Reads the library's environment folder.
+     *
+     * @public
+     * @async
+     */
+    async loadEnvironments() {
+      if (!window.library || !window.library.environments) return;
+      this.environments = await window.library.environments();
+    },
+    /**
+     * Asks for a radiance image and copies it into the library.
+     *
+     * The copy is what lets a preference name a file rather than a path. The
+     * new image is not selected for either state: which room it is meant to be
+     * is the user's to say.
+     *
+     * @public
+     * @async
+     */
+    async addEnvironment() {
+      if (!window.library || !window.library.addEnvironment) return;
+      const result = await window.library.addEnvironment();
+      if (result && result.ok) await this.loadEnvironments();
+    },
     /**
      * resets visualizer settings to initial values, prior to modifications
      *

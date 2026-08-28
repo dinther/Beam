@@ -378,13 +378,28 @@ class Entity {
   }
 
   /**
-   * Parses and returns a valuestring's unit
+   * Parses and returns a valuestring's unit.
+   *
+   * Everything that is part of the *number* is removed, and whatever is left is
+   * the unit -- so the set removed has to be the whole of a number's spelling,
+   * not just its digits.
+   *
+   * Digits alone was the rule until 2026-08-29, which left the decimal point
+   * behind: `"3.5"` came back as a unit of `"."`. Nothing matches that, so the
+   * value fell to the catch-all conversion at the end of `getValue` and was
+   * multiplied by a thousand. A wheel slot of 3.5 -- a split colour, the wheel
+   * parked between two slots -- arrived as slot 3500, was rejected as out of
+   * range, and the head kept the colour it already had. Whole-numbered slots
+   * were unaffected, so it looked like one fixture at a time misbehaving.
+   *
+   * The sign goes for the same reason; trimming is so that `"20 ms"` reads as
+   * `ms` rather than as a unit that begins with a space and matches nothing.
    *
    * @param {String} value
    * @return {String} unit string
    */
   static parseValueUnit(value) {
-    return value.toString().replace(/[0-9]/g, '') || null;
+    return value.toString().replace(/[-+0-9.]/g, '').trim() || null;
   }
 }
 
