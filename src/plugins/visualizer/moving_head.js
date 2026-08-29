@@ -37,7 +37,30 @@ MODEL_MATERIAL.onBeforeCompile = (shader) => {
   MODEL_MATERIAL.userData.shader = shader;
 };
 
-const MAX_INSTANCES = 100;
+/**
+ * How many heads the instanced buffers hold before they are grown.
+ *
+ * A starting size, not a limit. It was a hard `MAX_INSTANCES = 100` with
+ * nothing checking it: `instanceCount++` handed out ids past the end of every
+ * buffer, and three's `setMatrixAt` writes through `matrix.toArray(array, i)`,
+ * where an out-of-range typed-array write is silently dropped. So the hundred
+ * and first head did not fail -- it set `count` above the capacity that had
+ * been allocated, which degenerates the whole instanced draw and makes *every*
+ * head vanish, leaving the selection box around nothing. Two large structures
+ * took the renderer down with it.
+ *
+ * A hundred was never enough anyway. An arena rig runs to several hundred
+ * movers, and the geometry side of one is cheap -- these are six instanced
+ * draws whatever the count. What does not scale is the `SpotLight` each head
+ * carries, and that is a separate problem from this one: a head outside the
+ * lighting budget still has a body and a beam to draw, and they belong here.
+ *
+ * @constant {Number}
+ */
+const INITIAL_CAPACITY = 128;
+
+/** How many the buffers hold right now. Grows by doubling; never shrinks. */
+let capacity = INITIAL_CAPACITY;
 const vector_cam = new THREE.Vector3();
 const vector_beam = new THREE.Vector3();
 const vector_beam_pos = new THREE.Vector3();
@@ -101,28 +124,28 @@ const SHUTTER_STROBE_FREQUENCIES_DEFAULT = {
   FAST: 10,
 };
 
-const position_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES * 3),
+let position_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 3),
   3,
 );
-const direction_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES * 3),
+let direction_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 3),
   3,
 );
-const intensity_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES),
+let intensity_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity),
   1,
 );
-const color_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES * 3),
+let color_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 3),
   3,
 );
-const emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES),
+let emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity),
   1,
 );
-const angle_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_INSTANCES * 2),
+let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 2),
   2,
 );
 
@@ -166,6 +189,59 @@ const selectionOrigin = new THREE.Vector3();
 export const MAX_SHADOW_CASTERS = 8;
 
 let instanceCount = 0;
+
+/**
+ * A hard stop, so a runaway count fails loudly instead of eating memory.
+ *
+ * Well above any real rig -- an arena show runs to several hundred movers --
+ * and here only so that a bug that never stops adding heads is visible rather
+ * than fatal.
+ *
+ * @constant {Number}
+ */
+const ABSOLUTE_MAX_INSTANCES = 4096;
+
+/**
+ * The same attribute, holding `capacity` instances, with what it held copied in.
+ *
+ * @param {THREE.InstancedBufferAttribute} attribute
+ * @returns {THREE.InstancedBufferAttribute}
+ */
+function grownAttribute(attribute) {
+  const array = new Float32Array(capacity * attribute.itemSize);
+  array.set(attribute.array);
+  const grown = new THREE.InstancedBufferAttribute(array, attribute.itemSize);
+  grown.setUsage(attribute.usage);
+  grown.needsUpdate = true;
+  return grown;
+}
+
+/**
+ * The same mesh, holding `capacity` instances, with its matrices carried over.
+ *
+ * An `InstancedMesh` cannot be resized, so this is a new one on the same
+ * geometry and material -- neither of which is disposed, both being shared.
+ * The old mesh's own `dispose` frees just its instance buffers.
+ *
+ * @param {THREE.InstancedMesh} mesh
+ * @returns {THREE.InstancedMesh}
+ */
+function grownMesh(mesh) {
+  const grown = new THREE.InstancedMesh(mesh.geometry, mesh.material, capacity);
+  grown.instanceMatrix.array.set(mesh.instanceMatrix.array);
+  grown.instanceMatrix.setUsage(mesh.instanceMatrix.usage);
+  grown.instanceMatrix.needsUpdate = true;
+  grown.count = mesh.count;
+  grown.frustumCulled = mesh.frustumCulled;
+  grown.castShadow = mesh.castShadow;
+  grown.receiveShadow = mesh.receiveShadow;
+  if (scene_handle) {
+    scene_handle.remove(mesh);
+    scene_handle.add(grown);
+  }
+  mesh.dispose();
+  return grown;
+}
 
 /**
  * Defines a 3D moving head instance
@@ -275,6 +351,13 @@ class MovingHead {
     goboWheel: [],
     colorWheel: [],
   }) {
+    // Room first, then the id. The buffers are shared, so a head taking an id
+    // they cannot hold does not lose itself -- it loses every head. Refused
+    // rather than half-built: past the absolute limit there is no id that can
+    // be handed out without standing on somebody else's.
+    if (!MovingHead.ensureCapacity(instanceCount + 1)) {
+      throw new Error(`Cannot place more than ${ABSOLUTE_MAX_INSTANCES} moving heads`);
+    }
     this._id = instanceCount++;
     this._position = new THREE.Vector3();
     this._rotation = new THREE.Vector3();
@@ -1099,9 +1182,9 @@ class MovingHead {
     yokeGeo.setAttribute('highlight', emissive_buffer_attribute);
     headGeo.setAttribute('highlight', emissive_buffer_attribute);
 
-    baseMesh = new THREE.InstancedMesh(baseGeo, MODEL_MATERIAL, MAX_INSTANCES);
-    yokeMesh = new THREE.InstancedMesh(yokeGeo, MODEL_MATERIAL, MAX_INSTANCES);
-    headMesh = new THREE.InstancedMesh(headGeo, MODEL_MATERIAL, MAX_INSTANCES);
+    baseMesh = new THREE.InstancedMesh(baseGeo, MODEL_MATERIAL, capacity);
+    yokeMesh = new THREE.InstancedMesh(yokeGeo, MODEL_MATERIAL, capacity);
+    headMesh = new THREE.InstancedMesh(headGeo, MODEL_MATERIAL, capacity);
 
     baseMesh.frustumCulled = false;
     yokeMesh.frustumCulled = false;
@@ -1225,7 +1308,7 @@ class MovingHead {
         // when the scene is built with it. Empty in mode 0.
         ...hazeUniforms(),
       },
-    }), MAX_INSTANCES);
+    }), capacity);
 
     beamMesh.count = instanceCount;
     beamMesh.frustumCulled = false;
@@ -1243,7 +1326,7 @@ class MovingHead {
 
     THREE.BufferGeometry.prototype.copy.call(targetGeo, capGeometry);
 
-    capMesh = new THREE.InstancedMesh(targetGeo, capMaterial, MAX_INSTANCES);
+    capMesh = new THREE.InstancedMesh(targetGeo, capMaterial, capacity);
     capMesh.frustumCulled = false;
     capMesh.count = instanceCount;
     capMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1262,7 +1345,7 @@ class MovingHead {
 
     THREE.BufferGeometry.prototype.copy.call(boundingBoxGeo, boundingBoxGeometry);
 
-    boundingBoxMesh = new THREE.InstancedMesh(boundingBoxGeo, boundingBoxMaterial, MAX_INSTANCES);
+    boundingBoxMesh = new THREE.InstancedMesh(boundingBoxGeo, boundingBoxMaterial, capacity);
     boundingBoxMesh.frustumCulled = false;
     boundingBoxMesh.count = instanceCount;
     boundingBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1290,6 +1373,58 @@ class MovingHead {
     beamMesh.material.uniforms.cameraDir.value = vector_cam;
     camera_handle.getWorldPosition(vector_cam_pos.normalize());
     beamMesh.material.uniforms.cameraPos.value = vector_cam_pos;
+  }
+
+  /**
+   * Makes room for `needed` heads, growing the instanced buffers if it must.
+   *
+   * Called before an id is handed out, which is the only moment the count can
+   * outrun the buffers. Doubling rather than growing by one: a reallocation
+   * copies six matrix buffers and six per-instance attributes, so it should
+   * happen a handful of times over a rig's life, not once per fixture.
+   *
+   * @public
+   * @param {Number} needed how many instances must fit
+   * @returns {Boolean} whether there is room
+   */
+  static ensureCapacity(needed) {
+    if (needed <= capacity) return true;
+    if (needed > ABSOLUTE_MAX_INSTANCES) {
+      // Refused rather than allowed to corrupt the draw. Every head shares
+      // these buffers, so writing past the end loses all of them, not the
+      // extra one -- which is what used to happen, silently.
+      // eslint-disable-next-line no-console
+      console.error(`[movinghead] refusing to place head ${needed}: the limit is `
+        + `${ABSOLUTE_MAX_INSTANCES}. Nothing has been added.`);
+      return false;
+    }
+    while (capacity < needed) capacity *= 2;
+
+    position_buffer_attribute = grownAttribute(position_buffer_attribute);
+    direction_buffer_attribute = grownAttribute(direction_buffer_attribute);
+    intensity_buffer_attribute = grownAttribute(intensity_buffer_attribute);
+    color_buffer_attribute = grownAttribute(color_buffer_attribute);
+    emissive_buffer_attribute = grownAttribute(emissive_buffer_attribute);
+    angle_buffer_attribute = grownAttribute(angle_buffer_attribute);
+
+    // Re-attached because `setAttribute` stores the attribute, not a reference
+    // to whatever the variable holds now.
+    baseGeo.setAttribute('highlight', emissive_buffer_attribute);
+    yokeGeo.setAttribute('highlight', emissive_buffer_attribute);
+    headGeo.setAttribute('highlight', emissive_buffer_attribute);
+    beamGeo.setAttribute('wpos', position_buffer_attribute);
+    beamGeo.setAttribute('direction', direction_buffer_attribute);
+    beamGeo.setAttribute('color', color_buffer_attribute);
+    beamGeo.setAttribute('intensity', intensity_buffer_attribute);
+    beamGeo.setAttribute('angle', angle_buffer_attribute);
+
+    baseMesh = grownMesh(baseMesh);
+    yokeMesh = grownMesh(yokeMesh);
+    headMesh = grownMesh(headMesh);
+    beamMesh = grownMesh(beamMesh);
+    capMesh = grownMesh(capMesh);
+    boundingBoxMesh = grownMesh(boundingBoxMesh);
+    return true;
   }
 
   static deleteInstance(instance) {

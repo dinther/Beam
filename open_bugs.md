@@ -14,9 +14,9 @@
 - Support for LED bars that use 3 adresses for groups of 3 emitters. The Garagecube bar for example has 64 pixels on a 1 meter bar and 4 pixels parralel. So the bar only uses 48 DMx addresses.
 - Review the 6 offset edit boxes. Ugly and I don't use them much. A better arrange is more useful
 - Arrange circle "Aim" could be a angle entry. Discuss for other modes too
-- Multi Select widget only works once. Suddenly object widget appears before the object position widget
-- We want copy and paste items in list and 3D view
+1 and 3- We want copy and paste items in list and 3D view
 - Multi select by dragging mouse from blank part at bottom list up across list items
+- Optimize light fixtures to only use a spotlight when a raycast tells us there is something in range in front of it.
 
 
 
