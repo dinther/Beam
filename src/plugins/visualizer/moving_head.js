@@ -5,6 +5,7 @@ import SceneEnv from './scene_env';
 import VOLUMETRIC_BEAM_VERTEX_SHADER from './shaders/beam.vertex.glsl?raw';
 import VOLUMETRIC_BEAM_FRAGMENT_SHADER from './shaders/beam.fragment.glsl?raw';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
+import LightField from './light_field';
 
 const MODEL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x000000,
@@ -65,6 +66,8 @@ const vector_cam = new THREE.Vector3();
 const vector_beam = new THREE.Vector3();
 const vector_beam_pos = new THREE.Vector3();
 const vector_cam_pos = new THREE.Vector3();
+/** Scratch for reading a head's aim while packing the light field. */
+const vector_light_target = new THREE.Vector3();
 
 const BEAM_RESOLUTION = 100;
 const BEAM_SEGMENTS = 1;
@@ -91,6 +94,20 @@ const SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA = 1.2;
 const SPOTLIGHT_SHADOW_MAP_SIZE = 512;
 const SPOTLIGHT_SHADOW_NEAR = 0.5;
 const SPOTLIGHT_SHADOW_FAR = 60;
+
+/**
+ * How far a head's light reaches, in metres.
+ *
+ * The `SpotLight` was built with `distance = 0`, which three reads as
+ * unbounded. That is fine for a handful of lights and impossible for hundreds:
+ * a light with infinite reach cannot be culled, by the range test in the light
+ * field now or by frustum clusters later. Sixty metres is what the shadow
+ * camera already assumed, and past it a moving head is not lighting anything a
+ * viewer can see.
+ *
+ * @constant {Number}
+ */
+const SPOTLIGHT_RANGE = 60;
 const SPOTLIGHT_SHADOW_BIAS = -0.0005;
 const SPOTLIGHT_SHADOW_NORMAL_BIAS = 0.02;
 
@@ -521,7 +538,11 @@ class MovingHead {
    */
   set castsShadow(state) {
     this._castsShadow = !!state;
-    if (this._spotLight) this._spotLight.castShadow = this._castsShadow;
+    if (this._spotLight) {
+      this._spotLight.castShadow = this._castsShadow;
+      // See `prepareInstance`: a head is a real light only while it casts.
+      this._spotLight.visible = this._castsShadow;
+    }
   }
 
   get castsShadow() {
@@ -911,6 +932,18 @@ class MovingHead {
     // with it stopped rendering. The floor going missing is what that looks
     // like from the outside.
     this._spotLight.castShadow = !!this._castsShadow;
+    // Kept as an object, hidden as a light. Every parameter a head writes --
+    // colour, angle, penumbra, intensity -- still lands here, and the scene
+    // graph still carries it around with the beam so its world transform is
+    // maintained. What `visible = false` removes is three's *collection* of
+    // it: `projectObject` returns early, so it never reaches the uniform
+    // array that could not hold two hundred of them. Its contribution now
+    // arrives through `LightField` instead.
+    //
+    // A shadow caster is the exception, because three's shadow machinery is
+    // driven from the light itself and there is no reason to reimplement it
+    // for the eight that are allowed one.
+    this._spotLight.visible = !!this._castsShadow;
     this._spotLight.shadow.mapSize.width = SPOTLIGHT_SHADOW_MAP_SIZE;
     this._spotLight.shadow.mapSize.height = SPOTLIGHT_SHADOW_MAP_SIZE;
     this._spotLight.shadow.camera.near = SPOTLIGHT_SHADOW_NEAR;
@@ -941,6 +974,7 @@ class MovingHead {
 
     scene_handle.add(this._dummy);
     instances.push(this);
+    LightField.register(this);
     this._matrixNeedsUpdate = true;
   }
 
@@ -1361,7 +1395,50 @@ class MovingHead {
     MovingHead.prepareCapInstance();
     MovingHead.prepareBoxHelperInstance();
 
+    // The bodies are lit surfaces like any other, so they read the field too.
+    // They are nearly black, so they gain little from it -- but a head standing
+    // in another head's beam should not be the one thing in the room that the
+    // beam misses.
+    LightField.receive(MODEL_MATERIAL);
+
     scene.add(baseMesh, yokeMesh, headMesh, beamMesh, capMesh, boundingBoxMesh);
+  }
+
+  /**
+   * Fills in what this head contributes to the light field.
+   *
+   * Read off the `SpotLight` rather than tracked separately, so there is one
+   * account of a head's colour and cone rather than two that can disagree --
+   * the light object is still written by every setter, it simply is not
+   * collected by three any more.
+   *
+   * Direction is `position - target`, pointing back up the beam, because that
+   * is the convention `getSpotLightInfo` uses and the field's shader does the
+   * same arithmetic.
+   *
+   * @public
+   * @param {Object} record scratch to fill; see `light_field.js`
+   * @returns {Boolean} whether this head is lighting anything at all
+   */
+  readLight(record) {
+    // Nothing to add, and cheap to say so: a closed shutter or a dark lamp is
+    // most of a rig at any moment, and each one skipped is a light every
+    // fragment does not test.
+    if (!this._spotLight || this._spotLight.intensity <= 0) return false;
+    // A shadow caster is already a real light in three's own pass; adding it
+    // here as well would light everything twice.
+    if (this._spotLight.visible) return false;
+
+    this._spotLight.getWorldPosition(record.position);
+    this._targetDummy.getWorldPosition(vector_light_target);
+    record.direction.copy(record.position).sub(vector_light_target).normalize();
+    record.color.copy(this._spotLight.color);
+    record.intensity = this._spotLight.intensity;
+    record.range = SPOTLIGHT_RANGE;
+    record.cosOuter = Math.cos(this._spotLight.angle);
+    // The same penumbra three derives, so the soft edge matches.
+    record.cosInner = Math.cos(this._spotLight.angle * (1 - this._spotLight.penumbra));
+    return true;
   }
 
   static update(t) {
@@ -1434,6 +1511,7 @@ class MovingHead {
     scene_handle.remove(instance._spotLight);
     scene_handle.remove(instance._dummy);
 
+    LightField.unregister(instance);
     instances.splice(instance.id, 1);
     for (let i = instance.id; i < instanceCount - 1; i++) {
       instances[i].id--;

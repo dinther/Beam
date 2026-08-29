@@ -13,6 +13,7 @@ import ViewCube from './view_cube';
 import MovingHead from './moving_head';
 import InfiniteGridHelper from './grid';
 import LEDField from './led_field';
+import LightField from './light_field';
 import LEDPanel from './led_panel';
 import DMXStore from './dmx_store';
 import SceneObjects from './scene_objects';
@@ -917,6 +918,9 @@ class Visualizer {
     AnimationManager.add((t) => {
       MovingHead.update(t);
       LEDField.update(t);
+      // After the heads have moved, so what is packed is where they now point
+      // rather than where they were a frame ago.
+      LightField.update();
     });
 
     // Floor
@@ -960,8 +964,10 @@ class Visualizer {
     );
 
     const checkerMaterial = new THREE.MeshStandardMaterial({ map: texture });
+    LightField.receive(checkerMaterial);
 
     const sideMaterial = new THREE.MeshStandardMaterial();
+    LightField.receive(sideMaterial);
 
     const floorMaterial = [];
 

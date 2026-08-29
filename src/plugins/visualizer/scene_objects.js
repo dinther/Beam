@@ -1,6 +1,7 @@
 /* eslint-disable */
 // TODO: find a way for the linter to accept node_module nested libs
 import * as THREE from 'three';
+import LightField from './light_field';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import SceneManager from './scene_manager';
@@ -105,6 +106,9 @@ function correction(metadata) {
  * @returns {Object} the same material, possibly adjusted
  */
 function rescueMaterial(material) {
+  // Every surface a model brings with it reads the light field, whatever else
+  // is done to it below.
+  LightField.receive(material);
   if (!material || !material.isMeshStandardMaterial) return material;
   const bare = material.metalness === 1
     && material.roughness === 1
@@ -253,6 +257,7 @@ function buildPrimitive(descriptor) {
     // turns it into a ceiling.
     side: THREE.FrontSide,
   });
+  LightField.receive(material);
   return [{ geometry, material }];
 }
 
