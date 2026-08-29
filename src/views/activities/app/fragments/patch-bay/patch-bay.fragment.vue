@@ -494,6 +494,17 @@ export default {
       fixtures
         .filter((item) => kindOf(item) === SCENE_ITEM_KINDS.FIXTURE)
         .forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
+
+      // The selection still names what was just deleted, and the gizmo and
+      // bounding box are drawn for the selection -- so they stayed on screen,
+      // attached to nothing, until the next selection happened to clear them.
+      //
+      // Re-asserted from what survived rather than simply cleared, so deleting
+      // two of five leaves the other three selected. `listable` has already
+      // dropped the deleted rows, so anything still in it that the selection
+      // knows about is a survivor; an empty result routes through
+      // `highlightFixtures` to `deselectAll`, which is what puts the gizmo away.
+      this.highlightFixtures(this.listable.filter((row) => Selection.has(row)));
     },
     /**
      * Reflects a selection made in the 3D view.

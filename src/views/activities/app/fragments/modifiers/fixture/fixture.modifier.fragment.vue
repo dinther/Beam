@@ -40,6 +40,11 @@
       v-show="selectedGroup"
       :group="selectedGroup"
     />
+    <position-tool-widget
+      v-if="showsManyItems"
+      :fixture="selectionTransform"
+      :title="`${selectionTransform.count} items`"
+    />
     <arrange-widget
       v-if="showsManyItems && arrangeOpen"
       :items="selectedItems"
@@ -57,6 +62,7 @@
 <script>
 import EventBus from '@/plugins/eventbus';
 import Selection from '@/models/DMX/selection';
+import SelectionTransform from '@/models/DMX/selection_transform';
 import { SCENE_ITEM_KINDS } from '@/models/DMX/scene_item';
 
 import FixtureSettingsWidget from './_widgets/fixture.modifier.widget.settings.vue';
@@ -151,6 +157,17 @@ export default {
      *
      * @returns {Object|null}
      */
+    /**
+     * The selection as one transform, for the position tool.
+     *
+     * Rebuilt whenever the selection changes, and reads straight through to
+     * the items -- so it holds nothing that could fall out of step with them.
+     *
+     * @type {Object}
+     */
+    selectionTransform() {
+      return new SelectionTransform(this.selectedItems);
+    },
     selectedStructure() {
       const { primary } = Selection;
       if (!primary || primary.kind !== SCENE_ITEM_KINDS.STRUCTURE) return null;

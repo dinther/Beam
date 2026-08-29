@@ -9,6 +9,15 @@
     @submit="create"
   >
     <object-params-form v-model="params">
+      <template #row-end>
+        <uk-num-input
+          v-model="amount"
+          class="create_object_amount"
+          label="Amount"
+          :min="1"
+          :max="512"
+        />
+      </template>
       <template #warning>
         <p
           v-if="!trimmedName"
@@ -61,6 +70,12 @@ export default {
     return {
       headerData: { title: 'Create object' },
       params: defaultParams(),
+      /**
+       * How many to place. Every other way of adding to the show asks this --
+       * a shape built here is no different, and building one truss leg at a
+       * time to make four was the only way to do it.
+       */
+      amount: 1,
     };
   },
   computed: {
@@ -99,7 +114,10 @@ export default {
       this.update();
       // Fresh parameters each time it opens. The last object is in the scene
       // and editable there, so carrying its numbers over would only confuse.
-      if (open) this.params = defaultParams();
+      if (open) {
+        this.params = defaultParams();
+        this.amount = 1;
+      }
     },
   },
   methods: {
@@ -110,17 +128,34 @@ export default {
      */
     create() {
       this.state = false;
-      this.$emit('created', { ...this.params, name: this.trimmedName });
+      /**
+       * An object was described.
+       *
+       * @property {Object} params the shape
+       * @property {Number} amount how many to place
+       */
+      this.$emit('created', {
+        params: { ...this.params, name: this.trimmedName },
+        amount: this.amount,
+      });
     },
   },
 };
 </script>
 
 <style scoped>
-/* The dialog provides the inset the form deliberately does not. */
+/* The dialog provides the inset the form deliberately does not. Horizontal as
+   well as vertical: at `8px 0` the fields ran into both edges of the popup. */
 .create_object_form,
 :deep(.object_params) {
-  padding: 8px 0;
+  padding: 12px 14px;
+}
+
+/* Narrow, and the name gives up the width: how many is a two or three digit
+   answer and the name is the field worth typing in. */
+.create_object_amount {
+  width: 90px;
+  flex: none;
 }
 
 .create_object_warning {

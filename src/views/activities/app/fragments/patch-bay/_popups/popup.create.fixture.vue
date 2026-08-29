@@ -209,12 +209,6 @@ export default {
       kinds: KINDS,
       manufacturer: 'Beatline',
       model: KIND_NAMES[0],
-      // The last name this dialog wrote into the field. Held as a value rather
-      // than as a plain "edited" flag because the dialog renames the fixture
-      // itself -- on opening, and now on changing the type -- and its own
-      // writes must not read as the user taking the name over.
-      autoModel: KIND_NAMES[0],
-      modelEdited: false,
       length: DEFAULT_BAR_PARAMS.length * MM,
       width: DEFAULT_BAR_PARAMS.width * MM,
       height: DEFAULT_BAR_PARAMS.height * MM,
@@ -291,19 +285,17 @@ export default {
   watch: {
     /**
      * Keeps the name with the type, until the user has an opinion about it.
-     */
-    kindIndex(index) {
-      if (this.modelEdited) return;
-      this.setModel(this.freeName(KIND_NAMES[index] || KIND_NAMES[0]));
-    },
-    /**
-     * Notices the user taking the name over.
      *
-     * Everything this dialog writes goes through `setModel`, which records it
-     * first -- so a value that does not match is one the user typed.
+     * Whether they have one is asked of the field rather than remembered: a
+     * name that still reads as the suggestion for the type it was offered
+     * under is a name nobody has chosen. Tracking it instead took two pieces
+     * of state -- the last name written and whether it had been overtyped --
+     * and the flag outlived the dialog it described, so one rename stopped the
+     * name following the type for the rest of the session.
      */
-    model(value) {
-      if (value !== this.autoModel) this.modelEdited = true;
+    kindIndex(index, previous) {
+      if (this.model.trim() && this.model.trim() !== this.suggestionFor(previous)) return;
+      this.model = this.suggestionFor(index);
     },
     state(open) {
       // No `update()` here, unlike the object dialog: this component does not
@@ -316,22 +308,23 @@ export default {
       // created is taken by definition, so reopening met a warning about a
       // name the user had not typed. Numbering it is what the rest of the app
       // does when a name collides.
-      if (open) this.setModel(this.freeName());
+      if (open) this.model = this.freeName();
     },
   },
   methods: {
     /**
-     * Writes the model name as this dialog's own choice.
+     * The name this dialog would offer for a kind.
      *
-     * Recording it before writing is what lets `model`'s watcher tell a
-     * rename from here apart from one the user typed.
+     * The same answer `freeName` gives, which numbers past anything already in
+     * the library -- so after making a "LED Bar" the suggestion becomes
+     * "LED Bar 2", and a field still holding that still counts as unnamed.
      *
      * @public
-     * @param {String} name
+     * @param {Number} index into `KIND_NAMES`
+     * @returns {String}
      */
-    setModel(name) {
-      this.autoModel = name;
-      this.model = name;
+    suggestionFor(index) {
+      return this.freeName(KIND_NAMES[index] || KIND_NAMES[0]);
     },
     /**
      * A name, or the nearest free numbering of it.

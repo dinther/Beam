@@ -572,8 +572,6 @@ class Controls {
       this.gizmoMode = GIZMO_MODES.TRANSLATE;
     } else if (e.key.toLowerCase() === 'r') {
       this.gizmoMode = GIZMO_MODES.ROTATE;
-    } else if (e.key.toLowerCase() === 'z' && e.ctrlKey) {
-      this.applyTransformation();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       // Asked for rather than done here: what a fixture or a structure means
       // when it is deleted -- addresses released, members taken with it -- is

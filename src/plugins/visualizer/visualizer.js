@@ -138,6 +138,26 @@ const USE_BLOOM = false;
  *
  * @constant {String}
  */
+/**
+ * The opening view: where the camera sits and what it looks at.
+ *
+ * Read off the running camera on 2026-08-29, from a viewpoint Paul set by hand
+ * and judged right -- 16 degrees off the front axis and 24 above the horizon.
+ *
+ * Fixed rather than computed. Framing the scene sounds better and is not: an
+ * axis-aligned box fits the extremes, so a single outlier moves the centre and
+ * inflates the radius. One ceiling object at x = 17.2 in a rig that otherwise
+ * ends at x = 4 pulled the centre to x = 6.4 and the camera to 31 m out, which
+ * opened the show looking at the gap beside it. A view that is always the same
+ * is worth more than one that is occasionally better framed and often wrong.
+ *
+ * @constant {Object}
+ */
+const DEFAULT_VIEW = {
+  position: { x: 10.27, y: -36.17, z: 18.93 },
+  target: { x: 0.15, y: -1.2, z: 2.79 },
+};
+
 const HOUSE_LIGHTS_BACKGROUND = '#3c3c3c';
 
 /** Bloom response to fog density, which arrives as 0..1. */
@@ -787,11 +807,10 @@ class Visualizer {
    */
   // eslint-disable-next-line class-methods-use-this
   frameDefault() {
-    // Three-quarters from the front, a little above: enough of an angle to
-    // read depth, not so much that it becomes a plan. The distance is not ours
-    // to choose -- setViewDirection fits whatever is there, and copes with an
-    // empty show by framing a unit box at the origin.
-    Controls.setViewDirection(new THREE.Vector3(1, -1, 0.6));
+    Controls.flyTo(
+      new THREE.Vector3(DEFAULT_VIEW.position.x, DEFAULT_VIEW.position.y, DEFAULT_VIEW.position.z),
+      new THREE.Vector3(DEFAULT_VIEW.target.x, DEFAULT_VIEW.target.y, DEFAULT_VIEW.target.z),
+    );
   }
 
   /**

@@ -207,10 +207,12 @@ function primitiveGeometry(primitive) {
     case 'sphere':
       return new THREE.SphereGeometry(metre(size.radius, 0.5), 32, 16);
     case 'plane': {
-      const geometry = new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
-      // PlaneGeometry is upright in XY, which in a Z-up scene stands it on
-      // edge. Lay it flat, and leave it at z = 0 so it is a floor.
-      return geometry;
+      // `PlaneGeometry` lies in XY with its normal along +Z, which in this
+      // Z-up scene is already flat and already facing up -- so there is
+      // nothing to rotate, and it is left at z = 0 as a floor. (The comment
+      // here used to describe standing it up from a Y-up world, which this is
+      // not, and a rotation the code has never performed.)
+      return new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
     }
     case 'cube':
     default: {
@@ -239,8 +241,17 @@ function buildPrimitive(descriptor) {
     color: new THREE.Color(descriptor.primitive.color || '#b0b4b8'),
     roughness: 0.75,
     metalness: 0,
-    // A plane has no thickness, so it is seen from underneath as often as not.
-    side: descriptor.primitive.type === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
+    // Single sided, planes included. A plane was two sided until 2026-08-29,
+    // on the reasoning that having no thickness it would be seen from
+    // underneath as often as not -- but that is exactly what makes it useless
+    // as a ceiling: it hid the room from any camera above it. Facing one way
+    // only, a ceiling is solid from inside the room and invisible from above,
+    // so the rig can be looked at from outside without deleting the roof.
+    //
+    // Which way it faces is the plane's own rotation, which the object widget
+    // already exposes: flat on the floor it faces up, and a half turn about X
+    // turns it into a ceiling.
+    side: THREE.FrontSide,
   });
   return [{ geometry, material }];
 }

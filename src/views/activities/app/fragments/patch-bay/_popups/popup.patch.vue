@@ -830,24 +830,39 @@ export default {
      * @async
      * @param {Object} params `{ type, name, size, color }`
      */
-    async handleObjectCreated(params) {
+    async handleObjectCreated({ params, amount }) {
+      const base = { ...this.fixture.position };
       const spin = { ...this.fixture.rotation };
       const toRad = (deg) => (deg * Math.PI) / 180;
-      let object = null;
+      const placed = [];
+      // Offset copy by copy exactly as `placeObjects` and `placeStructures`
+      // do, so a shape built here is spaced the same way one taken from the
+      // library is -- including when the offsets are zero and they stack.
       try {
-        object = await this.$show.createObject(params, {
-          position: { ...this.fixture.position },
-          rotation: { x: toRad(spin.x), y: toRad(spin.y), z: toRad(spin.z) },
-        });
+        for (let i = 0; i < Math.max(1, amount || 1); i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const object = await this.$show.createObject(params, {
+            position: {
+              x: base.x + this.positionOffsets.x * i,
+              y: base.y + this.positionOffsets.y * i,
+              z: base.z + this.positionOffsets.z * i,
+            },
+            rotation: {
+              x: toRad(spin.x + this.rotationOffsets.x * i),
+              y: toRad(spin.y + this.rotationOffsets.y * i),
+              z: toRad(spin.z + this.rotationOffsets.z * i),
+            },
+          });
+          if (object) placed.push(object);
+        }
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error(`[objects] could not create ${params.name}: ${err.message}`);
-        return;
       }
-      if (!object) return;
+      if (!placed.length) return;
       // Arrives selected, the same courtesy the structure and object paths
       // extend -- and it is what the new widget needs to edit.
-      this.$emit('placed', { kind: 'object', ids: [object.id] });
+      this.$emit('placed', { kind: 'object', ids: placed.map((o) => o.id) });
       this.state = false;
       this.update();
     },

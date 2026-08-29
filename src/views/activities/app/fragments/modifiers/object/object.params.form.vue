@@ -21,6 +21,11 @@
         style="flex: 1"
         label="Name"
       />
+      <!-- The dialog's, not the form's: how many to place is a question about
+           adding, and the widget that edits a placed object has no answer to
+           it. Offered as the end of this row rather than a row of its own so
+           the shape's own fields stay together below. -->
+      <slot name="row-end" />
     </uk-flex>
 
     <slot name="warning" />
@@ -148,11 +153,21 @@ export function defaultSize(type, from = {}) {
   }
 }
 
+/**
+ * What a shape of this type is called before anybody names it.
+ *
+ * @param {String} type
+ * @returns {String}
+ */
+function labelFor(type) {
+  return TYPE_LABELS[OBJECT_TYPES.indexOf(type)] || TYPE_LABELS[0];
+}
+
 /** A whole parameter set for a new object of this type. */
 export function defaultParams(type = 'cube') {
   return {
     type,
-    name: TYPE_LABELS[OBJECT_TYPES.indexOf(type)] || TYPE_LABELS[0],
+    name: labelFor(type),
     size: defaultSize(type),
     color: DEFAULT_OBJECT_COLOR,
   };
@@ -186,6 +201,15 @@ export default {
     hasRadius() {
       return this.type === 'cylinder' || this.type === 'sphere';
     },
+    /**
+     * Whether the name is still the one this type suggested.
+     *
+     * @type {Boolean}
+     */
+    nameIsSuggested() {
+      const name = (this.modelValue.name || '').trim();
+      return !name || name === labelFor(this.type);
+    },
     typeIndex: {
       get() {
         const at = OBJECT_TYPES.indexOf(this.type);
@@ -195,7 +219,15 @@ export default {
         const type = OBJECT_TYPES[index] || OBJECT_TYPES[0];
         // Sizes carry across where the two shapes share a field, so switching
         // cube to plane keeps the footprint the user just typed.
-        this.emit({ type, size: defaultSize(type, this.modelValue.size || {}) });
+        const change = { type, size: defaultSize(type, this.modelValue.size || {}) };
+        // The name follows the type for as long as it is still the one the
+        // type suggested, so picking Plane does not leave a plane called Cube.
+        // Whether it was typed is asked of the value rather than remembered,
+        // because this form deliberately holds no state -- and it answers the
+        // same for the widget, where a placed object is "Cube 2" rather than
+        // "Cube" and so counts as named.
+        if (this.nameIsSuggested) change.name = labelFor(type);
+        this.emit(change);
       },
     },
     name: {
