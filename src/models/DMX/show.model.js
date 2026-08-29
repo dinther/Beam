@@ -883,6 +883,21 @@ class Show extends EventEmitter {
     const euler = new THREE.Euler();
     const members = [];
 
+    // Every distinct profile the definition needs, warmed before the loop and
+    // all at once. With the cache above this is what makes the loop's awaits
+    // microtasks without exception: one yield here rather than one per member,
+    // and the distinct profiles fetched together rather than in series.
+    const wanted = new Set();
+    const distinct = definition.members.filter((member) => {
+      const key = `${member.manufacturer}/${member.model}`;
+      if (wanted.has(key)) return false;
+      wanted.add(key);
+      return true;
+    });
+    await Promise.all(
+      distinct.map((member) => this.resolveProfile(member.manufacturer, member.model)),
+    );
+
     for (let i = 0; i < definition.members.length; i += 1) {
       const member = definition.members[i];
       // eslint-disable-next-line no-await-in-loop
@@ -982,10 +997,29 @@ class Show extends EventEmitter {
     if (this.generatedProfiles[key]) {
       return JSON.parse(JSON.stringify(this.generatedProfiles[key]));
     }
+    // The same cache the load path fills, for a reason that has nothing to do
+    // with the cost of a fetch. A profile is ~0.5 ms to fetch; what it costs
+    // is the *await*. An await on real I/O is a macrotask, so the renderer
+    // gets to paint between one member of a structure and the next -- and
+    // while fixtures are arriving a frame is not cheap: measured at 542 ms
+    // rising to 2.9 s, growing 64 ms with every fixture already placed. A
+    // 115-member structure therefore paid 115 ever-slower frames and took
+    // four minutes and forty-five seconds, of which the actual work -- every
+    // fixture built, named, addressed and patched -- was 48 ms.
+    //
+    // Served from here the await resolves immediately, which is a microtask,
+    // and a microtask cannot paint. The loop runs to the end and the renderer
+    // sees the finished structure once. That is exactly why loading a show of
+    // the same fixtures was always a snap: it has had this cache all along.
+    if (fixtureDataCache[key]) return JSON.parse(fixtureDataCache[key]);
     // Validated, not merely fetched -- see `fetchProfile`. Callers test this
     // for null and skip; a page of HTML would pass that test and then die
     // somewhere with no idea which profile it was looking at.
-    return fetchProfile(key);
+    const profile = await fetchProfile(key);
+    // Parsed back out on every read, so each caller gets its own copy to
+    // mutate -- fixture overrides are merged into what this returns.
+    if (profile) fixtureDataCache[key] = JSON.stringify(profile);
+    return profile;
   }
 
   /**
