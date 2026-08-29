@@ -1612,14 +1612,37 @@ class Controls {
   }
 
   /**
-   * Detaches controls from a Fixture instance
+   * Drops one item out of the selection, keeping the rest.
    *
-   * @param {Object} instance handle to Fixture instance to be attached
+   * The argument used to be ignored: this cleared the whole pool, which made
+   * it identical to `detachAll` and cost the caller every *other* selected
+   * item. That is not what its callers ask for -- `highlight(false, true)`
+   * passes the one item it is unhighlighting, and picks `detachAll()` by name
+   * on the paths that really do mean everything -- and every per-axis write
+   * goes through here too, since `writeAxis` detaches, writes and re-attaches
+   * around the value. So nudging one item of a multi-selection in the position
+   * tool left that item selected and silently dropped the others.
+   *
+   * Helpers come back for whatever survives. `applyTransformation` has already
+   * put them down and committed any drag, so an empty pool needs nothing
+   * further; a pool with items in it needs the gizmo and the box rebuilt
+   * around what is left.
+   *
+   * @param {Object} [instance] the item to drop; every item when absent
    * @public
    */
-  detach() {
+  detach(instance) {
     this.applyTransformation();
-    this.clearAllPooledInstances();
+    if (instance === undefined || instance === null) {
+      this.clearAllPooledInstances();
+      return;
+    }
+    const index = this.pooledIndexOf(instance);
+    if (index > -1) this.pooledInstances.splice(index, 1);
+    // The store mirrors the pool at every mutation, not only where something
+    // is announced. See the note in `clearAllPooledInstances`.
+    Selection.set(this.pooledInstances);
+    if (this.pooledInstances.length) this.showHelpers();
   }
 
   /**

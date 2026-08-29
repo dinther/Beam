@@ -94,6 +94,35 @@ export default class SelectionTransform {
   }
 
   /**
+   * Whether any item in the selection is placed by something else.
+   *
+   * **Any, not all.** A structure's members cannot be typed into, and a
+   * selection holding one of them cannot be either -- moving the set would
+   * carry the free items away and leave the held ones behind, which is the
+   * arrangement coming apart rather than moving. Selecting the structure
+   * itself is how its contents get moved.
+   *
+   * @type {Boolean}
+   */
+  get locked() {
+    return this.items.some((item) => item.locked);
+  }
+
+  /**
+   * The names of whatever holds the locked items, without repeats.
+   *
+   * @type {Array}
+   */
+  get lockedBy() {
+    return this.items.reduce((names, item) => {
+      (item.lockedBy || []).forEach((name) => {
+        if (!names.includes(name)) names.push(name);
+      });
+      return names;
+    }, []);
+  }
+
+  /**
    * The average position of the selection.
    *
    * @type {Object} `{ x, y, z }`

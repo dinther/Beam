@@ -77,7 +77,7 @@
         v-if="locked"
         class="position_tool_locked"
       >
-        Held by {{ fixture.structure.name }}. Move the structure instead.
+        {{ lockedNote }}
       </p>
     </uk-flex>
   </uk-widget>
@@ -164,16 +164,32 @@ export default {
       },
     }), {}),
     /**
-     * Whether this fixture's transform belongs to something else.
+     * Whether this subject's transform belongs to something else.
      *
-     * A structure's members are placed by the structure. Their coordinates are
-     * still absolute and still shown -- knowing where a fixture ended up is
-     * exactly what this tool is for -- but they are not the user's to type.
+     * Asked of the subject rather than worked out here. This used to read
+     * `fixture.structure`, which only an item with that field can answer -- so
+     * a *selection* answered "no" by not having one, and the multi-item tool
+     * stayed editable over the very members the single-item tool greys out.
+     * Both subjects answer `locked` now, which is the whole reason this widget
+     * can be pointed at either.
      *
      * @property {Boolean} locked
      */
     locked() {
-      return !!(this.fixture && this.fixture.structure);
+      return !!(this.fixture && this.fixture.locked);
+    },
+    /**
+     * Why the fields are greyed out, named so it can be acted on.
+     *
+     * @property {String} lockedNote
+     */
+    lockedNote() {
+      const names = (this.fixture && this.fixture.lockedBy) || [];
+      if (!names.length) return '';
+      if (names.length === 1) {
+        return `Held by ${names[0]}. Move the structure instead.`;
+      }
+      return `Held by ${names.length} structures. Move those instead.`;
     },
   },
   mounted() {

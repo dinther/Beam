@@ -139,6 +139,34 @@ const withTransform = (Base) => class SceneItemTransform extends Base {
     this._rotation = { x, y, z };
     this.applyTransform('_rotation');
   }
+
+  /**
+   * Whether this item's transform belongs to something else.
+   *
+   * A structure places its members, so their coordinates are still absolute
+   * and still worth reading -- knowing where a fixture ended up is the point
+   * of the position tool -- but they are not the user's to type.
+   *
+   * An accessor here rather than the question asked at the widget. The tool
+   * asked `fixture.structure` directly, which only something with a
+   * `structure` field can answer, so a *selection* of items answered "no" by
+   * having no such field: the multi-item tool stayed editable over members the
+   * single-item tool greys out, and typing into it moved fixtures out of the
+   * structure holding them.
+   *
+   * @type {Boolean}
+   */
+  get locked() { return !!this.structure; }
+
+  /**
+   * The names of whatever holds this item, for the note the tool shows.
+   *
+   * An array because the same accessor answers for a selection, which can
+   * span more than one structure. Empty when nothing holds it.
+   *
+   * @type {Array}
+   */
+  get lockedBy() { return this.structure ? [this.structure.name] : []; }
 };
 
 export default withTransform;

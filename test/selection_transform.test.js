@@ -125,6 +125,25 @@ selection = new SelectionTransform([at(0, 0, 0), { kind: 'group', id: 1 }, at(4,
 check('a group is left out', selection.count, 2);
 check('and out of the centre', round(selection.posX), 2);
 
+console.log('\na selection is locked when anything in it is held');
+// Any, not all: moving the set would carry the free items off and leave the
+// held ones where they are, which is the arrangement coming apart.
+const free = at(0, 0, 0);
+const held = at(1, 0, 0);
+held.structure = { name: 'Truss A' };
+const alsoHeld = at(2, 0, 0);
+alsoHeld.structure = { name: 'Truss B' };
+check('nothing held', new SelectionTransform([free, at(1, 0, 0)]).locked, false);
+check('one held is enough', new SelectionTransform([free, held]).locked, true);
+check('and it names the holder', new SelectionTransform([free, held]).lockedBy.join(), 'Truss A');
+check('two holders, both named', new SelectionTransform([held, alsoHeld]).lockedBy.length, 2);
+// The same structure twice is one holder, not two: the note counts structures.
+const sameTruss = at(3, 0, 0);
+sameTruss.structure = held.structure;
+check('one holder counted once', new SelectionTransform([held, sameTruss]).lockedBy.length, 1);
+check('an item answers for itself', held.locked, true);
+check('and a free one does not', free.locked, false);
+
 console.log('\nan empty selection answers without throwing');
 selection = new SelectionTransform([]);
 check('centre of nothing', selection.posX, 0);
