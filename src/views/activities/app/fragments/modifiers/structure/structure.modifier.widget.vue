@@ -44,6 +44,12 @@
         />
       </uk-flex>
 
+      <uk-checkbox
+        :model-value="byIsland"
+        label="group by island type"
+        @update:model-value="setByIsland"
+      />
+
       <uk-flex
         :gap="8"
         class="structure_actions"
@@ -65,7 +71,7 @@
 </template>
 
 <script>
-import { PROJECTION_LABELS } from '@/models/DMX/generic/madmapper_layout';
+import { PROJECTION_LABELS, ISLAND_GROUPING } from '@/models/DMX/generic/madmapper_layout';
 
 /** How long the save button confirms for, in ms. */
 const SAVE_FEEDBACK_MS = 1500;
@@ -135,8 +141,26 @@ export default {
     mappingOptions() {
       return PROJECTION_LABELS;
     },
+    byIsland() {
+      return !!this.structure && this.structure.grouping === ISLAND_GROUPING.ISLAND;
+    },
   },
   methods: {
+    /**
+     * Chooses whether the export cuts this structure by island type.
+     *
+     * On, each island type -- `Pan Tilt`, `CMY`, `Control` -- becomes a group
+     * of its own holding that island of every member, in its own square. Off,
+     * each member is a group holding its own islands, which is the default and
+     * what a rig at large wants.
+     *
+     * @public
+     * @param {Boolean} wanted
+     */
+    setByIsland(wanted) {
+      if (!this.structure) return;
+      this.structure.grouping = wanted ? ISLAND_GROUPING.ISLAND : ISLAND_GROUPING.FIXTURE;
+    },
     /**
      * Whether this structure asks for a mapping.
      *

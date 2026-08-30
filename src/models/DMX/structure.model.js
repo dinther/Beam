@@ -78,6 +78,24 @@ class Structure extends withTransform(Proxify) {
      * the export's own default is used.
      */
     this.mappings = Array.isArray(data.mappings) ? [...data.mappings] : [];
+    /**
+     * Whether a layout export cuts the members by island type or by fixture.
+     *
+     * `fixture` is what a rig wants: a head that comes apart is a group in
+     * MadMapper holding its own Pan Tilt, its own RGBW and its own Control.
+     * `island` is what an arranged grid wants: one group per island type,
+     * holding that island of every member, each in its own square. Selecting
+     * every head's movement, or every head's CMY, is then one click rather
+     * than a hunt through a hundred groups -- and each type takes a material
+     * of its own, which is what they are really for.
+     *
+     * Held here, on the placed structure, because it is a property of this
+     * arrangement rather than of the definition it was stamped from -- a
+     * structure has no link back to that, and nothing about this reaches it.
+     * Kept as a bare string, as `mappings` keeps bare projection ids, so the
+     * model owes the layout module nothing.
+     */
+    this.grouping = data.grouping === 'island' ? 'island' : 'fixture';
     // The handle is named for groups because groups had it first; it draws
     // nothing and reads only position, rotationRad and members, so it stands
     // for a structure just as well.
@@ -163,6 +181,7 @@ class Structure extends withTransform(Proxify) {
       rotation: { ...this._rotation },
       members: this.members.map((member) => member.id),
       mappings: [...this.mappings],
+      grouping: this.grouping,
     };
   }
 

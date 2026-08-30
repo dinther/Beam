@@ -487,9 +487,11 @@ const round = (n) => Math.round(n * 1000) / 1000;
  *   the exported library calls it
  * @param {Object} frame `{ centre, radius }`
  * @param {Object|null} perspective `{ distance }`, or null for a parallel view
+ * @param {String|null} [islandPart] the one island label this island holds, or
+ *   null to draw the fixture's islands together the way it always did
  * @returns {Object} entry ready to render
  */
-function prepare(fixture, projection, definitionName, frame, perspective) {
+function prepare(fixture, projection, definitionName, frame, perspective, islandPart = null) {
   const flatten = (p) => (perspective
     ? projectPerspective(p, projection, frame, perspective.distance)
     : project(p, projection, frame.radius, frame.centre));
@@ -515,8 +517,16 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
     // which is what makes a control channel mean anything if the user repoints
     // it at the media. Islands run in channel order, so light, movement and
     // control keep the order they occupy in the profile.
+    //
+    // None of that applies when the island already *is* one type: it holds one
+    // part of each fixture, the rest belong to the other islands, and every
+    // fixture stands where it really is. That is what puts an arranged grid
+    // back -- stacking a grid's own islands crowds each row into the next.
+    const wanted = islandPart === null
+      ? parts
+      : parts.filter((p) => p.suffix === islandPart);
     const pitch = POINT_FIXTURE_HALF * 2.5;
-    return parts.map((part) => {
+    return wanted.map((part) => {
       const address = channelAddress(
         fixture.address,
         part.island ? part.island.channelOffset : 0,
@@ -528,14 +538,22 @@ function prepare(fixture, projection, definitionName, frame, perspective) {
         // allows duplicate names in different groups, so every head can hold a
         // `Pan Tilt` without qualifying it. A fixture that stays whole keeps
         // its own name and sits with its neighbours.
-        name: parts.length > 1 ? part.suffix : fixture.name,
-        owner: parts.length > 1 ? fixture.name : null,
+        //
+        // Grouped by island type it is the other way up: the island is the
+        // group and is named for the type, so the fixture carries its own name
+        // and nothing stands above it. That is the whole point -- one click on
+        // `Pan Tilt` takes every head's movement, and the group takes one
+        // material.
+        name: islandPart !== null || parts.length === 1 ? fixture.name : part.suffix,
+        owner: islandPart === null && parts.length > 1 ? fixture.name : null,
         universe: Math.floor(address / DMX_UNIVERSE_LENGTH),
         channel: (address % DMX_UNIVERSE_LENGTH) + 1,
         definition: definitionName(fixture, part.index),
         kind: 'fixture_quad',
         matrix: part.grid,
-        centre: { ...c, y: c.y + (part.index - (parts.length - 1) / 2) * pitch },
+        centre: islandPart !== null
+          ? c
+          : { ...c, y: c.y + (part.index - (parts.length - 1) / 2) * pitch },
         half: POINT_FIXTURE_HALF,
       };
     });
@@ -665,6 +683,18 @@ export const ISLAND_SIZE = 1024;
 const ISLAND_GAP = 64;
 
 /**
+ * How a structure's members are cut up for export.
+ *
+ * @constant {Object}
+ */
+export const ISLAND_GROUPING = {
+  /** A head that comes apart is a group holding its own islands. */
+  FIXTURE: 'fixture',
+  /** An island type is a group holding that island of every member. */
+  ISLAND: 'island',
+};
+
+/**
  * The mappings a group asks for, falling back to the export's own default.
  *
  * @param {Object} group
@@ -674,6 +704,42 @@ const ISLAND_GAP = 64;
 function mappingsOf(group, fallback) {
   const wanted = (group && group.mappings) || [];
   return wanted.length ? wanted : [fallback];
+}
+
+/**
+ * The island types a set of members splits into, in the order they appear.
+ *
+ * The key is the island's own label -- `RGBW`, `CMY`, `Pan Tilt`, `Control` --
+ * which is what makes this worth having: those are the names of the things a
+ * user reaches for in MadMapper, and each of them realistically takes a
+ * material of its own. Two members whose lights differ, RGBW against RGB, land
+ * in different islands, which is right: one material cannot span two pixel
+ * formats anyway.
+ *
+ * A bar or a tile is exported as *bands* rather than islands -- slices of one
+ * continuous thing rather than different jobs -- so "all the CMY" means
+ * nothing for it. It stays whole and sits in an island of its own alongside
+ * the types, rather than being cut into `(1/4)`, `(2/4)` groups that stand for
+ * nothing anybody would select.
+ *
+ * @param {Array} members fixtures
+ * @returns {Array} `{ part, members }`, `part` null for the members that do
+ *   not come apart
+ */
+function islandParts(members) {
+  const byPart = new Map();
+  const whole = [];
+  members.forEach((fixture) => {
+    if (fixtureEnds(fixture)) { whole.push(fixture); return; }
+    profileParts(fixture.OFLData, fixture.mode).forEach((part) => {
+      if (!byPart.has(part.suffix)) byPart.set(part.suffix, []);
+      byPart.get(part.suffix).push(fixture);
+    });
+  });
+  const out = [];
+  byPart.forEach((wanted, part) => out.push({ part, members: wanted }));
+  if (whole.length) out.push({ part: null, members: whole });
+  return out;
 }
 
 /**
@@ -718,8 +784,30 @@ export function buildMadMapperLayout({
     const members = (group.members || []).filter((m) => m && m.channels && m.channels.length);
     if (!members.length) return;
     members.forEach((m) => grouped.add(m.id));
+    // A structure that asks for it is cut by island type instead of by
+    // fixture: one island -- so one square on the canvas, and one group in
+    // MadMapper's tree -- per type per mapping. It is a structure's preference
+    // rather than the export's because it is only worth having where the
+    // members are locked relative to each other and arranged deliberately: a
+    // grid of heads is the case, a rig at large is not.
+    const byIsland = group.grouping === ISLAND_GROUPING.ISLAND;
     mappingsOf(group, projection).forEach((mapping) => {
-      islands.push({ members, mapping, name: group.name });
+      if (!byIsland) {
+        islands.push({ members, mapping, name: group.name });
+        return;
+      }
+      islandParts(members).forEach(({ part, members: theirs }) => {
+        islands.push({
+          members: theirs,
+          mapping,
+          // Named for the structure as well as the type: two structures both
+          // holding movers would otherwise both want a group called `Pan
+          // Tilt`, and MadMapper will not hold two groups of one name
+          // anywhere in its tree.
+          name: part ? `${group.name} ${part}` : group.name,
+          part,
+        });
+      });
     });
   });
   const loose = patched.filter((f) => !grouped.has(f.id));
@@ -751,7 +839,7 @@ export function buildMadMapperLayout({
     // One fixture can contribute several entries: a tile too large for a single
     // MadMapper fixture is exported as one band per part.
     const entries = [].concat(...island.members.map(
-      (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye)
+      (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye, island.part || null)
         // One rule for everything: the outermost group is the thing itself --
         // a structure, or a fixture that came apart -- and the mapping is a
         // group inside it. So a structure mapped two ways is one `Fusion`
