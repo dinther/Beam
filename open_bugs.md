@@ -1,5 +1,4 @@
 - We have to revisit naming when exporting to madmapper
-- I find the up down buttons for numbers clunky. We do a lot of number entry. The UI should be more helpful.
 - Fixtures have a bright white lens like they are on while the are not.
 - Export show file. Why is that not called "Save As"?
 - Why is showfile.migrate.js in the source?

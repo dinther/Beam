@@ -7,6 +7,7 @@ import {
   net,
   protocol,
   ipcMain,
+  Menu,
 } from 'electron';
 import {
   electronApp,
@@ -138,6 +139,13 @@ function createWindow() {
     vibrancy: 'under-window', // optional
     visualEffectState: 'active',
     show: false,
+    // Hidden *and* unreachable. `autoHideMenuBar` only tucks it away: Alt
+    // still summons it, which on Windows resizes the content area -- and Alt
+    // is a modifier this app uses, for the fine step on a dragged number. A
+    // pointer locked to a number field got warped by the resize and arrived as
+    // a single 1159-pixel movement, which is how a fixture jumped across the
+    // room mid-drag. The app has its own toolbar; the default menu is only a
+    // trap for a key we want.
     autoHideMenuBar: true,
     icon,
     webPreferences: {
@@ -350,6 +358,11 @@ app.whenReady().then(() => {
   // -- and it has to match the appId electron-builder installs under, or a
   // pinned shortcut and the running window are treated as two apps.
   electronApp.setAppUserModelId('com.beatline.beam');
+
+  // See `autoHideMenuBar`: removing the menu entirely is what stops Alt from
+  // reaching it. F12 and reload come from `optimizer.watchWindowShortcuts`
+  // below rather than from here, so they are unaffected.
+  Menu.setApplicationMenu(null);
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
