@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.1.0-alpha.6
+
+A rig can be as big as a rig. The hundred-fixture ceiling is gone, inserting a
+large structure takes seconds rather than five minutes, the floor is something
+you can move or delete, and every number in the app is a value you drag rather
+than a box you click at.
+
+### Several hundred moving heads
+
+- **The 100-mover ceiling is gone.** `MAX_INSTANCES` was allocated once and
+  never checked, so the hundred and first head wrote past every instanced
+  buffer -- silently, because three drops an out-of-range write. Its `count`
+  then exceeded the capacity, which degenerates the whole draw: *every* head
+  vanished, leaving the selection box around nothing, and a second large
+  structure took the renderer down. Capacity now doubles on demand.
+- **Lights live in a texture instead of a uniform array.** three compiles every
+  light into every lit fragment shader, and at 198 heads `MeshStandardMaterial`
+  stopped linking outright -- a program that will not link draws nothing, which
+  is why the bodies went while the unlit beam caps stayed. Light parameters are
+  now read from a float texture, so the count is bounded by texture size rather
+  than by uniform slots.
+- Measured on a ring burner plus two 99-mover structures under live Art-Net:
+  **60 fps, 1.55 ms CPU and 3.0 ms GPU a frame**, at 4K.
+
+### Inserting a structure
+
+- **Four minutes forty-five became seconds.** Of 284,860 ms spent placing a
+  115-member structure, the work itself -- every fixture built, named,
+  addressed and patched -- was 48 ms. The rest was `await` handing control back
+  to the renderer between members, and a frame mid-insert is not cheap. The
+  profile cache the load path has always had now covers this path too, so the
+  awaits resolve immediately and the loop runs to the end.
+
+### The floor is an object
+
+- **A plane in the show, not a cube in the renderer.** It was a 50 x 50 x 0.5
+  box bolted to the scene that nobody could move, resize, replace or delete and
+  the item list never knew about. Existing shows are given one on load.
+- The **Floor** checkbox in Visualizer settings is gone with it -- it existed to
+  hide something you could not otherwise be rid of.
+- **Box selection ignores things bigger than the box.** Overlapping still
+  counts, so dragging across half a truss takes the heads it touches; an item
+  larger than the band has to be enclosed. Without it every band drawn near the
+  middle of the stage picked up the floor.
+
+### The grid
+
+- **Each decade fades by how big its cells are on screen**, not by distance, so
+  lines are gone before they can alias. Leaning in brings up a tenth of the
+  unit; pulling back retires it. No setting to choose.
+- Lines are measured properly now. `fwidth()` over-estimates by up to twice on
+  a diagonal, so width varied with the angle a line made with the screen.
+- **Grid brightness** and **Grid line width** are on the Visualizer panel.
+
+### Numbers
+
+- **Drag a number to change it.** Right and up raise it, the wheel nudges it on
+  hover, and **Alt** is the fine control on both. The pointer locks while
+  dragging, so a long pull does not end at the edge of the screen. The up/down
+  arrows are gone.
+- **No box until it is being typed into.** A border around every number is most
+  of what made a panel look like a form to fill in rather than values to work
+  with.
+- A field given a colour marks itself with a rule underneath -- the axis fields
+  in the position tool.
+- **`step` is separate from `precision`.** Position Z showed one decimal, so a
+  step *and* the resolution were both 0.1, and Alt asked for 0.01 only to have
+  the rounding put it back. Positions now drag in tenths and hold hundredths.
+- **Alt no longer opens the Windows menu bar.** It resized the window under a
+  locked pointer, arriving as a single 1159-pixel movement that threw a fixture
+  across the room mid-drag.
+
+### Arrange
+
+- **Aim is an angle**, and every shape aims the same way. Outward is zero from
+  the radius, inward 180, along a line zero -- and ninety, which nothing could
+  ask for before, is heads tangential to a circle or a row square to its line.
+  Grids can be aimed at all now.
+- Measured from the shape or from the world; from the world points a whole rig
+  the same way wherever each fixture sits.
+- **Keep heading** replaces Set heading and is off by default, so arranging a
+  set aims it.
+
+### Selection and the modifier panel
+
+- **One guard for every kind.** Three per-kind checks were hardened one at a
+  time and the object one never was, so two selected speakers showed a
+  single-object editor beside the multi-item one -- and nudging it dropped the
+  other speaker out of the selection.
+- **`Controls.detach` drops the item it is handed** rather than the whole
+  selection. Every per-axis write goes through it, so nudging one item of a
+  multi-selection silently dropped the rest.
+- **A selection can be typed into.** Position moves its centre and keeps the
+  spread; rotation swings it about its own centre. The fields hold a running
+  total and apply the difference, which is what makes a value committed twice
+  -- on Enter and again on blur -- turn 45 degrees rather than 90.
+- Structure members are selectable again; the panel had been assigning to
+  computed properties, which Vue refuses.
+
+### Objects
+
+- **Create object asks how many**, and offsets copies as the fixture and
+  structure paths do.
+- A plane is **single sided**, so it works as a ceiling rather than hiding the
+  room from any camera above it.
+- Names follow the type until you have typed one.
+
 ## 0.1.0-alpha.5
 
 Haze got about ten times cheaper and now fills the room rather than only the
