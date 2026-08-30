@@ -1139,6 +1139,35 @@ class Visualizer {
       ? [ambientHazeEffect, bloomEffect, toneMapping]
       : [ambientHazeEffect, toneMapping];
     finalComposer.addPass(new EffectPass(this.camera, ...effects));
+
+    // A depth-reading effect -- the ambient haze, here -- makes the composer
+    // build a third render target and blit the scene's depth into it every
+    // frame for the effect to sample. It builds its three depth textures as
+    // one `new DepthTexture()` and two `clone()`s of it, and `Texture.copy`
+    // assigns `this.source = source.source`: a clone shares the original's
+    // `Source` by reference. three keys its GPU textures by `Source` plus a
+    // parameter cache key, so identical clones resolve to a single
+    // `WebGLTexture` -- the composer attaches the same image to the buffer it
+    // reads from and the target it writes to, and the driver rejects the blit:
+    //
+    //   GL_INVALID_OPERATION: glBlitFramebuffer: Read and write depth stencil
+    //   attachments cannot be the same image.
+    //
+    // Sixty times a second, from the first frame the visualizer draws. Nothing
+    // looks wrong, because the failed copy's destination already *is* its
+    // source and the effect reads the right depth by accident. The flood is
+    // the damage: Chromium caps how many GL errors it reports per context,
+    // this exhausts the cap within seconds, and every other GL error in the
+    // session is silently dropped from then on -- a standing hiding place for
+    // the next real bug, and very nearly one for the beam shader's NaNs.
+    //
+    // Giving the stable depth texture a `Source` of its own is enough to tell
+    // the two apart. Upstream's to fix properly; this is postprocessing 6.39.3
+    // against three 0.170.0.
+    const stableDepth = finalComposer.stableDepthTexture;
+    if (stableDepth) {
+      stableDepth.source = new THREE.Source(stableDepth.image);
+    }
   }
 
   /**
