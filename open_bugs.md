@@ -11,10 +11,18 @@
 - I want a parametric floor generator. You can size the floor but the texture remains the same real-world size. PBR materials one click apply
 - Support for LED bars that use 3 adresses for groups of 3 emitters. The Garagecube bar for example has 64 pixels on a 1 meter bar and 4 pixels parralel. So the bar only uses 48 DMx addresses.
 - Review the 6 offset edit boxes. Ugly and I don't use them much. A better arrange is more useful
-- Arrange circle "Aim" could be a angle entry. Discuss for other modes too
-1 and 3- We want copy and paste items in list and 3D view
+- We want copy and paste items in list and 3D view
 - Multi select by dragging mouse from blank part at bottom list up across list items
 - ground projected environment maps?
+- PBR sources https://polyhaven.com/ and https://ambientcg.com/ 
+- Progress bar or spinner when creating stupid number of fixtures.
+- sACN Still to confirm all the user params are present. Ah yes. Madmapper increases the universe for the 
+- Add copy paste and delete toolbar buttons
+- I can't arrange item order anymore
+- Beam needs selector for sACN or Art-Net because it has to adjust the exported fixture files to madmapper
+
+
+
 
 
 

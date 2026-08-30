@@ -12,6 +12,16 @@
       class="layout_export"
     >
       <uk-select-input
+        v-model="protocolIndex"
+        label="MadMapper is driving"
+        :options="protocolNames"
+      />
+
+      <p class="layout_hint">
+        {{ protocolHint }}
+      </p>
+
+      <uk-select-input
         v-model="projectionIndex"
         label="Default mapping"
         :options="projectionNames"
@@ -92,8 +102,11 @@ import {
   buildMadMapperLayout,
   PROJECTION_LABELS,
   PROJECTIONS,
+  PROTOCOL_LABELS,
+  PROTOCOLS,
   edgeOnFixtures,
   isCameraView,
+  universeOffset,
 } from '@/models/DMX/generic/madmapper_layout';
 import { buildMadMapperLibrary, showDefinitions } from '@/models/DMX/generic/madmapper';
 
@@ -109,6 +122,16 @@ const HINTS = {
     'Unrolled about the vertical axis, so content travels around the rig rather than through it. Nothing overlaps.',
   [PROJECTIONS.SPHERICAL]:
     'Unrolled by longitude and latitude, which suits a rig shaped roughly like a ball. Nothing overlaps.',
+  [PROJECTIONS.LINE]:
+    'Every fixture in a row, one slot each, in the order they sit in their list. The shape is thrown away, so a circle takes a chase from one sweep however it is tilted.',
+};
+
+/** What each wire does to the universe numbers in the file, in one line. */
+const PROTOCOL_HINTS = {
+  [PROTOCOLS.ARTNET]:
+    'Art-Net counts universes from zero, as Beam does, so the fixtures arrive on the universes the patch bay shows.',
+  [PROTOCOLS.SACN]:
+    'sACN counts universes from one, so every fixture is written a universe higher than the patch bay shows and lands where the patch bay says. Set this to whatever MadMapper is sending, not to what Beam is receiving.',
 };
 
 export default {
@@ -128,6 +151,11 @@ export default {
       /** Eye distance from the rig's centre, in radii. */
       eyeDistance: 1.3,
       projectionNames: PROJECTION_LABELS.map((p) => p.label),
+      // Art-Net, which is what every export before this one wrote. Not
+      // remembered between sessions: it belongs to the MadMapper project being
+      // imported into rather than to the show, and a rig only has one answer.
+      protocolIndex: 0,
+      protocolNames: PROTOCOL_LABELS.map((p) => p.label),
     };
   },
   computed: {
@@ -136,6 +164,17 @@ export default {
     },
     hint() {
       return HINTS[this.projection] || '';
+    },
+    protocol() {
+      return (PROTOCOL_LABELS[this.protocolIndex] || PROTOCOL_LABELS[0]).id;
+    },
+    protocolHint() {
+      const hint = PROTOCOL_HINTS[this.protocol] || '';
+      const offset = universeOffset(this.protocol);
+      // The rule stated as an example as well as in words. The number the user
+      // is about to compare against MadMapper's own patch readout is the one
+      // thing that settles whether this is set right.
+      return `${hint} Beam universe 0 is written as ${offset}.`;
     },
     cameraView() {
       return isCameraView(this.projection);
@@ -241,6 +280,7 @@ export default {
         projection: this.projection,
         definitionName: nameOf,
         perspective: this.perspective,
+        protocol: this.protocol,
       });
       if (!svg) return;
       // `documentTitle`, not `name`. The project's name is its folder's, and

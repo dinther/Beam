@@ -50,6 +50,15 @@
         @update:model-value="setByIsland"
       />
 
+      <p
+        v-if="!named"
+        class="structure_warning"
+      >
+        Give it a name before saving it to the library. The name is how it is
+        filed and how you find it again, and “{{ structure.name }}” is the one
+        it was handed rather than one you chose.
+      </p>
+
       <uk-flex
         :gap="8"
         class="structure_actions"
@@ -57,7 +66,7 @@
         <uk-button
           icon="save"
           :label="saveLabel"
-          :disabled="!structure.members.length"
+          :disabled="!structure.members.length || !named"
           @click="saveToLibrary"
         />
         <uk-button
@@ -72,6 +81,7 @@
 
 <script>
 import { PROJECTION_LABELS, ISLAND_GROUPING } from '@/models/DMX/generic/madmapper_layout';
+import { isNamedByUser } from '@/models/DMX/show.model';
 
 /** How long the save button confirms for, in ms. */
 const SAVE_FEEDBACK_MS = 1500;
@@ -140,6 +150,14 @@ export default {
     },
     mappingOptions() {
       return PROJECTION_LABELS;
+    },
+    /**
+     * Whether this structure carries a name somebody gave it.
+     *
+     * @type {Boolean}
+     */
+    named() {
+      return !!this.structure && isNamedByUser(this.structure.name);
     },
     byIsland() {
       return !!this.structure && this.structure.grouping === ISLAND_GROUPING.ISLAND;
@@ -213,7 +231,9 @@ export default {
      */
     async saveToLibrary() {
       if (!this.structure) return;
-      await this.$show.saveStructure(this.structure);
+      // The model refuses an unnamed structure as well as the button being
+      // disabled, so the confirmation waits on what was actually written.
+      if (!await this.$show.saveStructure(this.structure)) return;
       this.saved = true;
       setTimeout(() => { this.saved = false; }, SAVE_FEEDBACK_MS);
     },
@@ -242,6 +262,16 @@ export default {
   /* The widget shell sets white-space: nowrap for its single-line rows, and
      clips what overflows. Prose in here has to opt back into wrapping. */
   white-space: normal;
+}
+.structure_warning {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--accent-orange, #d08b3c);
+  margin: 0;
+  /* Wraps to the widget's width rather than setting it. */
+  width: 0;
+  min-width: 100%;
 }
 .structure_summary {
   font-family: Roboto-Regular;

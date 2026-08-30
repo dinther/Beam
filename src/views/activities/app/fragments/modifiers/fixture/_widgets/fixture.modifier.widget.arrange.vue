@@ -238,6 +238,7 @@ import {
   ALIGN_TO,
   ORDER,
   arrangeTransforms,
+  aimedRotation,
   alignAxes,
   boundsCentre,
   orderIndices,
@@ -668,9 +669,12 @@ export default {
             y: centre.y + step.position.y,
             z: centre.z + step.position.z,
           },
-          // aimZ only spins a fixture about the vertical, so a head hanging at
-          // rotX 180 keeps hanging when it is swung round a circle.
-          rotation: step.aimZ === null ? null : { ...entry.rotation, z: step.aimZ },
+          // aimZ only spins an item about the room's vertical, so a head
+          // hanging at rotX 180 keeps hanging and an object tipped about y
+          // keeps its tilt -- both swing rather than tumble. The turn cannot
+          // be written into z: in an XYZ Euler that is the item's own axis,
+          // not the room's.
+          rotation: step.aimZ === null ? null : aimedRotation(entry.rotation, step.aimZ),
         };
       });
     },

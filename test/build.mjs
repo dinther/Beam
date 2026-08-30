@@ -33,6 +33,29 @@ const viteRawPlugin = {
   },
 };
 
+/**
+ * Vite's `foo?worker` imports, which node has no Worker for.
+ *
+ * `live.model` builds one at import time, so anything that reaches the show
+ * model pulls a worker in whether or not the test drives DMX. The stub is a
+ * class that does nothing: the tests never post to it, and a real worker here
+ * would run the DMX thread beside them for no reason.
+ */
+const viteWorkerPlugin = {
+  name: 'vite-worker',
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /\?worker$/ }, (args) => ({
+      path: args.path,
+      namespace: 'vite-worker',
+    }));
+    pluginBuild.onLoad({ filter: /.*/, namespace: 'vite-worker' }, () => ({
+      contents: 'export default class Worker {'
+        + ' postMessage() {} terminate() {} addEventListener() {} removeEventListener() {} }',
+      loader: 'js',
+    }));
+  },
+};
+
 const entries = fs.readdirSync(here)
   .filter((name) => name.endsWith('.test.js'))
   .map((name) => path.join(here, name));
@@ -52,7 +75,7 @@ await build({
   outExtension: { '.js': '.mjs' },
   alias: { '@': path.join(root, 'src') },
   inject: [path.join(root, 'bench/shim.cjs')],
-  plugins: [viteRawPlugin],
+  plugins: [viteRawPlugin, viteWorkerPlugin],
   loader: {
     '.glsl': 'text',
     '.vert': 'text',

@@ -564,6 +564,22 @@ class Controls {
    */
   handleKeydown(e) {
     if (e.repeat) return;
+    // Nothing here belongs to a field being typed into. The listener is on the
+    // window, so `t` and `r` were always one focused text box away from moving
+    // the gizmo instead of typing a letter -- it is only the `@keydown.stop` on
+    // the inputs that has been holding that line. Copy makes the point
+    // unavoidable: ctrl+c in a name field has to copy the text.
+    const { target } = e;
+    if (target && (target.isContentEditable
+      || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+
+    // Ctrl on Windows and Linux, Command on a Mac, which is what `metaKey`
+    // carries there.
+    if (e.ctrlKey || e.metaKey) {
+      this.handleClipboardKey(e);
+      return;
+    }
+
     if (e.key === 'Escape') {
       this.mode = CONTROL_MODES.DISCRETE;
       this.showHelpers();
@@ -599,6 +615,39 @@ class Controls {
       this.showHelpers();
       this.handle.setMode('translate');
     }
+  }
+
+  /**
+   * Copy, paste and duplicate, asked for rather than done here.
+   *
+   * The same bargain the Delete key makes: what a copy of a structure *means*
+   * -- its members coming with it, the copies finding free addresses, the
+   * names they take -- is the show's business, and the visualizer does not
+   * reach into the show. It says what happened and the patch bay, which owns
+   * the one path for putting items in and taking them out, does it.
+   *
+   * Paste is announced whatever is selected, since it does not depend on a
+   * selection; copy and duplicate need one and stay silent without it, so the
+   * keystroke is left to whatever else wants it.
+   *
+   * @public
+   * @param {Object} e keydown event, with ctrl or meta already held
+   */
+  // eslint-disable-next-line class-methods-use-this
+  handleClipboardKey(e) {
+    const key = e.key.toLowerCase();
+    if (key !== 'c' && key !== 'v' && key !== 'd') return;
+    // Copied rather than passed by reference: pasting changes the selection
+    // these entries came from.
+    const selection = Selection.items.map((entry) => ({ ...entry }));
+    if (key === 'v') {
+      e.preventDefault();
+      EventBus.emit('paste_requested');
+      return;
+    }
+    if (!selection.length) return;
+    e.preventDefault();
+    EventBus.emit(key === 'c' ? 'copy_requested' : 'duplicate_requested', selection);
   }
 
   /**

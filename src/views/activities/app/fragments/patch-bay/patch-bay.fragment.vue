@@ -46,6 +46,7 @@
       filterable
       :items="listable"
       :highlight-ids="highlightedIds"
+      :selected-id="selectedRowId"
       @select="displayFixture"
       @highlight="highlightFixtures"
       @delete="deleteFixtures"
@@ -61,6 +62,7 @@
 <script>
 import EventBus from '@/plugins/eventbus';
 import Controls from '@/plugins/visualizer/controls';
+import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
 import PatchPopup from './_popups/popup.patch.vue';
@@ -121,6 +123,27 @@ export default {
       return Selection.items.map((item) => rowId(item.kind, item.id));
     },
     /**
+     * The one row the list should show as *selected*, rather than highlighted.
+     *
+     * The list keeps two states -- the row whose widgets are open, and the set
+     * that is highlighted -- and only the second was ever driven from the
+     * store. So a row clicked first stayed marked as selected however the
+     * selection changed afterwards: select five movers, copy, paste, and the
+     * five copies arrive highlighted while the first of the originals is still
+     * sitting there selected. The same thing happened to a list selection when
+     * a rubber band in the 3D view replaced it.
+     *
+     * Bound here, both states come from the same place. A selection of several
+     * names no primary, which is exactly the case where no single row should
+     * look picked out.
+     *
+     * @property {String|Number|null} selectedRowId
+     */
+    selectedRowId() {
+      const { primary } = Selection;
+      return primary ? rowId(primary.kind, primary.id) : null;
+    },
+    /**
      * Whether there is anything to arrange. One item has no arrangement.
      *
      * @property {Boolean} canArrange
@@ -174,11 +197,17 @@ export default {
   mounted() {
     EventBus.on('fixture_picked', this.handleFixturePicked);
     EventBus.on('delete_requested', this.requestDeletion);
+    EventBus.on('copy_requested', this.copySelection);
+    EventBus.on('paste_requested', this.pasteClipboard);
+    EventBus.on('duplicate_requested', this.duplicateSelection);
     this.watchHeaderWidth();
   },
   beforeUnmount() {
     EventBus.off('fixture_picked', this.handleFixturePicked);
     EventBus.off('delete_requested', this.requestDeletion);
+    EventBus.off('copy_requested', this.copySelection);
+    EventBus.off('paste_requested', this.pasteClipboard);
+    EventBus.off('duplicate_requested', this.duplicateSelection);
     if (this.headerObserver) this.headerObserver.disconnect();
   },
   methods: {
@@ -524,6 +553,58 @@ export default {
       // object picked in the 3D view never lit up in the list.
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
+    },
+    /**
+     * Takes a copy of what is selected.
+     *
+     * Resolved from the selection store rather than from the list's rows, so
+     * this answers the same way whether the selection was made in the list or
+     * in the 3D view -- and so it reaches a structure's members, which have no
+     * row of their own.
+     *
+     * @public
+     * @param {Array} [selection] `{kind, id, uid}` entries; the current
+     *   selection when not given
+     * @returns {Number} how many items were copied
+     */
+    copySelection(selection) {
+      const entries = selection || Selection.items;
+      const items = entries.map((entry) => this.itemOfKind(entry.kind, entry)).filter(Boolean);
+      const chunk = Clipboard.copy(items);
+      return chunkSummary(chunk).total;
+    },
+    /**
+     * Puts the clipboard into the show, and selects what arrived.
+     *
+     * Selecting the copies is what makes an in-place paste legible: they land
+     * exactly on top of what they were copied from, so without the gizmo
+     * moving to them nothing on screen would say anything had happened. It is
+     * also what the next gesture wants -- the first drag separates them.
+     *
+     * @public
+     * @async
+     * @returns {Array} the items created
+     */
+    async pasteClipboard() {
+      if (Clipboard.isEmpty) return [];
+      const created = await this.$show.pasteItems(Clipboard.chunk);
+      if (!created.length) return created;
+      // Rows are rebuilt from the show, so the newly created items have to be
+      // matched in the list rather than highlighted directly: `listable` is
+      // what `highlightFixtures` speaks.
+      const uids = new Set(created.map((item) => item.uid));
+      this.highlightFixtures(this.listable.filter((row) => uids.has(row.uid)));
+      return created;
+    },
+    /**
+     * Copies the selection and pastes it in one gesture.
+     *
+     * @public
+     * @async
+     */
+    async duplicateSelection(selection) {
+      if (!this.copySelection(selection)) return;
+      await this.pasteClipboard();
     },
     /**
      * Deletes what the 3D view has selected, there and then.

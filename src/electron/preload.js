@@ -44,6 +44,22 @@ contextBridge.exposeInMainWorld('artnet', {
   start: (config) => ipcRenderer.invoke('artnet:start', config),
   /** Close the receive socket. */
   stop: () => ipcRenderer.invoke('artnet:stop'),
+  /**
+   * The universes the show has patched, so sACN can join their multicast
+   * groups and leave the ones it no longer needs.
+   *
+   * Art-Net needs nothing of the sort -- it is broadcast or unicast -- so this
+   * is the one place the two protocols are not interchangeable to a caller.
+   *
+   * @param {Array} universes Beam universe numbers, counted from 0
+   */
+  listenTo: (universes) => ipcRenderer.invoke('sacn:listen-to', universes),
+  /**
+   * Who is sending on either wire, and which universes have two of them.
+   *
+   * @returns {Promise<{sources: Array, conflicts: Array}>}
+   */
+  sources: () => ipcRenderer.invoke('dmx:sources'),
 });
 
 /**

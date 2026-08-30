@@ -536,6 +536,30 @@ class PatchMap {
   }
 
   /**
+   * Every universe the patched rig actually occupies.
+   *
+   * Read off the run list, which is already the patch in address order, so a
+   * fixture straddling a boundary contributes both of the universes it touches.
+   *
+   * sACN is what wants this: it arrives on one multicast group per universe,
+   * and joining a group per universe in the whole space would be 32,768 IGMP
+   * memberships where a real switch gives up in the hundreds. The rig's own
+   * patch is the only honest answer to which ones are worth joining.
+   *
+   * @public
+   * @return {Array} universe numbers, ascending
+   */
+  patchedUniverses() {
+    const universes = new Set();
+    this._runs.forEach((run) => {
+      const first = Math.floor(run.start / DMX_UNIVERSE_LENGTH);
+      const last = Math.floor(run.end / DMX_UNIVERSE_LENGTH);
+      for (let universe = first; universe <= last; universe += 1) universes.add(universe);
+    });
+    return [...universes].sort((a, b) => a - b);
+  }
+
+  /**
    * The diffing baseline for a universe, made on first use.
    *
    * @public

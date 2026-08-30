@@ -87,6 +87,13 @@ const PANEL_AS_QUAD = false;
  * anything, but they never put one fixture on top of another, which a camera
  * always will as soon as the rig has a far side.
  *
+ * The line-up is not a flattening at all: it throws the geometry away and
+ * gives every fixture an equal slot in a row. A circle of heads mapped that
+ * way takes a chase from a single sweep across the canvas, whichever way the
+ * circle is tilted -- the cylindrical unwrap does the same thing only while
+ * the circle lies flat, because it measures an angle about the world's
+ * vertical rather than about the ring's own axis.
+ *
  * @constant {Object}
  */
 export const PROJECTIONS = {
@@ -98,6 +105,7 @@ export const PROJECTIONS = {
   BOTTOM: 'bottom',
   CYLINDRICAL: 'cylindrical',
   SPHERICAL: 'spherical',
+  LINE: 'line',
 };
 
 /**
@@ -117,7 +125,48 @@ export const PROJECTION_LABELS = [
   { id: PROJECTIONS.BOTTOM, label: 'Bottom', tag: 'BTM' },
   { id: PROJECTIONS.CYLINDRICAL, label: 'Cylindrical unwrap', tag: 'CYL' },
   { id: PROJECTIONS.SPHERICAL, label: 'Spherical unwrap', tag: 'SPH' },
+  { id: PROJECTIONS.LINE, label: 'Line-up', tag: 'LIN' },
 ];
+
+/**
+ * The wire a MadMapper project is set to drive, which decides how it counts
+ * universes.
+ *
+ * @constant {Object}
+ */
+export const PROTOCOLS = {
+  ARTNET: 'artnet',
+  SACN: 'sacn',
+};
+
+/**
+ * Human labels, in the order the export popup offers them.
+ */
+export const PROTOCOL_LABELS = [
+  { id: PROTOCOLS.ARTNET, label: 'Art-Net' },
+  { id: PROTOCOLS.SACN, label: 'sACN (E1.31)' },
+];
+
+/**
+ * What has to be added to a Beam universe to name the same universe in a
+ * MadMapper project set to this protocol.
+ *
+ * Beam's address space is an offset from zero, which is what the patch bay
+ * shows and what a user types. Art-Net counts from zero as well, so the number
+ * on the wire is the number here and always has been. E1.31 counts from one,
+ * and MadMapper follows it: the fixture that reads universe 0 in an Art-Net
+ * project reads universe 1 in an sACN one. Export the Art-Net number into an
+ * sACN project and every fixture lands a universe early.
+ *
+ * The same step, the other way round, is `sacn.js`'s `universe - 1` on the way
+ * in. These are the only two places in Beam that know about it.
+ *
+ * @param {String} protocol one of `PROTOCOLS`
+ * @returns {Number} 0 or 1
+ */
+export function universeOffset(protocol) {
+  return protocol === PROTOCOLS.SACN ? 1 : 0;
+}
 
 /**
  * Flattens a scene point.
@@ -429,7 +478,7 @@ function safeName(value) {
     .join('_');
 }
 
-function elementId(entry) {
+function elementId(entry, offset = 0) {
   // MadMapper composes `<group>/<name>` and splits the result on slashes, so
   // a second level of grouping is written into the name rather than into the
   // document. Each segment is tidied on its own; the separator between them is
@@ -466,7 +515,7 @@ function elementId(entry) {
   // shared edge, so the error is under half a unit on a 1024 canvas.
   const thickness = entry.thickness == null ? '' : `__TH__${Math.round(entry.thickness)}`;
 
-  return `${name}__UN__${entry.universe}__CH__${entry.channel}${size}${thickness}`
+  return `${name}__UN__${entry.universe + offset}__CH__${entry.channel}${size}${thickness}`
     + `__FT__${entry.kind}__FD__${entry.definition}`;
 }
 
@@ -479,6 +528,63 @@ function elementId(entry) {
 const round = (n) => Math.round(n * 1000) / 1000;
 
 /**
+ * How much of its slot a fixture with length fills in a line-up.
+ *
+ * The remainder is the gap to its neighbour. Without one, a row of bars reads
+ * as a single unbroken bar and there is nothing to tell you where one fixture
+ * ends and the next begins.
+ *
+ * @constant {Number}
+ */
+const SLOT_FILL = 0.9;
+
+/**
+ * Where a point of one fixture lands in a line-up, in slot units.
+ *
+ * Every fixture gets a slot of the same width whatever its real size, so a
+ * chase steps evenly whether the row is six heads or six bars of different
+ * lengths. Inside its slot a fixture keeps its own shape: a bar runs along
+ * the row in its own direction, and the bands of a tile stay stacked across
+ * it, both scaled by however much its length had to be squeezed to fit.
+ *
+ * A fixture with no length has nothing to keep, so it sits at the middle of
+ * its slot and is drawn as the same square every other projection draws.
+ *
+ * @param {Object} fixture
+ * @param {Number} slot which place in the row this fixture holds
+ * @returns {Object} `{ flatten, scale }` -- the point mapping, and what the
+ *   fixture's own measurements have been multiplied by
+ */
+function lineSlot(fixture, slot) {
+  const ends = fixtureEnds(fixture);
+  const centre = scenePoint(fixture);
+  const along = ends ? ends[1].clone().sub(ends[0]) : null;
+  const length = along ? along.length() : 0;
+  if (!along || length < 1e-6) {
+    return { flatten: () => ({ x: slot, y: 0 }), scale: 1 };
+  }
+  along.divideScalar(length);
+  const rotation = fixture.rotationRad;
+  // The fixture's own up axis, which is the direction `bandEnds` displaces a
+  // tile's bands along. Measuring across against it keeps band 1 above band 2
+  // here for the same reason it does in every other projection.
+  const across = new THREE.Vector3(0, 1, 0)
+    .applyEuler(new THREE.Euler(rotation.x, rotation.y, rotation.z));
+  const scale = SLOT_FILL / length;
+  return {
+    scale,
+    flatten: (point) => {
+      const offset = point.clone().sub(centre);
+      return {
+        x: slot + offset.dot(along) * scale,
+        // Negated like every other projection: the canvas counts y downwards.
+        y: -offset.dot(across) * scale,
+      };
+    },
+  };
+}
+
+/**
  * Prepares one fixture for drawing.
  *
  * @param {Object} fixture Fixture instance
@@ -487,14 +593,26 @@ const round = (n) => Math.round(n * 1000) / 1000;
  *   the exported library calls it
  * @param {Object} frame `{ centre, radius }`
  * @param {Object|null} perspective `{ distance }`, or null for a parallel view
- * @param {String|null} [islandPart] the one island label this island holds, or
- *   null to draw the fixture's islands together the way it always did
+ * @param {Object} [options]
+ * @param {String|null} [options.islandPart] the one island label this island
+ *   holds, or null to draw the fixture's islands together the way it always did
+ * @param {Number|null} [options.slot] this fixture's place in a line-up, or null
+ *   for every other mapping
  * @returns {Object} entry ready to render
  */
-function prepare(fixture, projection, definitionName, frame, perspective, islandPart = null) {
-  const flatten = (p) => (perspective
-    ? projectPerspective(p, projection, frame, perspective.distance)
-    : project(p, projection, frame.radius, frame.centre));
+function prepare(fixture, projection, definitionName, frame, perspective, options = {}) {
+  const { islandPart = null, slot = null } = options;
+  // A line-up ignores where the fixture is and puts it in its own slot, so it
+  // replaces the projection outright rather than being one of its cases: the
+  // mapping needs to know which place in the row this fixture holds, and a
+  // function of one point cannot.
+  const placement = slot === null ? null : lineSlot(fixture, slot);
+  const flatten = (p) => {
+    if (placement) return placement.flatten(p);
+    return perspective
+      ? projectPerspective(p, projection, frame, perspective.distance)
+      : project(p, projection, frame.radius, frame.centre);
+  };
 
   const ends = fixtureEnds(fixture);
   if (!ends) {
@@ -628,7 +746,10 @@ function prepare(fixture, projection, definitionName, frame, perspective, island
       kind: 'fixture_line',
       a,
       b,
-      thickness: across * UNITS_PER_METRE,
+      // Squeezed by however much the line-up squeezed the fixture's length, so
+      // a bar keeps its own proportions inside its slot instead of arriving as
+      // a fat stub.
+      thickness: across * (placement ? placement.scale : 1) * UNITS_PER_METRE,
     };
   });
 }
@@ -664,6 +785,9 @@ export function layoutFrame(fixtures) {
  * @returns {Array} names
  */
 export function edgeOnFixtures(fixtures, projection, perspective = null) {
+  // A line-up never sees anything end-on: it does not look at the rig from
+  // anywhere, so a bar pointing at the viewer gets the same slot as the rest.
+  if (projection === PROJECTIONS.LINE) return [];
   const frame = layoutFrame(fixtures);
   const flatten = (p) => (perspective && isCameraView(projection)
     ? projectPerspective(p, projection, frame, perspective.distance)
@@ -765,6 +889,8 @@ function islandParts(members) {
  *   agree with the library export, since MadMapper resolves layouts by name
  * @param {Object|null} [options.perspective] `{ distance }` in radii, applied
  *   to whichever mappings are camera views
+ * @param {String} [options.protocol] the wire the receiving MadMapper project
+ *   is set to, which decides whether it counts universes from zero or from one
  * @returns {String|null} SVG document, or null when there is nothing to draw
  */
 export function buildMadMapperLayout({
@@ -773,7 +899,12 @@ export function buildMadMapperLayout({
   projection = PROJECTIONS.FRONT,
   definitionName = (f) => `${f.manufacturer} - ${f.model}`,
   perspective = null,
+  protocol = PROTOCOLS.ARTNET,
 } = {}) {
+  // Taken once and applied where the id is written, so everything between here
+  // and there -- addresses, bands, the entries themselves -- stays in Beam's
+  // own numbering and can be read against the patch bay.
+  const offset = universeOffset(protocol);
   const patched = fixtures.filter((f) => f && f.channels && f.channels.length);
   if (!patched.length) return null;
 
@@ -836,10 +967,20 @@ export function buildMadMapperLayout({
     const eye = perspective && isCameraView(island.mapping) ? perspective : null;
     const prefix = prefixOf.get(island.mapping) || 'FRT';
 
+    // A line-up hands each member a place in the row. It is the order they sit
+    // in the structure's own list -- the order on screen, and the one the user
+    // can see -- rather than anything derived from the patch or the geometry:
+    // a circle of movers is rarely addressed the way it is arranged, and the
+    // whole point of the mapping is that the arrangement no longer matters.
+    const inARow = island.mapping === PROJECTIONS.LINE;
+
     // One fixture can contribute several entries: a tile too large for a single
     // MadMapper fixture is exported as one band per part.
     const entries = [].concat(...island.members.map(
-      (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye, island.part || null)
+      (fixture, place) => prepare(fixture, island.mapping, definitionName, frame, eye, {
+        islandPart: island.part || null,
+        slot: inARow ? place : null,
+      })
         // One rule for everything: the outermost group is the thing itself --
         // a structure, or a fixture that came apart -- and the mapping is a
         // group inside it. So a structure mapped two ways is one `Fusion`
@@ -944,7 +1085,7 @@ export function buildMadMapperLayout({
       // cannot disagree about how thick the same line is. `entry.thickness` is
       // in scene units until this point; everything downstream wants canvas.
       const thickness = entry.kind === 'fixture_line' ? toThickness(entry.thickness) : null;
-      const id = escapeAttribute(elementId({ ...entry, inner, thickness }));
+      const id = escapeAttribute(elementId({ ...entry, inner, thickness }, offset));
       if (entry.kind === 'fixture_line') {
         return `        <line id="${id}" x1="${toX(entry.a.x)}" y1="${toY(entry.a.y)}"`
           + ` x2="${toX(entry.b.x)}" y2="${toY(entry.b.y)}"`
@@ -1001,4 +1142,6 @@ export default {
   fixtureEnds,
   PROJECTIONS,
   PROJECTION_LABELS,
+  PROTOCOLS,
+  PROTOCOL_LABELS,
 };

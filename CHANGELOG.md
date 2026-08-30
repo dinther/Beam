@@ -1,5 +1,123 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+Beam listens to the other wire. sACN arrives beside Art-Net, sources have names
+instead of addresses, and the MadMapper export knows which protocol you are on
+and numbers its universes to match. Items copy and paste. And the beams stopped
+speckling.
+
+### sACN (E1.31)
+
+- **A second protocol, receiving.** `sacn.js` parses E1.31 to the spec's own
+  layout -- root, framing and DMP layers, offsets named rather than counted --
+  and everything after the parse is shared with Art-Net.
+- **Sources have names.** An sACN packet carries a CID, a 64-character source
+  name and a priority, so two applications writing one universe can be named
+  rather than suspected. Art-Net carries no identity at all; the sender's
+  address is all there is. Highest priority wins, equal priority means last
+  frame in, and a contended universe is logged once per pairing with both
+  names. This is the failure that cost a whole evening when MadMapper and LEDfx
+  were both on the wire and each one's ceiling looked like the other's fault.
+- **Multicast joins follow the patch.** E1.31 arrives on a group per universe,
+  and a group has to be joined before anything from it is seen. Joining the
+  whole space would be 32,768 IGMP memberships where a real switch gives up in
+  the hundreds, so `patchedUniverses()` reads the rig's own run list and joins
+  only those -- rechecked every two seconds as fixtures come and go.
+- **One receiver, two protocols.** Art-Net and sACN differ in a port and a
+  packet; everything that took the tuning -- one reused buffer per universe, a
+  dirty set, one packed message per display frame -- is now `dmx_receiver.js`
+  and belongs to both. A 256 x 256 tile is 386 universes at 40 fps, 15,437
+  packets a second, coalesced to about 60 messages carrying the same bytes.
+- Receive only, both wires. Whatever drives the rig owns it; a second
+  transmitter would only raise the question of which application to believe.
+- `tools/sacn-send.js` and `tools/dmx-watch.js` for driving and reading either
+  protocol without the app.
+
+### The MadMapper export knows which wire
+
+- **A protocol selector on the export.** Beam's address space counts universes
+  from zero and so does Art-Net, so the number written was always the number
+  the patch bay shows. E1.31 counts from one and MadMapper follows it, which
+  put every fixture in an sACN project a universe early. The export popup now
+  asks which wire MadMapper is driving and writes `__UN__` to match.
+- Export-time only: nothing is stored on the show, both receivers keep
+  listening, and Art-Net is the default -- so an unchanged export is byte for
+  byte what it was.
+
+### Grouping for MadMapper
+
+- **A structure can be cut by island type instead of by fixture.** A head that
+  comes apart is exported as a group holding its own `Pan Tilt`, `RGB` and
+  `Control`, which is right for a rig and wrong for forty-eight heads in a
+  grid: what anybody reaches for there is every head's movement, because that
+  is what takes a material. Finding those meant opening forty-eight groups.
+  One group per island type, one click, one material.
+- **The vertical stack went with it.** Islands were stacked at each fixture's
+  position so a rubber band could take one type across a row. On a grid that
+  put every row's islands into the row below. One type to an island means one
+  part per fixture, so each stands where it really is. Measured on a synthetic
+  three by three: grouped by fixture, nine groups of three rows by one column
+  -- the grid split nine ways; grouped by island, three groups of three by
+  three, which is the grid.
+- Bars and tiles stay whole. Their bands are slices of one continuous thing
+  rather than different jobs, so cutting them by suffix would produce `(1/4)`
+  groups standing for nothing anybody would select.
+
+### Copy, paste and duplicate
+
+- **Items copy and paste, in the list and the 3D view.** Ctrl+C, Ctrl+V and
+  Ctrl+D over fixtures, groups, structures and objects. A paste is given fresh
+  ids, unique names, and a free address found for every fixture in it, so it
+  never lands on top of what it was copied from. Keys are ignored while a text
+  field has focus.
+
+### Beams
+
+- **A beam cannot draw black, so every black pixel was a NaN.** Five hundred
+  movers and the beams came apart into static. The material is additive with
+  `depthWrite` off, so black is not a colour it can produce -- unless the
+  fragment is NaN, which the half-float buffer stores, bloom's threshold
+  rejects rather than spreads, and the tone mapper resolves to black. Three
+  sources, each mapping onto something visible: a vertex normal normalising a
+  cancelled cross product where a cone is edge-on (most of a thin beam's
+  pixels); a view direction taken from what was actually the *clip* position,
+  which collapses toward zero for anything near the 0.01 m near plane and
+  wedged across the view as a cone swept the lens; and three uses of `pow`
+  with a base that could be negative or zero. The distance term is `length`
+  now, which is what it was computing all along, and drops six transcendental
+  ops from the most overdrawn shader in the app.
+- **The composer was blitting a depth buffer onto itself, sixty times a
+  second.** `GL_INVALID_OPERATION` from the first frame until Chromium's
+  per-context cap gave up -- which is the real damage, because every GL error
+  in the session after the first few seconds was then thrown away silently.
+  The three depth textures were one `DepthTexture` and two `clone()`s, and a
+  clone shares the original's `Source` by reference, so three resolved them to
+  one `WebGLTexture`: read and write were the same image. Measured over six
+  minutes on the 33-fixture show, that error count is now zero against a
+  continuous flood before.
+
+### Smaller things
+
+- **Aim is a real heading.** An arrangement's `aimZ` was written into Euler z,
+  which is the item's *own* axis rather than the room's, so a head hanging at
+  rotX 180 or an object tipped about y tumbled instead of swinging. It is a
+  quaternion turn about the room's vertical now.
+- **Item order could not be rearranged.** A list rebuild carried the selected
+  row across by index, so inserting rows above it moved the mark to whatever
+  now sat at that index rather than keeping the row picked out.
+- **Numeric fields answer Shift and a sustained spin.** Shift is ten steps and
+  Alt a tenth, on the wheel as on the arrow keys and the drag, and a wheel held
+  in one direction accelerates up to ten notches after a short grace. A field
+  with no step of its own now steps by one rather than by its display
+  precision.
+- **A placeholder name is called out before you file something under it.**
+  Saving a group or structure to the library warns when its name is one it was
+  handed -- `untitled 1`, `Group 3` -- rather than one you chose, because the
+  name is how it is filed and how it is found again.
+- **The auto-rotate takes twice as long to come round.** Twelve seconds a
+  revolution was a turntable; it is about twenty-four now.
+
 ## 0.1.0-alpha.6
 
 A rig can be as big as a rig. The hundred-fixture ceiling is gone, inserting a

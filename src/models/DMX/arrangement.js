@@ -30,11 +30,16 @@ const LAYOUT = {
  * What a layout does to each fixture's facing.
  *
  * A layout only ever spins a fixture about the vertical -- the same axis its
- * own pan runs on. It never touches the other two, so a head hanging at
- * `rotX: 180` stays hanging when it is swung round a circle. That is why an
- * arrangement returns a single `aimZ` rather than a whole rotation: there is
- * no sensible arrangement-level answer for the other two axes, and inventing
- * one would silently unrig somebody's plot.
+ * own pan runs on. Nothing else about how it hangs is changed, so a head at
+ * `rotX: 180` stays hanging and an object tipped about y keeps its tilt: both
+ * swing round the circle rather than tumbling. That is why an arrangement
+ * returns a single `aimZ` rather than a whole rotation: there is no sensible
+ * arrangement-level answer for the other two axes, and inventing one would
+ * silently unrig somebody's plot.
+ *
+ * `aimZ` is a heading in the room, not a number to write into `rotZ`. Turning
+ * it into three stored angles is `aimedRotation`'s job, and for anything that
+ * is not upright the two are not the same thing.
  *
  * It used to be four names -- unchanged, along, outward, inward -- with each
  * layout offering its own subset under its own vocabulary. They turn out to be
@@ -110,6 +115,8 @@ const AIM_ZERO_HEADING_DEG = 0;
 
 const DEG = 180 / Math.PI;
 
+const RAD = Math.PI / 180;
+
 /**
  * Wraps an angle into 0..360 so aims read the way a user would write them.
  *
@@ -153,6 +160,136 @@ function aimHeading(aim, reference) {
   if (!Number.isFinite(angle)) return null;
   const from = aim.from === AIM_FROM.WORLD ? 0 : reference;
   return wrapDeg(from + angle + AIM_ZERO_HEADING_DEG);
+}
+
+/**
+ * Orientation as a quaternion, built from the three angles an item stores.
+ *
+ * The order is XYZ, which is what the scene reads the same three numbers as.
+ * That order is not a detail here -- it is the whole reason a heading cannot
+ * simply be written into `z`. In XYZ the z turn is applied *inside* the other
+ * two, so for an item that is already tipped it spins about the item's own
+ * axis rather than about the room's vertical.
+ *
+ * @param {Object} rotation `{ x, y, z }` in degrees
+ * @return {Object} `{ x, y, z, w }`
+ */
+function quaternionOf(rotation) {
+  const r = vec(rotation);
+  const c1 = Math.cos((r.x * RAD) / 2);
+  const s1 = Math.sin((r.x * RAD) / 2);
+  const c2 = Math.cos((r.y * RAD) / 2);
+  const s2 = Math.sin((r.y * RAD) / 2);
+  const c3 = Math.cos((r.z * RAD) / 2);
+  const s3 = Math.sin((r.z * RAD) / 2);
+  return {
+    x: s1 * c2 * c3 + c1 * s2 * s3,
+    y: c1 * s2 * c3 - s1 * c2 * s3,
+    z: c1 * c2 * s3 + s1 * s2 * c3,
+    w: c1 * c2 * c3 - s1 * s2 * s3,
+  };
+}
+
+/**
+ * The same orientation back as the three angles, so it can be stored again.
+ *
+ * @param {Object} q `{ x, y, z, w }`
+ * @return {Object} `{ x, y, z }` in degrees
+ */
+function rotationOf(q) {
+  const {
+    x, y, z, w,
+  } = q;
+  // The three columns of the rotation matrix, named as three.js names them.
+  const m11 = 1 - 2 * (y * y + z * z);
+  const m12 = 2 * (x * y - z * w);
+  const m13 = 2 * (x * z + y * w);
+  const m22 = 1 - 2 * (x * x + z * z);
+  const m23 = 2 * (y * z - x * w);
+  const m32 = 2 * (y * z + x * w);
+  const m33 = 1 - 2 * (x * x + y * y);
+  const pitch = Math.asin(Math.min(1, Math.max(-1, m13)));
+  // Straight up or straight down leaves the other two angles sharing one axis,
+  // and only their sum is real. Handing it all to x is the convention.
+  const gimbal = Math.abs(m13) > 0.9999999;
+  return {
+    x: (gimbal ? Math.atan2(m32, m22) : Math.atan2(-m23, m33)) * DEG,
+    y: pitch * DEG,
+    z: (gimbal ? 0 : Math.atan2(-m12, m11)) * DEG,
+  };
+}
+
+/**
+ * Which way an item faces, measured about the vertical, from what it stores.
+ *
+ * A heading is the compass bearing of the way the item points, so it is read
+ * off the item's own forward axis rather than off its stored `z`. The two
+ * agree for anything standing upright and disagree for everything else -- a
+ * head hanging at `rotX: 180` has its forward axis mirrored, so a stored `z`
+ * of 90 is a heading of -90, which is why hung heads used to swing the wrong
+ * way round a circle.
+ *
+ * @param {Object} rotation `{ x, y, z }` in degrees
+ * @return {Number} degrees, 0..360
+ */
+function headingOf(rotation) {
+  const q = quaternionOf(rotation);
+  const {
+    x, y, z, w,
+  } = q;
+  const forward = {
+    x: 1 - 2 * (y * y + z * z),
+    y: 2 * (x * y + z * w),
+    z: 2 * (x * z - y * w),
+  };
+  // An item aimed straight up or straight down has no bearing of its own --
+  // the forward axis has nothing left in the floor plane to measure. Its own
+  // up axis does, and it is a quarter turn ahead of where forward would be.
+  if (Math.hypot(forward.x, forward.y) < 1e-6) {
+    const up = {
+      x: 2 * (x * y - z * w),
+      y: 1 - 2 * (x * x + z * z),
+    };
+    return wrapDeg(Math.atan2(up.y, up.x) * DEG - 90);
+  }
+  return wrapDeg(Math.atan2(forward.y, forward.x) * DEG);
+}
+
+/**
+ * An item's rotation turned to face a heading, keeping every other angle.
+ *
+ * The turn is made about the room's vertical and applied *outside* what the
+ * item already holds, which is the only way to swing something that is already
+ * tipped or hung without also tumbling it. Adding the difference to the stored
+ * `z` would turn it about its own axis instead: an object pre-rotated about y
+ * and then arranged round a circle would lean rather than swing.
+ *
+ * An upright item comes back with exactly `aimZ` in `z` and zeroes elsewhere,
+ * which is what the old arithmetic did -- the two only part company where the
+ * old one was wrong.
+ *
+ * @param {Object} rotation `{ x, y, z }` in degrees, what the item holds now
+ * @param {Number} aimZ heading it should have, in degrees
+ * @return {Object} `{ x, y, z }` in degrees
+ */
+function aimedRotation(rotation, aimZ) {
+  // `Number(null)` is zero, and zero is a real heading -- so "no opinion" has
+  // to be turned away before the conversion rather than after it, or a layout
+  // that was only meant to move things swings everything round to face east.
+  const wanted = aimZ === null ? NaN : Number(aimZ);
+  if (!Number.isFinite(wanted)) return vec(rotation);
+  const turn = (wrapDeg(wanted - headingOf(rotation)) * RAD) / 2;
+  const s = Math.sin(turn);
+  const c = Math.cos(turn);
+  const q = quaternionOf(rotation);
+  // Premultiplied: the vertical turn happens in the room, after the item is
+  // oriented, rather than in the item's own frame.
+  return rotationOf({
+    x: c * q.x - s * q.y,
+    y: c * q.y + s * q.x,
+    z: c * q.z + s * q.w,
+    w: c * q.w - s * q.z,
+  });
 }
 
 /**
@@ -486,6 +623,8 @@ export {
   ORDER,
   orderIndices,
   AIM_ZERO_HEADING_DEG,
+  headingOf,
+  aimedRotation,
   arrangeTransforms,
   lineTransforms,
   circleTransforms,

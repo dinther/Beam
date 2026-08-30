@@ -356,6 +356,11 @@ export default {
         // tick, and whichever arrived first won: select three fixtures at once
         // and the 3D view showed them while the list showed none.
         this.applyExternalHighlight(this.highlightIds);
+        // And the selected row with it, for an owner that drives one. The
+        // rebuild carries `selected` across by *index*, so inserting rows
+        // above it does not merely keep a stale row picked out -- it moves
+        // the mark to whichever row now sits at that index.
+        this.applyExternalSelection(this.selectedId);
         if (items && items.length && (!oldItems || !oldItems.length)) {
           if (this.autoSelectFirst && this.tree[0]) {
             if (this.tree[0].value.unfold) {

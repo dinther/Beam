@@ -17,6 +17,7 @@ import {
 import path from 'path';
 import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
+import sacn from './sacn';
 import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
@@ -243,8 +244,25 @@ function setupArtnet() {
     return artnet.listening;
   });
 
-  // Start listening immediately — a visualizer's whole job is to receive.
+  // Which multicast groups are worth joining is the show's business: one group
+  // per universe is 386 IGMP memberships on a 256 x 256 tile, and switches
+  // start dropping groups well before that. The renderer says what is patched.
+  ipcMain.handle('sacn:listen-to', (_event, universes) => {
+    sacn.listenTo(universes);
+    return sacn.joined.size;
+  });
+  // Who is sending, on either wire, and where two of them collide.
+  ipcMain.handle('dmx:sources', () => ({
+    sources: [...artnet.sourceReport(), ...sacn.sourceReport()],
+    conflicts: sacn.conflicts(),
+  }));
+
+  // Start listening immediately — a visualizer's whole job is to receive. Both
+  // protocols at once: they are different sockets writing one address space,
+  // and asking the user to pick first is asking them to know what the other
+  // application is doing before they can see anything at all.
   artnet.start(forward);
+  sacn.start(forward);
 }
 
 /**
@@ -436,5 +454,6 @@ app.on('before-quit', () => {
 
 app.on('window-all-closed', () => {
   artnet.stop();
+  sacn.stop();
   app.quit();
 });

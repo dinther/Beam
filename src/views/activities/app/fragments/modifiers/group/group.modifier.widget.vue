@@ -43,6 +43,15 @@
         dialog's own choice.
       </p>
 
+      <p
+        v-if="!named"
+        class="group_warning"
+      >
+        Give it a name before saving it to the library. The name is how it is
+        filed and how you find it again, and “{{ group.name }}” is the one it
+        was handed rather than one you chose.
+      </p>
+
       <uk-flex
         :gap="8"
         class="group_actions"
@@ -50,7 +59,7 @@
         <uk-button
           icon="save"
           :label="saveLabel"
-          :disabled="!group.members.length"
+          :disabled="!group.members.length || !named"
           @click="saveAsStructure"
         />
         <uk-button
@@ -70,6 +79,7 @@
 
 <script>
 import { PROJECTION_LABELS } from '@/models/DMX/generic/madmapper_layout';
+import { isNamedByUser } from '@/models/DMX/show.model';
 
 /** How long the save button confirms for, in ms. */
 const SAVE_FEEDBACK_MS = 1500;
@@ -118,6 +128,14 @@ export default {
     mappingOptions() {
       return PROJECTION_LABELS;
     },
+    /**
+     * Whether this group carries a name somebody gave it.
+     *
+     * @type {Boolean}
+     */
+    named() {
+      return !!this.group && isNamedByUser(this.group.name);
+    },
   },
   methods: {
     /**
@@ -153,7 +171,9 @@ export default {
      */
     async saveAsStructure() {
       if (!this.group) return;
-      await this.$show.saveStructure(this.group);
+      // The model refuses an unnamed group as well as the button being
+      // disabled, so the confirmation waits on what was actually written.
+      if (!await this.$show.saveStructure(this.group)) return;
       this.saved = true;
       setTimeout(() => { this.saved = false; }, SAVE_FEEDBACK_MS);
     },
@@ -182,6 +202,16 @@ export default {
   font-size: 11px;
   color: var(--secondary-lighter);
   margin: 0;
+}
+.group_warning {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--accent-orange, #d08b3c);
+  margin: 0;
+  /* Wraps to the widget's width rather than setting it, as .group_hint does. */
+  width: 0;
+  min-width: 100%;
 }
 .group_hint {
   font-family: Roboto-Regular;

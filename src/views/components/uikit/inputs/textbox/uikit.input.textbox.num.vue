@@ -65,6 +65,46 @@ const PIXELS_PER_STEP = 50;
 const FINE_PIXELS_PER_STEP = 500;
 
 /**
+ * What Shift multiplies a step by.
+ *
+ * Alt was already the fine control and there was nothing on the other side of
+ * it: every route into the value moved a step at a time, so 2 to 23 was
+ * twenty-one notches of the wheel or a thousand pixels of drag. Ten is the
+ * factor Alt gives away, so the three speeds read as one scale -- and it is
+ * the three.js editor's own: its number field divides the drag distance by 5
+ * with Shift held where it divides by 50 without, which is this same ten.
+ *
+ * @constant {Number}
+ */
+const COARSE_SCALE = 10;
+
+/** What Alt divides a step by, on the wheel and the arrow keys. */
+const FINE_SCALE = 0.1;
+
+/**
+ * How far apart two notches can be and still be one spin of the wheel, in ms.
+ *
+ * @constant {Number}
+ */
+const WHEEL_RUN_GAP_MS = 180;
+
+/**
+ * Notches at the start of a spin that move exactly one step.
+ *
+ * A deliberate nudge or two has to stay a nudge -- placing a value exactly is
+ * what the wheel is for here. Acceleration is for the case where the hand has
+ * already said it wants distance, so it does not begin until the gesture has
+ * gone on longer than any nudge does. (The three.js editor has no wheel
+ * handling at all to copy: its number field is drag and arrow keys only.)
+ *
+ * @constant {Number}
+ */
+const WHEEL_RUN_GRACE = 2;
+
+/** The most a sustained spin can multiply one notch by. */
+const MAX_WHEEL_RUN = 10;
+
+/**
  * The largest single pointer movement treated as a real one, in pixels.
  *
  * Generous for a hand and impossible for a warp. See `dragMove`.
@@ -118,14 +158,20 @@ export default {
     /**
      * How much one step of drag, wheel or arrow key moves the value.
      *
-     * Separate from `precision`, which was doing both jobs and could not. A
-     * position field showing one decimal had a step of 0.1 *and* a resolution
-     * of 0.1, so holding Alt asked for 0.01 and the rounding put it straight
-     * back: ten times the mouse travel for the same steps.
+     * Left null it is **one whole unit**, whatever the field's precision --
+     * the three.js editor's rule, and the reason its number fields feel the
+     * way they do. Precision decides what is *shown*; it has nothing to say
+     * about how fast the value travels.
      *
-     * Left null it is one unit of the precision, so every existing field
-     * behaves exactly as it did. A field wanting fine control states both --
-     * `:precision="2" :step="0.1"` drags in tenths and holds hundredths.
+     * Tying the two together is what made this control unusable on anything
+     * with decimals. A spacing field showing two of them stepped by 0.01, so
+     * three to twenty-three was two thousand notches of the wheel or a hundred
+     * thousand pixels of drag. The same field now steps by 1: twenty notches,
+     * or the thousand pixels the three.js editor asks for -- and Alt still
+     * reaches the hundredths for placing something exactly.
+     *
+     * A field whose whole range is smaller than a unit is the case for
+     * stating a step of its own.
      *
      * @type {Number}
      */
@@ -170,6 +216,8 @@ export default {
       content: this.modelValue,
       /** Whether a drag is under way, for the cursor and the styling. */
       dragging: false,
+      /** The wheel spin in progress: how many notches, and when the last was. */
+      wheelRun: { notches: 0, at: 0, direction: 0 },
     };
   },
   computed: {
@@ -180,9 +228,7 @@ export default {
      */
     stepSize() {
       const wanted = Number(this.step);
-      return Number.isFinite(wanted) && wanted > 0
-        ? wanted
-        : parseFloat(10 ** -this.precision);
+      return Number.isFinite(wanted) && wanted > 0 ? wanted : 1;
     },
   },
   watch: {
@@ -238,13 +284,49 @@ export default {
       // Kept off the panel behind it, and this is why the listener cannot be
       // passive -- Vue attaches it non-passive unless asked otherwise.
       event.preventDefault();
-      // A notch is a step; Alt is a tenth of one, matching the drag. On a
-      // field of whole numbers there is no tenth to give, so Alt does nothing
-      // there -- the precision is the field's resolution, not a suggestion.
-      const scale = event.altKey ? 0.1 : 1;
+      // A notch is a step; Alt is a tenth of one and Shift is ten, matching
+      // the drag. On a field of whole numbers there is no tenth to give, so
+      // Alt does nothing there -- the precision is the field's resolution, not
+      // a suggestion.
       const direction = event.deltaY < 0 ? 1 : -1;
+      const scale = this.scaleFor(event) * this.wheelRunScale(direction);
       this.content = (parseFloat(this.content) || 0) + direction * this.stepSize * scale;
       this.updateValue(true);
+    },
+    /**
+     * How much the held modifiers multiply one step by.
+     *
+     * @public
+     * @param {Event} [event] anything carrying modifier state
+     * @returns {Number} what to multiply the step by
+     */
+    scaleFor(event) {
+      if (event && event.shiftKey) return COARSE_SCALE;
+      if (event && event.altKey) return FINE_SCALE;
+      return 1;
+    },
+    /**
+     * How much a sustained spin of the wheel multiplies one notch by.
+     *
+     * Keeping the wheel turning is the hand saying it wants to cover ground,
+     * so a run of notches grows one step at a time until it is moving ten a
+     * notch: 2 to 23 is seven notches rather than twenty-one. Pausing or
+     * turning back begins again at one, which is what keeps the control
+     * honest -- whatever it just did, the next deliberate notch is a single
+     * step.
+     *
+     * @public
+     * @param {Number} direction which way this notch turned, 1 or -1
+     * @returns {Number} what to multiply the step by
+     */
+    wheelRunScale(direction) {
+      const now = Date.now();
+      const run = this.wheelRun;
+      const continues = direction === run.direction && now - run.at < WHEEL_RUN_GAP_MS;
+      run.notches = continues ? run.notches + 1 : 1;
+      run.direction = direction;
+      run.at = now;
+      return Math.min(Math.max(1, run.notches - WHEEL_RUN_GRACE), MAX_WHEEL_RUN);
     },
     /**
      * Begins a possible drag on the number.
@@ -260,7 +342,7 @@ export default {
     startDrag(event) {
       if (this.disabled || event.button !== 0) return;
       this.drag = {
-        from: Number(this.content) || 0,
+        value: Number(this.content) || 0,
         distance: 0,
         started: false,
       };
@@ -294,7 +376,8 @@ export default {
       // one bogus event should not throw a fixture across the room.
       if (Math.abs(event.movementX) > MAX_PLAUSIBLE_MOVE
         || Math.abs(event.movementY) > MAX_PLAUSIBLE_MOVE) return;
-      this.drag.distance += event.movementX - event.movementY;
+      const moved = event.movementX - event.movementY;
+      this.drag.distance += moved;
 
       if (!this.drag.started) {
         // A couple of pixels of slop, so a click that trembles is still a
@@ -315,9 +398,21 @@ export default {
       }
 
       // Alt is the fine control, the way it is on a MadMapper slider: the same
-      // travel covers a tenth of the range.
+      // travel covers a tenth of the range. Shift is the other end of that
+      // scale -- ten steps in the travel of one, which is exactly what the
+      // three.js editor's own number field does with Shift held -- and it is
+      // what makes a wide range reachable without dragging across the desk.
+      //
+      // Added move by move rather than recomputed from where the drag began.
+      // The old sum multiplied the *whole* distance by the current speed, so
+      // reaching for Alt halfway through re-read every pixel already travelled
+      // and the value jumped. Accumulated, each pixel is spent at the speed it
+      // was travelled at, and a modifier can be picked up and put down without
+      // rewriting the part of the drag that came before it.
       const perStep = event.altKey ? FINE_PIXELS_PER_STEP : PIXELS_PER_STEP;
-      this.content = this.drag.from + (this.drag.distance / perStep) * this.stepSize;
+      const coarse = event.shiftKey ? COARSE_SCALE : 1;
+      this.drag.value += (moved / perStep) * this.stepSize * coarse;
+      this.content = this.drag.value;
       this.updateValue(true);
     },
     /**
@@ -342,8 +437,8 @@ export default {
      * Increments actual value by one precision unit.
      *
      */
-    incrementValue() {
-      const increment = parseFloat(this.content) + this.stepSize;
+    incrementValue(event) {
+      const increment = parseFloat(this.content) + this.stepSize * this.scaleFor(event);
       if (increment <= this.max && !this.disabled) {
         this.content = increment.toFixed(this.precision);
         this.updateValue(true);
@@ -353,8 +448,8 @@ export default {
      * Decrements value actual value by one precision unit.
      *
      */
-    decrementValue() {
-      const decrement = parseFloat(this.content) - this.stepSize;
+    decrementValue(event) {
+      const decrement = parseFloat(this.content) - this.stepSize * this.scaleFor(event);
       if (decrement >= this.min && !this.disabled) {
         this.content = decrement.toFixed(this.precision);
         this.updateValue(true);

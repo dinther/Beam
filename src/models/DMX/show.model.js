@@ -28,6 +28,34 @@ const SHOWFILE_EXTENSIONS = {
 const fixtureDataCache = {};
 
 /**
+ * The names the app hands out when nobody has given one.
+ *
+ * `untitled`, `untitled 2`, `Group`, `Group 3`, `Structure 1` -- what
+ * `numberedStructureName`, `uniqueStructureName` and `uniqueGroupName` fall
+ * back to, with or without the number that keeps them apart.
+ *
+ * @constant {RegExp}
+ */
+const PLACEHOLDER_NAME = /^(untitled|group|structure)(\s+\d+)?$/i;
+
+/**
+ * Whether a name is one somebody chose, rather than one the app made up.
+ *
+ * The library is a file per item named for the item, and placing a stamp again
+ * means finding it by that name -- so `untitled 1` is not a name so much as
+ * the absence of one, and a library of them cannot be read. This is what the
+ * save paths refuse on.
+ *
+ * @public
+ * @param {String} name
+ * @returns {Boolean}
+ */
+export function isNamedByUser(name) {
+  const wanted = String(name === undefined || name === null ? '' : name).trim();
+  return !!wanted && !PLACEHOLDER_NAME.test(wanted);
+}
+
+/**
  * A model reference, folded so two spellings of one file name meet.
  *
  * Library keys are file names, and the filesystems Beam runs on do not agree
@@ -758,7 +786,11 @@ class Show extends EventEmitter {
    * @param {Object} showData raw showfile contents
    */
   prepareGroups(showData) {
-    this.groups = (showData.groups || []).map((groupData) => {
+    // Appended rather than assigned, and the same for structures and objects
+    // below. A load clears the show first, so it cannot tell the difference --
+    // but a paste is the same work on a show that is already standing, and
+    // that is the whole difference between loading a chunk and loading a file.
+    const made = (showData.groups || []).map((groupData) => {
       const group = new Group(groupData);
       (groupData.members || []).forEach((id) => {
         // Resolved through the load index rather than the pool: addRaw hands
@@ -769,6 +801,8 @@ class Show extends EventEmitter {
       });
       return group;
     });
+    this.groups.push(...made);
+    return made;
   }
 
   /**
@@ -786,6 +820,29 @@ class Show extends EventEmitter {
     const wanted = (desired || '').trim() || 'Group';
     const taken = new Set(
       this.groups.filter((group) => group.id !== ignoreId).map((group) => group.name),
+    );
+    if (!taken.has(wanted)) return wanted;
+    let n = 2;
+    while (taken.has(`${wanted} ${n}`)) n += 1;
+    return `${wanted} ${n}`;
+  }
+
+  /**
+   * The nearest free object name to the one asked for.
+   *
+   * The counterpart of `uniqueGroupName` and `uniqueStructureName`, and it
+   * exists for the same reason they do: a copy has to be told apart from what
+   * it was copied from, and the list is where that happens.
+   *
+   * @public
+   * @param {String} desired name the user asked for
+   * @param {Number} [ignoreId] id of the object allowed to keep this name
+   * @returns {String} a name no other object is using
+   */
+  uniqueObjectName(desired, ignoreId = null) {
+    const wanted = (desired || '').trim() || 'Object';
+    const taken = new Set(
+      this.objects.filter((object) => object.id !== ignoreId).map((object) => object.name),
     );
     if (!taken.has(wanted)) return wanted;
     let n = 2;
@@ -815,9 +872,16 @@ class Show extends EventEmitter {
    * @public
    * @async
    * @param {Object} group group to save
-   * @returns {String} the structure's name
+   * @returns {String|null} the structure's name, or null when it has none of
+   *   its own and nothing was written
    */
   async saveStructure(group) {
+    // Refused rather than filed under `untitled 1`. The name is the key: it is
+    // the file's name on disk, the key in the library, and the only thing the
+    // user has to pick the stamp out by later. Saving an unnamed one puts an
+    // entry in the library that says nothing about what it holds, and a second
+    // one overwrites the first.
+    if (!isNamedByUser(group.name)) return null;
     const matrix = group.matrix.clone();
     const inverse = matrix.clone().invert();
     const structure = {
@@ -1056,19 +1120,21 @@ class Show extends EventEmitter {
    */
   async prepareObjects(showData) {
     const records = showData.objects || [];
-    this.objects = records.map((data) => new SceneObject(data));
-    if (!this.objects.length) return;
+    const made = records.map((data) => new SceneObject(data));
+    this.objects.push(...made);
+    if (!made.length) return made;
     await this.preloadObjectLibrary();
-    this.objects.forEach((object) => {
+    made.forEach((object) => {
       object.attach(this.objectLibrary[foldModelKey(object.model)] || null);
     });
-    const missing = this.objects.filter((object) => object.unresolved);
+    const missing = made.filter((object) => object.unresolved);
     if (missing.length) {
       // Named, because "an object is missing" is not actionable and the file
       // name is: it is in the user's own library folder.
       // eslint-disable-next-line no-console
       console.warn(`[show] ${missing.length} object(s) reference models this machine does not have: ${[...new Set(missing.map((o) => o.model))].join(', ')}`);
     }
+    return made;
   }
 
   /**
@@ -1163,6 +1229,83 @@ class Show extends EventEmitter {
   }
 
   /**
+   * Puts a copied chunk into the show, beside what is already there.
+   *
+   * This is `loadShowData` without the clear: the same four `prepare` steps,
+   * in the same order, on a show that is already standing. Nothing here knows
+   * how to build a fixture or resolve a structure's members -- that is the
+   * point. `prepareFixtures` reassigns ids and leaves behind the index from
+   * old id to new instance, and the structures and groups in the chunk resolve
+   * their members through it exactly as a load does.
+   *
+   * What paste has to decide for itself is the two things a copy cannot keep:
+   *
+   * - **Addresses.** Every pasted fixture is patched at the next free block
+   *   that fits it, respecting universe alignment, the way placing a structure
+   *   from the library already does. Sharing an address with the original is a
+   *   real thing to want and a deliberate one; it is not what a copy means.
+   *   A fixture that finds no room arrives unpatched rather than not arriving.
+   * - **Names.** Each copy takes the nearest free name to the one it came
+   *   from, so `Front truss` pastes as `Front truss 2`.
+   *
+   * Everything lands exactly where it was copied from. A copy on top of its
+   * original looks like nothing happened until it is moved, which is why the
+   * caller selects what this returns: the gizmo is then already holding the
+   * copies, and the first drag separates them.
+   *
+   * @public
+   * @async
+   * @param {Object} chunk `{ fixtures, objects, structures, groups }`
+   * @returns {Array} the items created, in list order
+   */
+  async pasteItems(chunk) {
+    if (!chunk) return [];
+    // Cloned because `prepareFixtures` writes the resolved profile into each
+    // record it is given. Handed the clipboard's own chunk it would fill it
+    // with profiles, and every later paste would carry them.
+    const data = JSON.parse(JSON.stringify(chunk));
+    // A container's id is its identity in this show, and the copy is not the
+    // same item -- left in place it would collide with what it was copied
+    // from. Members are named by the *source* ids on purpose: that is what the
+    // load index maps to the new instances.
+    const fresh = (records) => (records || []).map(({ id, ...rest }) => rest);
+
+    await this.prepareFixtures({ fixtures: data.fixtures || [] });
+    const fixtures = [...this.loadedFixturesById.values()];
+    fixtures.forEach((fixture) => {
+      fixture.name = this.fixturePool.uniqueName(fixture.name, fixture.id);
+      const address = PatchSingleton.findFreeAddress(
+        fixture.channels.length,
+        1,
+        0,
+        fixture.alignmentPixelSize,
+      );
+      if (address > -1) {
+        fixture.address = address;
+        PatchSingleton.patchFixture(fixture);
+      }
+    });
+
+    const groups = this.prepareGroups({ groups: fresh(data.groups) });
+    groups.forEach((group) => { group.name = this.uniqueGroupName(group.name, group.id); });
+
+    const structures = this.prepareStructures({ structures: fresh(data.structures) });
+    structures.forEach((structure) => {
+      structure.name = this.uniqueStructureName(structure.name, structure.id);
+    });
+
+    const objects = await this.prepareObjects({ objects: fresh(data.objects) });
+    objects.forEach((object) => { object.name = this.uniqueObjectName(object.name, object.id); });
+
+    this.capShadowCasters();
+    // A fixture inside a pasted structure or group is not a loose item, and
+    // handing it back would put the gizmo on the members as well as on the
+    // thing that holds them.
+    const loose = fixtures.filter((fixture) => !fixture.structure && !fixture.group);
+    return [...loose, ...objects, ...structures, ...groups];
+  }
+
+  /**
    * Takes an object out of the show.
    *
    * @public
@@ -1193,7 +1336,7 @@ class Show extends EventEmitter {
   }
 
   prepareStructures(showData) {
-    this.structures = (showData.structures || []).map((structureData) => {
+    const made = (showData.structures || []).map((structureData) => {
       const structure = new Structure(structureData);
       (structureData.members || []).forEach((id) => {
         // Resolved through the load index rather than the pool: addRaw hands
@@ -1204,6 +1347,8 @@ class Show extends EventEmitter {
       });
       return structure;
     });
+    this.structures.push(...made);
+    return made;
   }
 
   /**
