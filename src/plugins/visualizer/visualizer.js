@@ -1257,7 +1257,7 @@ class Visualizer {
       RIGHT: THREE.MOUSE.ROTATE,
     };
     this.controls.autoRotate = this.autoRotate;
-    this.controls.autoRotateSpeed = 5
+    this.controls.autoRotateSpeed = 2.5
     AnimationManager.add(() => {
       this.controls.update();
     });
