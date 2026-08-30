@@ -1,4 +1,5 @@
 import { DMX_UNIVERSE_LENGTH } from './patch.model';
+import { DEFAULT_FLOOR } from './scene_item';
 
 /**
  * Showfile format version.
@@ -7,10 +8,12 @@ import { DMX_UNIVERSE_LENGTH } from './patch.model';
  *    the universe that owned them.
  * 2: fixtures carry one absolute address into a show-wide space, so a fixture
  *    may span a universe boundary. Universe records are display metadata only.
+ * 3: the floor is an object in the show rather than a fixture of the renderer,
+ *    so it can be moved, resized, replaced or deleted like anything else.
  *
  * @constant {Number} SHOWFILE_VERSION
  */
-const SHOWFILE_VERSION = 2;
+const SHOWFILE_VERSION = 3;
 
 /**
  * Brings a showfile of any version up to the current shape.
@@ -26,9 +29,18 @@ function migrateShowData(showData) {
   const version = data.version || 1;
   if (version >= SHOWFILE_VERSION) return data;
 
+  // Older shows had their floor drawn by the visualizer and so never recorded
+  // one. Given rather than withheld, because every one of them was built
+  // looking at a floor -- and it is deletable now, so a show that does not
+  // want it says so by not having one the next time it is written. Every show
+  // below version 3 had a floor whatever else it held, and anything at or past
+  // 3 has already returned above.
+  const objects = [{ ...DEFAULT_FLOOR }, ...(data.objects || [])];
+
   return {
     ...data,
     version: SHOWFILE_VERSION,
+    objects,
     fixtures: (data.fixtures || []).map((fixture) => ({
       ...fixture,
       // Fixture accepts either form, but resolving it here means the migration

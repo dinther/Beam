@@ -5,18 +5,18 @@
 - Why is showfile.migrate.js in the source?
 - What is live.model.js used for?run the app
 - Spica 250M has a speed channel but it appears to be ignored.
-- Review video recording feature
+- Review video recording feature. Better codec, 16:9 ratio and easy socials share button
 - Consider "Check for update" feature
 - If you want to use the same fixture, some with pan/tilt mapped and some on a slider, this is currently not possible
 - We might need to add Scale to pos and rot. The same 3D model is used for all movers but there are small ones and large ones.
 - I want a parametric floor generator. You can size the floor but the texture remains the same real-world size. PBR materials one click apply
-- Beam rapidly slow down when it is loading a structure with 115 fixtures. Save and load the project is a snap
 - Support for LED bars that use 3 adresses for groups of 3 emitters. The Garagecube bar for example has 64 pixels on a 1 meter bar and 4 pixels parralel. So the bar only uses 48 DMx addresses.
 - Review the 6 offset edit boxes. Ugly and I don't use them much. A better arrange is more useful
 - Arrange circle "Aim" could be a angle entry. Discuss for other modes too
 1 and 3- We want copy and paste items in list and 3D view
 - Multi select by dragging mouse from blank part at bottom list up across list items
-- Optimize light fixtures to only use a spotlight when a raycast tells us there is something in range in front of it.
+- ground projected environment maps?
+
 
 
 

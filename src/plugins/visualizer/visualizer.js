@@ -95,7 +95,6 @@ const helpers = {
   floor: null,
   gridVisible: true,
   axesVisible: true,
-  floorVisible: true,
 };
 
 /**
@@ -116,7 +115,6 @@ function asVisible(value) {
 function applyHelperVisibility() {
   if (helpers.grid) helpers.grid.visible = helpers.gridVisible;
   if (helpers.axes) helpers.axes.visible = helpers.axesVisible;
-  if (helpers.floor) helpers.floor.visible = helpers.floorVisible;
 }
 
 /**
@@ -295,7 +293,6 @@ class Visualizer {
     this.snapSpacing = source.snapSpacing;
     this.showGrid = source.showGrid;
     this.showAxes = source.showAxes;
-    this.showFloor = source.showFloor;
     this.debug = source.debug;
     this.backgroundColor = source.backgroundColor;
     // The stored colour may be undefined, and the house switch was read above,
@@ -405,23 +402,6 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   get showAxes() {
     return helpers.axesVisible;
-  }
-
-  /**
-   * Floor visibility.
-   *
-   * @type {Boolean}
-   */
-  // eslint-disable-next-line class-methods-use-this
-  set showFloor(visible) {
-    helpers.floorVisible = asVisible(visible);
-    Preferences.set('showFloor', helpers.floorVisible);
-    applyHelperVisibility();
-  }
-
-  // eslint-disable-next-line class-methods-use-this
-  get showFloor() {
-    return helpers.floorVisible;
   }
 
   /**
@@ -923,28 +903,26 @@ class Visualizer {
       LightField.update();
     });
 
-    // Floor
-    const loader = new THREE.TextureLoader()
-    .setPath(import.meta.env.VITE_STATIC_URL)
-    const texture = await loader.loadAsync('./visualizer/textures/environment/checkerboard_default.jpg');
-
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(8, 8);
-
     // Read from Preferences rather than from Controls: this runs unawaited
     // from init(), so it may get here before the stored settings have been
     // pushed onto the visualizer -- but Preferences.load() is the first thing
     // init() waits for, so the number is already in hand.
     const spacing = Preferences.get('snapSpacing') || 1;
-    const gridHelper = new InfiniteGridHelper(
-      spacing,
-      spacing * 10,
-      new THREE.Color('white'),
-      100,
-    );
+    // One spacing, not two: the helper draws a tenth of it and ten of it as
+    // well, and decides which you can see from how big the cells land on
+    // screen. See the note in `grid.js`.
+    const gridHelper = new InfiniteGridHelper(spacing);
     gridHelper.rotateX(Math.PI / 2.0);
-    gridHelper.position.setZ(-0.3);
+    // Just above the floor rather than below it. It sat at -0.3, which was
+    // under the old floor slab and therefore hidden wherever that slab was --
+    // the grid only ever showed in the gap beyond its 50 metres. Now that the
+    // floor is an ordinary plane at z = 0, a hair above it puts the grid back
+    // on top where it can do its job, and it is still occluded by anything
+    // genuinely standing on the stage because the depth test is untouched.
+    gridHelper.position.setZ(0.01);
+    // Drawn after the floor, so it overlays rather than fighting it for the
+    // same depth. The material declines to write depth of its own.
+    gridHelper.renderOrder = 1;
     helpers.grid = gridHelper;
     SceneManager.add(gridHelper);
 
@@ -963,29 +941,21 @@ class Visualizer {
       new THREE.Color('#4da6ff')  // Z
     );
 
-    const checkerMaterial = new THREE.MeshStandardMaterial({ map: texture });
-    LightField.receive(checkerMaterial);
+    // The floor is an object in the show now, not a fixture of the renderer --
+    // see `DEFAULT_FLOOR`. What stood here was a `BoxGeometry(50, 50, 0.5)`
+    // with a checkerboard on its top face: a cube pretending to be a surface,
+    // which nobody could move, resize, replace or delete and which the item
+    // list never knew existed.
+    //
+    // The global light needs something to aim at, and it is no longer the
+    // floor: aiming at an object the user is allowed to delete would put the
+    // key light wherever that object last stood. An empty node at the origin
+    // is what a directional light actually wants -- only its direction is
+    // read, and the origin is the one point a show cannot move.
+    const globalLightTarget = new THREE.Object3D();
+    this.globalLightHandle.target = globalLightTarget;
 
-    const sideMaterial = new THREE.MeshStandardMaterial();
-    LightField.receive(sideMaterial);
-
-    const floorMaterial = [];
-
-    floorMaterial.push(sideMaterial);
-    floorMaterial.push(sideMaterial);
-    floorMaterial.push(sideMaterial);
-    floorMaterial.push(sideMaterial);
-    floorMaterial.push(checkerMaterial);
-
-    const floor_geometry = new THREE.BoxGeometry(50, 50, 0.5, 1, 1, 1);
-    const floor = new THREE.Mesh(floor_geometry, checkerMaterial);
-    floor.receiveShadow = true;
-    floor.position.setZ(-0.25);
-    helpers.floor = floor;
-
-    this.globalLightHandle.target = floor;
-
-    SceneManager.add(this.globalLightHandle, floor, axesHelper);
+    SceneManager.add(this.globalLightHandle, globalLightTarget, axesHelper);
 
     // Preferences are applied when the show loads, which is before any of this
     // exists; push them onto the objects now that it does.

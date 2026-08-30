@@ -143,6 +143,11 @@ const pointer = new THREE.Vector2();
  * @constant {Object} pickPosition
  */
 const pickPosition = new THREE.Vector3();
+/** Scratch for measuring how big an item is on screen during band selection. */
+const bandRight = new THREE.Vector3();
+const bandUp = new THREE.Vector3();
+const bandForward = new THREE.Vector3();
+const bandEdge = new THREE.Vector3();
 /**
  * Scratch frustum + matrix used to test whether a selection is already framed
  *
@@ -689,15 +694,64 @@ class Controls {
     const bottom = Math.max(down.y, e.clientY);
 
     const picked = [];
-    // Whether a fixture's origin projects inside the rectangle. Behind the
-    // camera the projection flips, so those are dropped first.
-    const inBand = (worldPosition) => {
+    /** Where a world point lands on screen, or null when it is behind us. */
+    const toScreen = (worldPosition) => {
       pickPosition.copy(worldPosition).applyMatrix4(this.cameraHandle.matrixWorldInverse);
-      if (pickPosition.z >= 0) return false;
+      if (pickPosition.z >= 0) return null;
       pickPosition.copy(worldPosition).project(this.cameraHandle);
-      const x = rect.left + (((pickPosition.x + 1) / 2) * rect.width);
-      const y = rect.top + (((1 - pickPosition.y) / 2) * rect.height);
-      return x >= left && x <= right && y >= top && y <= bottom;
+      return {
+        x: rect.left + (((pickPosition.x + 1) / 2) * rect.width),
+        y: rect.top + (((1 - pickPosition.y) / 2) * rect.height),
+      };
+    };
+
+    /**
+     * Whether an item is caught by the band.
+     *
+     * Overlapping counts, which is the behaviour worth keeping: dragging a box
+     * across half a truss should take the heads it touches, not only the ones
+     * it swallows whole. The exception is an item *bigger than the band*,
+     * which has to be enclosed to count.
+     *
+     * That exception exists because the floor became an ordinary object. Its
+     * origin is (0, 0, 0) -- the middle of the stage -- so every band drawn
+     * anywhere near the centre picked up a fifty-metre plane along with what
+     * the user was actually lassoing. Excluding the floor by name would have
+     * been the wrong fix twice over: it is deletable and replaceable, so there
+     * is no floor to name, and the next big object would have the same problem.
+     *
+     * Sized rather than special-cased, and it reads as the rule anybody would
+     * state anyway: a thing larger than the box you drew was not what you were
+     * drawing a box around.
+     *
+     * @param {THREE.Vector3} worldPosition the item's origin
+     * @param {Number} [worldRadius] how far it extends; a point when absent
+     * @returns {Boolean}
+     */
+    const inBand = (worldPosition, worldRadius) => {
+      const at = toScreen(worldPosition);
+      if (!at) return false;
+      const originInside = at.x >= left && at.x <= right && at.y >= top && at.y <= bottom;
+
+      if (!worldRadius) return originInside;
+
+      // The radius in pixels, measured by projecting a point that far to the
+      // camera's right -- the one offset that is always across the view rather
+      // than into it, so it survives any angle the item is seen from.
+      this.cameraHandle.matrixWorld.extractBasis(bandRight, bandUp, bandForward);
+      bandEdge.copy(worldPosition).addScaledVector(bandRight, worldRadius);
+      const edge = toScreen(bandEdge);
+      if (!edge) return originInside;
+      const screenRadius = Math.abs(edge.x - at.x);
+
+      // Smaller than the band: overlapping is enough, as before.
+      if (screenRadius * 2 <= Math.min(right - left, bottom - top)) return originInside;
+
+      // Bigger than the band: it has to be inside it entirely.
+      return at.x - screenRadius >= left
+        && at.x + screenRadius <= right
+        && at.y - screenRadius >= top
+        && at.y + screenRadius <= bottom;
     };
 
     // Every renderer answers the same question the same way, so this knows
@@ -707,8 +761,8 @@ class Controls {
     // adding a renderer meant remembering to edit selection code, and why
     // objects were missing from band selection until somebody noticed.
     SCENE_RENDERERS.forEach((renderer) => {
-      renderer.eachSelectable((item, worldPosition) => {
-        if (inBand(worldPosition)) picked.push(item);
+      renderer.eachSelectable((item, worldPosition, worldRadius) => {
+        if (inBand(worldPosition, worldRadius)) picked.push(item);
       });
     });
 

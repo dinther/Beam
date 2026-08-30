@@ -59,6 +59,38 @@ export const PLACEABLE_KINDS = [
   SCENE_ITEM_KINDS.OBJECT,
 ];
 
+/**
+ * The floor a show starts with.
+ *
+ * An ordinary object, deliberately. It used to be a `BoxGeometry(50, 50, 0.5)`
+ * built in the visualizer and bolted to the scene: a cube pretending to be a
+ * surface, that no one could move, resize, replace or delete, and that the
+ * item list never knew about. It is a target like anything else -- a beam
+ * lands on it, the gizmo can take hold of it -- so it belongs in the show
+ * rather than in the renderer.
+ *
+ * A plain colour for now. What a floor really wants is a PBR material, and
+ * that is coming as its own piece of work with real material sets behind it;
+ * a lone diffuse image would only look like the fudge it is next to an object
+ * that arrives from a `.glb` with normal and roughness maps.
+ *
+ * Plain data, and in this module rather than beside `SceneObject`, so the
+ * showfile migration can seed one without importing the model layer -- it is
+ * a pure transform and worth keeping that way.
+ *
+ * @constant {Object}
+ */
+export const DEFAULT_FLOOR = {
+  name: 'Floor',
+  primitive: {
+    type: 'plane',
+    size: { x: 50, y: 50 },
+    color: '#6e7276',
+  },
+  position: { x: 0, y: 0, z: 0 },
+  rotation: { x: 0, y: 0, z: 0 },
+};
+
 let nextUid = 0;
 
 /**

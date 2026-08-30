@@ -48,12 +48,16 @@ const models = new Map();
 /** In-flight loads, so asking twice for one model fetches it once. */
 const loading = new Map();
 
+/** Scratch bounds for measuring an object during band selection. */
+const selectionBounds = new THREE.Box3();
+
 const scratch = {
   matrix: new THREE.Matrix4(),
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
   euler: new THREE.Euler(),
   scale: new THREE.Vector3(),
+  size: new THREE.Vector3(),
 };
 
 /**
@@ -517,7 +521,21 @@ function eachSelectable(visit) {
         placement.position.y,
         placement.position.z,
       );
-      visit(placement.owner, scratch.position);
+      // How far this reaches, so the band can tell a speaker from a floor.
+      // Heads and bars are all much of a size and say nothing here, which
+      // leaves them tested on their origin exactly as before; an object can be
+      // a 50 metre plane, and a band drawn anywhere near the middle of the
+      // stage would otherwise take it every time -- its origin is the middle
+      // of the stage.
+      selectionBounds.makeEmpty();
+      let radius;
+      if (placement.owner.expandBounds) {
+        placement.owner.expandBounds(selectionBounds);
+        if (!selectionBounds.isEmpty()) {
+          radius = selectionBounds.getSize(scratch.size).length() / 2;
+        }
+      }
+      visit(placement.owner, scratch.position, radius);
     });
   });
 }

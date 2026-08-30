@@ -184,16 +184,6 @@
       </uk-flex>
       <uk-flex center-h>
         <div>
-          <h4>Floor:</h4>
-          <p class="subtitle">
-            Show the checkered ground plane.
-          </p>
-        </div>
-        <uk-spacer />
-        <uk-checkbox v-model="$show.visualizerHandle.showFloor" />
-      </uk-flex>
-      <uk-flex center-h>
-        <div>
           <h4>Grid size:</h4>
           <p class="subtitle">
             Metres between grid lines, and the distance the gizmo snaps by.
@@ -434,7 +424,6 @@ export default {
       this.$show.visualizerHandle.houseLightsUp = this.initialValues.globalBrightness;
       this.$show.visualizerHandle.houseLightsDown = this.initialValues.brightnessHouseOff;
       this.$show.visualizerHandle.snapSpacing = this.initialValues.snapSpacing;
-      this.$show.visualizerHandle.showFloor = this.initialValues.showFloor;
       this.$show.visualizerHandle.showGrid = this.initialValues.showGrid;
       this.$show.visualizerHandle.showAxes = this.initialValues.showAxes;
       this.close();
