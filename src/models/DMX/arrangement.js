@@ -36,13 +36,27 @@ const LAYOUT = {
  * no sensible arrangement-level answer for the other two axes, and inventing
  * one would silently unrig somebody's plot.
  *
- * @constant {Object} AIM
+ * It used to be four names -- unchanged, along, outward, inward -- with each
+ * layout offering its own subset under its own vocabulary. They turn out to be
+ * two values of one number: outward is zero degrees from the radius, inward is
+ * a hundred and eighty, along is zero from the line. Saying it as an angle
+ * costs nothing and reaches the headings the names could not. The useful one
+ * is ninety -- heads tangential to a circle, or a row square to the line it
+ * stands on -- and neither could be asked for before.
+ *
+ * @constant {Object} AIM_FROM
  */
-const AIM = {
-  UNCHANGED: 'unchanged',
-  ALONG: 'along',
-  OUTWARD: 'outward',
-  INWARD: 'inward',
+const AIM_FROM = {
+  /**
+   * Measured from whatever the layout is built around: the radius at that
+   * point of a circle, the direction of a line, the across axis of a grid.
+   */
+  SHAPE: 'shape',
+  /**
+   * Measured from the world, so every fixture takes the same heading wherever
+   * it sits -- a rig all facing downstage. No layout could do that either.
+   */
+  WORLD: 'world',
 };
 
 /**
@@ -122,6 +136,26 @@ function vec(v) {
 }
 
 /**
+ * The heading an aim asks for at a point on the shape, or null for no opinion.
+ *
+ * Null is the reason this is a function rather than a sum. "Leave the fixture
+ * facing where it already faces" is not an angle, and zero is a real heading,
+ * so a layout being used only to *move* things must not quietly spin them all
+ * to face east.
+ *
+ * @param {Object} [aim] `{ angle, from }`, or absent for no opinion
+ * @param {Number} reference the shape's own heading at this point, in degrees
+ * @return {Number|null} degrees, or null to leave the rotation alone
+ */
+function aimHeading(aim, reference) {
+  if (!aim) return null;
+  const angle = Number(aim.angle);
+  if (!Number.isFinite(angle)) return null;
+  const from = aim.from === AIM_FROM.WORLD ? 0 : reference;
+  return wrapDeg(from + angle + AIM_ZERO_HEADING_DEG);
+}
+
+/**
  * Fixtures laid along a vector, centred on the arrangement's own middle.
  *
  * Centring rather than growing from the first fixture is what lets the whole
@@ -131,15 +165,16 @@ function vec(v) {
  * @param {Number} count how many fixtures
  * @param {Object} options
  * @param {Object} options.spacing step between neighbours, in metres
- * @param {String} [options.aim] one of AIM
+ * @param {Object} [options.aim] `{ angle, from }`; absent leaves facings alone
  * @return {Array} one `{ position, aimZ }` per fixture
  */
 function lineTransforms(count, options = {}) {
   const spacing = vec(options.spacing);
-  const aim = options.aim || AIM.UNCHANGED;
   // atan2(0, 0) is 0, so a zero spacing simply leaves everything facing zero
-  // rather than producing NaN.
-  const heading = wrapDeg(Math.atan2(spacing.y, spacing.x) * DEG + AIM_ZERO_HEADING_DEG);
+  // rather than producing NaN. The convention offset is not added here: it is
+  // added once, in `aimHeading`, so a reference direction stays a direction.
+  const heading = wrapDeg(Math.atan2(spacing.y, spacing.x) * DEG);
+  const aimZ = aimHeading(options.aim, heading);
   const middle = (count - 1) / 2;
   const out = [];
 
@@ -151,7 +186,7 @@ function lineTransforms(count, options = {}) {
         y: spacing.y * step,
         z: spacing.z * step,
       },
-      aimZ: aim === AIM.ALONG ? heading : null,
+      aimZ,
     });
   }
   return out;
@@ -176,13 +211,12 @@ function lineTransforms(count, options = {}) {
  * @param {Object} options
  * @param {Number} options.radius ring radius in metres
  * @param {Number} [options.sweep] degrees covered, 360 for a full ring
- * @param {String} [options.aim] one of AIM
+ * @param {Object} [options.aim] `{ angle, from }`; absent leaves facings alone
  * @return {Array} one `{ position, aimZ }` per fixture
  */
 function circleTransforms(count, options = {}) {
   const radius = Number(options.radius) || 0;
   const sweep = options.sweep === undefined ? 360 : Number(options.sweep) || 0;
-  const aim = options.aim || AIM.UNCHANGED;
 
   const closed = sweep !== 0 && Math.abs(sweep) % 360 === 0;
   let step = 0;
@@ -196,9 +230,9 @@ function circleTransforms(count, options = {}) {
   for (let i = 0; i < count; i += 1) {
     const angle = first + step * i;
     const rad = angle / DEG;
-    let aimZ = null;
-    if (aim === AIM.OUTWARD) aimZ = wrapDeg(angle + AIM_ZERO_HEADING_DEG);
-    else if (aim === AIM.INWARD) aimZ = wrapDeg(angle + 180 + AIM_ZERO_HEADING_DEG);
+    // The outward radius at this point is what the angle is measured from, so
+    // zero is the old "outward", 180 the old "inward", and 90 is tangential.
+    const aimZ = aimHeading(options.aim, angle);
 
     out.push({
       position: {
@@ -235,6 +269,10 @@ function gridTransforms(count, options = {}) {
   const gapDown = Number(options.gapDown) || 0;
   const snake = !!options.snake;
   const rows = Math.ceil(count / columns);
+  // A grid is built square to the world, so its own heading is zero and an
+  // angle from the shape and one from the world come out the same. It is still
+  // asked, so that every layout answers aim by the same route.
+  const aimZ = aimHeading(options.aim, 0);
 
   const midCol = (columns - 1) / 2;
   const midRow = (rows - 1) / 2;
@@ -254,7 +292,7 @@ function gridTransforms(count, options = {}) {
         y: -(row - midRow) * gapDown,
         z: 0,
       },
-      aimZ: null,
+      aimZ,
     });
   }
   return out;
@@ -442,7 +480,7 @@ function orderIndices(items, order = ORDER.ADDRESS, reverse = false) {
 
 export {
   LAYOUT,
-  AIM,
+  AIM_FROM,
   AXIS,
   ALIGN_TO,
   ORDER,

@@ -62,11 +62,6 @@
           :min="-1000"
           :max="1000"
         />
-        <uk-select-input
-          v-model="line.aim"
-          label="Aim"
-          :options="lineAimLabels"
-        />
       </uk-flex>
 
       <!-- CIRCLE -->
@@ -87,11 +82,6 @@
           label="Sweep °"
           :min="-720"
           :max="720"
-        />
-        <uk-select-input
-          v-model="circle.aim"
-          label="Aim"
-          :options="circleAimLabels"
         />
       </uk-flex>
 
@@ -126,6 +116,42 @@
           v-model="grid.snake"
           label="Snake rows"
         />
+      </uk-flex>
+
+      <!-- AIM: shared by every shape, because it means the same thing in all
+           of them. It used to be a dropdown per shape with its own words --
+           "Along the line", "Outward" -- which could not say "tangential" or
+           "square to the line", and gave the grid no aim at all. -->
+      <uk-flex
+        v-if="kind !== 'align'"
+        col
+        :gap="7"
+        class="arrange_aim"
+      >
+        <uk-checkbox
+          v-model="aim.keep"
+          label="Keep heading"
+        />
+        <!-- Greyed rather than hidden: the fields are what the section is,
+             and taking them off the panel makes it jump and leaves nothing
+             saying what the checkbox is refusing to do. -->
+        <uk-num-input
+          v-model="aim.angle"
+          label="Heading °"
+          :disabled="aim.keep"
+          :min="-360"
+          :max="360"
+        />
+        <uk-select-input
+          v-model="aim.fromIndex"
+          label="Measured from"
+          :disabled="aim.keep"
+          :options="aimFromLabels"
+        />
+        <span
+          class="arrange_derived"
+          :class="{ arrange_derived_off: aim.keep }"
+        >{{ aimHint }}</span>
       </uk-flex>
 
       <!-- ALIGN -->
@@ -207,7 +233,7 @@ import Controls from '@/plugins/visualizer/controls';
 import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
 import {
   LAYOUT,
-  AIM,
+  AIM_FROM,
   AXIS,
   ALIGN_TO,
   ORDER,
@@ -244,8 +270,7 @@ const memberEuler = new THREE.Euler();
  * uk-select-input works in indices rather than values, so every select needs
  * its options and the things they mean side by side.
  */
-const LINE_AIMS = [AIM.UNCHANGED, AIM.ALONG];
-const CIRCLE_AIMS = [AIM.OUTWARD, AIM.INWARD, AIM.UNCHANGED];
+const AIM_FROMS = [AIM_FROM.SHAPE, AIM_FROM.WORLD];
 const AXIS_MODES = [AXIS.LEAVE, AXIS.ALIGN, AXIS.SPREAD];
 const ALIGN_TARGETS = [ALIGN_TO.AVERAGE, ALIGN_TO.MIN, ALIGN_TO.MAX, ALIGN_TO.FIRST, ALIGN_TO.LAST];
 const ORDERS = [ORDER.ADDRESS, ORDER.NAME, ORDER.SELECTION];
@@ -302,9 +327,9 @@ export default {
        */
       pickTick: 0,
       line: {
-        x: 1, y: 0, z: 0, aim: 0,
+        x: 1, y: 0, z: 0,
       },
-      circle: { radius: 3, sweep: 360, aim: 0 },
+      circle: { radius: 3, sweep: 360 },
       grid: {
         columns: 4, gapAcross: 1, gapDown: 1, snake: false,
       },
@@ -324,14 +349,54 @@ export default {
         { kind: LAYOUT.GRID, icon: 'grid', label: 'Grid' },
         { kind: ALIGN_KIND, icon: 'adjust', label: 'Align' },
       ],
-      lineAimLabels: ['Unchanged', 'Along the line'],
-      circleAimLabels: ['Outward', 'Inward', 'Unchanged'],
+      aimFromLabels: ['The shape', 'The world'],
+      /**
+       * One aim for every shape.
+       *
+       * `keep` is separate from the angle on purpose: "leave the fixtures
+       * facing where they face" is not an angle, and zero is a real heading.
+       *
+       * Stated as what it refuses rather than what it does, and off by
+       * default, so arranging a set aims it -- which is what arranging a set
+       * is usually for. The old wording made not-aiming the default and read
+       * as a feature to switch on rather than one to decline.
+       */
+      aim: { keep: false, angle: 0, fromIndex: 0 },
       axisLabels: ['Leave', 'Align', 'Spread'],
       alignToLabels: ['Average', 'Lowest', 'Highest', 'First', 'Last'],
       orderLabels: ['Address', 'Name', 'Selection'],
     };
   },
   computed: {
+    /**
+     * The aim to hand the layout, or undefined to leave facings alone.
+     *
+     * Undefined rather than an angle of zero, because zero is a real heading:
+     * a layout used only to move things must not turn them all to face east.
+     *
+     * @public
+     * @return {Object|undefined}
+     */
+    aimOption() {
+      if (this.aim.keep) return undefined;
+      return {
+        angle: Number(this.aim.angle) || 0,
+        from: AIM_FROMS[this.aim.fromIndex] || AIM_FROM.SHAPE,
+      };
+    },
+    /**
+     * What zero means for the shape on screen, since it differs per shape and
+     * an angle with no stated origin is a guess.
+     *
+     * @public
+     * @return {String}
+     */
+    aimHint() {
+      if (this.aim.fromIndex === 1) return '0° faces +X, whatever the shape';
+      if (this.kind === LAYOUT.CIRCLE) return '0° outward, 90° tangential, 180° inward';
+      if (this.kind === LAYOUT.LINE) return '0° along the line, 90° square to it';
+      return '0° across the grid, 90° down it';
+    },
     /**
      * Whether fixtures are standing somewhere the show does not know about.
      *
@@ -403,6 +468,10 @@ export default {
     circle: { handler() { this.preview(); }, deep: true },
     grid: { handler() { this.preview(); }, deep: true },
     align: { handler() { this.preview(); }, deep: true },
+    // Aim is not part of any one shape, so it needs its own line here. Every
+    // shape's fields already had one and a new field that is not a shape is
+    // exactly the sort of thing this list forgets.
+    aim: { handler() { this.preview(); }, deep: true },
     order() { this.preview(); },
     reverse() { this.preview(); },
   },
@@ -500,13 +569,19 @@ export default {
         }
         if (!item._3DModel) return;
         item._3DModel.position = position;
-        if (rotation) {
-          item._3DModel.rotation = {
-            x: (rotation.x * Math.PI) / 180,
-            y: (rotation.y * Math.PI) / 180,
-            z: (rotation.z * Math.PI) / 180,
-          };
-        }
+        // Written every time, falling back to where the item actually faces --
+        // the same thing `previewStructure` does, and for the same reason.
+        // Skipping the write when the layout has no opinion looks equivalent
+        // and is not: the renderer is still holding the heading the *previous*
+        // preview gave it, so turning "Set heading" back off left the items
+        // aimed and only cancelling put them back. The model is never written
+        // during a preview, so `item.rotation` is still the original.
+        const facing = rotation || item.rotation;
+        item._3DModel.rotation = {
+          x: (facing.x * Math.PI) / 180,
+          y: (facing.y * Math.PI) / 180,
+          z: (facing.z * Math.PI) / 180,
+        };
       });
     },
     /**
@@ -611,7 +686,7 @@ export default {
           kind: LAYOUT.CIRCLE,
           radius: Number(this.circle.radius),
           sweep: Number(this.circle.sweep),
-          aim: CIRCLE_AIMS[this.circle.aim],
+          aim: this.aimOption,
         };
       }
       if (this.kind === LAYOUT.GRID) {
@@ -621,6 +696,7 @@ export default {
           gapAcross: Number(this.grid.gapAcross),
           gapDown: Number(this.grid.gapDown),
           snake: this.grid.snake,
+          aim: this.aimOption,
         };
       }
       return {
@@ -630,7 +706,7 @@ export default {
           y: Number(this.line.y),
           z: Number(this.line.z),
         },
-        aim: LINE_AIMS[this.line.aim],
+        aim: this.aimOption,
       };
     },
     /**
@@ -725,6 +801,11 @@ export default {
   font-size: 0.7rem;
   color: var(--secondary-light-alt);
   font-style: italic;
+}
+/* Dimmed with the fields it describes, so the whole section reads as off
+   together rather than leaving a live-looking caption over dead controls. */
+.arrange_derived_off {
+  opacity: 0.45;
 }
 .arrange_note {
   font-size: 0.7rem;
