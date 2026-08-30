@@ -109,14 +109,46 @@ float computeFog(float minValue) {
 }
 
 /**
+ * @function safeNormalize
+ * @brief normalizes a vector without dividing by zero
+ * @param vec3 v the vector to normalize
+ * @returns vec3 the unit vector, or zero if v has no length worth speaking of
+ *
+ * `normalize` is a division by `length`, so a zero-length input is 0/0 -- a
+ * NaN, which survives every arithmetic operation that touches it and lands in
+ * the frame. This material is additive with `depthWrite` off, so a NaN is the
+ * only way it can ever *darken* what is already drawn, and the half-float
+ * buffer carries it untouched through bloom -- whose luminance threshold
+ * rejects it rather than spreading it -- into the tone mapper, which resolves
+ * it to black. Every black speckle in a room full of beams starts here.
+ *
+ * Flooring the divisor costs one `max` and turns the degenerate case into a
+ * zero vector, which dots to zero -- the edge-on answer, which is what a
+ * collapsed surface derivative meant in the first place.
+ */
+vec3 safeNormalize(vec3 v) {
+  return v / max(length(v), 1e-20);
+}
+
+/**
  * @function recomputeVertexNormal
  * @brief computes vertex's normal. (e.g Vertex displacement happened in the shader.)
  * @returns vec3 the vertex's normal
  */
 vec3 recomputeVertexNormal() {
-  vec3 X = dFdx(vWorldPosition.xyz);
-  vec3 Y = dFdy(vWorldPosition.xyz);
-  return normalize(cross(X, Y));
+  // Differentiated in the room's coordinates, so the result is a direction in
+  // the same space as the view vector it gets dotted against. `vWorldPosition`
+  // holds the *clip* position -- see `computeFog` -- whose derivatives shrink
+  // with w and carry the projection's distortion into what is supposed to be a
+  // surface direction.
+  vec3 X = dFdx(vAbsoluteWorldPosition.xyz);
+  vec3 Y = dFdy(vAbsoluteWorldPosition.xyz);
+
+  // A cone seen edge-on has both derivatives pointing the same way, so the
+  // cross product cancels to nothing and a plain `normalize` divides by zero.
+  // Edge-on is most of a thin beam's pixels, and a room full of movers is
+  // nothing but thin beams -- this is where the television static came from.
+  return safeNormalize(cross(X, Y));
 }
 
 float floorFade(vec3 worldPos)
@@ -137,12 +169,43 @@ void main() {
 
   vec3 normal = recomputeVertexNormal();
 
-  vec3 dirCamToLight = normalize(cameraPos - beamPos);
+  vec3 dirCamToLight = safeNormalize(cameraPos - beamPos);
   float alignmentFactor = 1.0 - abs(dot(vDirection, dirCamToLight));
   float glareFactor = min(max(1.0 - (dot(-cameraDir, vDirection)), abs(sin(radians(vAngle)))), 0.5);
-  float distance = sqrt(pow(vPosition.x, 2.0) + pow(vPosition.y, 2.0) + pow(vPosition.z, 2.0));
+
+  // `length`, not three hand-summed squares: `pow` is undefined for a negative
+  // base, and the spec makes no exception for a whole-numbered exponent. Half
+  // of a cone's local x and y are negative. A compiler that folds the literal
+  // 2.0 into a multiply gets away with it; one that routes it through
+  // exp2(y * log2(x)) returns NaN for half the beam.
+  float distance = length(vPosition);
   float attenuation = 2.0 / (1.0 + alignmentFactor * distance + radians(vAngle) * distance * distance);
-  float anglePower = pow(dot(normalize(vWorldPosition.xyz), (normal)), 4.0 * alignmentFactor);
+
+  // How square-on this wall of the cone is to the eye, sharpened as the beam
+  // turns across the view. Three things here have to be guarded, because the
+  // fragments that break them are not rare at high fixture counts and each one
+  // arrives in the frame as a black pixel -- see `safeNormalize` for why an
+  // additive material can produce black at all:
+  //
+  //   - the view vector is measured from the camera, in the room's
+  //     coordinates. It used to be `normalize(vWorldPosition.xyz)`, the clip
+  //     position: a direction out of the screen's origin rather than out of
+  //     the eye, and one whose x, y and z all collapse toward zero together as
+  //     geometry approaches the near plane. A cone sweeping through the camera
+  //     therefore normalized a near-zero vector across a whole region of the
+  //     screen at once, which is the black wedge that came with a cone passing
+  //     the lens. The near plane is 0.01 m and beams are not frustum culled,
+  //     so at 500 movers that happens constantly.
+  //   - `abs`, because a cone lit from within scatters off either wall, and
+  //     because `pow` is undefined for a negative base. `normal` is a cross
+  //     product of screen derivatives, whose sign is arbitrary, and the
+  //     material is DoubleSide -- the raw dot was negative for a large share
+  //     of fragments.
+  //   - the exponent floors just above zero, because `pow(0.0, 0.0)` is
+  //     undefined as well and `alignmentFactor` is exactly zero whenever the
+  //     eye looks straight down a beam, which is hardly an edge case.
+  vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
+  float anglePower = pow(abs(dot(viewDir, normal)), max(4.0 * alignmentFactor, 1e-4));
 
   float intensity = attenuation * anglePower;
 
