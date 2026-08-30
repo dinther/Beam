@@ -53,6 +53,18 @@ const DEFAULTS = {
   /** Whether the gizmo snaps at all. */
   snapEnabled: true,
   showGrid: true,
+  /**
+   * How strongly the reference grid draws, 0 to 1.
+   *
+   * A setting rather than a constant because what reads as "subtle" depends on
+   * the background it is drawn against, and that is a colour the user picks.
+   */
+  gridOpacity: 0.4,
+  /**
+   * Grid line width in pixels. Under 1 the lines get fainter rather than
+   * narrower, because a line cannot be drawn thinner than a pixel.
+   */
+  gridLineWidth: 0.3,
   showAxes: true,
   /** Whether the frame timings and the shader tuning panel are on screen. */
   debug: false,

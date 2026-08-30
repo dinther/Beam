@@ -48,12 +48,28 @@ const FADE_FULL_PX = 40.0;
 const glslFloat = (value) => (Number.isInteger(value) ? `${value}.0` : `${value}`);
 
 /** How strongly each decade draws, faintest first. */
-const FINE_WEIGHT = 0.22;
-const UNIT_WEIGHT = 0.45;
+const FINE_WEIGHT = 0.28;
+const UNIT_WEIGHT = 0.55;
 const COARSE_WEIGHT = 0.8;
 
 /** Overall subtlety. The grid is a reference, not a subject. */
-const DEFAULT_OPACITY = 0.55;
+const DEFAULT_OPACITY = 0.4;
+
+/**
+ * How wide a line is drawn, in pixels.
+ *
+ * Kept in step with the `gridLineWidth` preference, which is what actually
+ * drives it in the app -- this is only what the grid draws with before the
+ * stored value reaches it, and a mismatch shows up as a flicker on load.
+ *
+ * Below 1 it stops being a width and becomes an opacity, because a line
+ * narrower than a pixel cannot be drawn -- the fragment either samples it or
+ * it does not, and asking for half a pixel of geometry is how a grid starts to
+ * crawl as the camera moves. So under a pixel the falloff stays at one and the
+ * coverage is scaled instead, which is what a half-covered pixel should look
+ * like anyway.
+ */
+const DEFAULT_LINE_WIDTH_PX = 0.3;
 
 /** A cool grey that reads against both the light and the dark venue. */
 const DEFAULT_COLOR = '#7d858e';
@@ -83,6 +99,7 @@ class InfiniteGridHelper extends THREE.Mesh {
         uColor: { value: color || new THREE.Color(DEFAULT_COLOR) },
         uDistance: { value: distance },
         uOpacity: { value: DEFAULT_OPACITY },
+        uLineWidth: { value: DEFAULT_LINE_WIDTH_PX },
       },
       vertexShader: /* glsl */`
         varying vec3 worldPosition;
@@ -103,12 +120,37 @@ class InfiniteGridHelper extends THREE.Mesh {
         uniform vec3 uColor;
         uniform float uDistance;
         uniform float uOpacity;
+        uniform float uLineWidth;
 
         /** Antialiased coverage of the lines of a grid of this cell size. */
         float gridCoverage(float size) {
           vec2 r = worldPosition.${planeAxes} / size;
-          vec2 g = abs(fract(r - 0.5) - 0.5) / fwidth(r);
-          return 1.0 - min(min(g.x, g.y), 1.0);
+
+          // How far a pixel steps along each grid axis, measured properly.
+          //
+          // fwidth() is the obvious thing to use here and is what this did.
+          // It returns about |dFdx| + |dFdy|, which is the right order of
+          // magnitude and up to twice too large on a diagonal -- so lines grew
+          // and shrank with their angle to the screen, and the whole grid read
+          // soft and uneven next to one drawn properly. The true rate of
+          // change of each axis across the screen is the length of its
+          // gradient, so that is what is taken.
+          vec2 ddx = dFdx(r);
+          vec2 ddy = dFdy(r);
+          vec2 gradient = vec2(
+            length(vec2(ddx.x, ddy.x)),
+            length(vec2(ddx.y, ddy.y))
+          );
+
+          // Distance to the nearest line of this grid, in pixels.
+          vec2 d = abs(fract(r - 0.5) - 0.5) / max(gradient, vec2(1e-6));
+          float pixels = min(d.x, d.y);
+          float width = max(uLineWidth, 0.02);
+          // At or above a pixel the width is a real width. Below one it cannot
+          // be -- so the falloff stays at a pixel and the coverage carries the
+          // rest, which is a fainter line rather than a flickering one.
+          float line = 1.0 - min(pixels / max(width, 1.0), 1.0);
+          return line * min(width, 1.0);
         }
 
         /** Roughly how many pixels across one cell of this size is. */
@@ -176,6 +218,24 @@ class InfiniteGridHelper extends THREE.Mesh {
 
   get opacity() {
     return this.material.uniforms.uOpacity.value;
+  }
+
+  /**
+   * How wide the lines are drawn, in pixels. Under 1 they get fainter rather
+   * than narrower -- see `DEFAULT_LINE_WIDTH_PX`.
+   *
+   * @public
+   * @type {Number}
+   */
+  set lineWidth(value) {
+    const wanted = Number(value);
+    if (Number.isFinite(wanted) && wanted > 0) {
+      this.material.uniforms.uLineWidth.value = wanted;
+    }
+  }
+
+  get lineWidth() {
+    return this.material.uniforms.uLineWidth.value;
   }
 }
 

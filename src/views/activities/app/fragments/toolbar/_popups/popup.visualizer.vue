@@ -211,6 +211,41 @@
       </uk-flex>
       <uk-flex center-h>
         <div>
+          <h4>Grid brightness:</h4>
+          <p class="subtitle">
+            How strongly the grid draws. What reads as subtle depends on the
+            background behind it, so it is worth setting once you have chosen
+            one.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-num-input
+          v-model="$show.visualizerHandle.gridOpacity"
+          :precision="2"
+          :min="0"
+          :max="1"
+          style="width: 100px"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
+          <h4>Grid line width:</h4>
+          <p class="subtitle">
+            In pixels. Below 1 the lines go fainter rather than narrower --
+            a line thinner than a pixel cannot be drawn, only dimmed.
+          </p>
+        </div>
+        <uk-spacer />
+        <uk-num-input
+          v-model="$show.visualizerHandle.gridLineWidth"
+          :precision="2"
+          :min="0.1"
+          :max="4"
+          style="width: 100px"
+        />
+      </uk-flex>
+      <uk-flex center-h>
+        <div>
           <h4>Axes:</h4>
           <p class="subtitle">
             Show the origin axis indicator.
@@ -425,6 +460,9 @@ export default {
       this.$show.visualizerHandle.houseLightsDown = this.initialValues.brightnessHouseOff;
       this.$show.visualizerHandle.snapSpacing = this.initialValues.snapSpacing;
       this.$show.visualizerHandle.showGrid = this.initialValues.showGrid;
+      this.$show.visualizerHandle.gridOpacity = this.initialValues.gridOpacity;
+      // eslint-disable-next-line max-len
+      this.$show.visualizerHandle.gridLineWidth = this.initialValues.gridLineWidth;
       this.$show.visualizerHandle.showAxes = this.initialValues.showAxes;
       this.close();
     },

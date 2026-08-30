@@ -112,6 +112,17 @@ function asVisible(value) {
 }
 
 /** Pushes stored visibility onto whichever helpers have been built. */
+/**
+ * Pushes the stored grid style onto the grid, if there is one yet.
+ *
+ * @private
+ */
+function applyGridStyle() {
+  if (!helpers.grid) return;
+  helpers.grid.opacity = Preferences.get('gridOpacity');
+  helpers.grid.lineWidth = Preferences.get('gridLineWidth');
+}
+
 function applyHelperVisibility() {
   if (helpers.grid) helpers.grid.visible = helpers.gridVisible;
   if (helpers.axes) helpers.axes.visible = helpers.axesVisible;
@@ -292,6 +303,8 @@ class Visualizer {
     this.snapEnabled = source.snapEnabled !== false;
     this.snapSpacing = source.snapSpacing;
     this.showGrid = source.showGrid;
+    this.gridOpacity = source.gridOpacity;
+    this.gridLineWidth = source.gridLineWidth;
     this.showAxes = source.showAxes;
     this.debug = source.debug;
     this.backgroundColor = source.backgroundColor;
@@ -385,6 +398,48 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   get showGrid() {
     return helpers.gridVisible;
+  }
+
+  /**
+   * How strongly the reference grid draws.
+   *
+   * On the visualizer rather than in `grid.js` for the same reason the other
+   * helper settings are: it has to survive a reload and it has to be reachable
+   * from the settings panel. The grid may not exist yet when a stored value is
+   * pushed, so the preference is the truth and the helper is caught up in
+   * `applyGridStyle` once it does.
+   *
+   * @type {Number}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set gridOpacity(value) {
+    const wanted = Number(value);
+    if (!Number.isFinite(wanted)) return;
+    Preferences.set('gridOpacity', Math.min(Math.max(wanted, 0), 1));
+    applyGridStyle();
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get gridOpacity() {
+    return Preferences.get('gridOpacity');
+  }
+
+  /**
+   * Grid line width, in pixels.
+   *
+   * @type {Number}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set gridLineWidth(value) {
+    const wanted = Number(value);
+    if (!Number.isFinite(wanted)) return;
+    Preferences.set('gridLineWidth', Math.min(Math.max(wanted, 0.1), 4));
+    applyGridStyle();
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get gridLineWidth() {
+    return Preferences.get('gridLineWidth');
   }
 
   /**
@@ -924,6 +979,7 @@ class Visualizer {
     // same depth. The material declines to write depth of its own.
     gridHelper.renderOrder = 1;
     helpers.grid = gridHelper;
+    applyGridStyle();
     SceneManager.add(gridHelper);
 
     const axesHelper = new THREE.AxesHelper(2);
