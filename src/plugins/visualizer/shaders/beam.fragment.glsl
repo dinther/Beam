@@ -22,6 +22,21 @@
 precision highp float;
 
 uniform float glowFactor; // Global glow factor
+uniform sampler2D sceneDepth;    // Depth of everything solid, from the composer
+uniform float cameraNear;
+uniform float cameraFar;
+
+/** Over how many metres a beam fades out as it approaches a surface. */
+#define BEAM_SOFT_DISTANCE 1.2
+
+/**
+ * The height a beam stops at, in world units.
+ *
+ * The stage floor, and the one thing in the room a beam can be assumed to
+ * land on. This is the interim answer -- see the clip in `beamProfile` for
+ * what it stands in for and why it is the safe way to be wrong.
+ */
+#define BEAM_FLOOR_Z 0.0
 
 /**
  * How much of the beam's brightness is haze texture rather than solid shaft.
@@ -259,6 +274,36 @@ float beamProfile(vec3 viewDir) {
       // Never behind the eye.
       sLo = max(sLo, 0.0);
 
+      // And never below the floor.
+      //
+      // The same operation as the clip above and for the same reason -- moving
+      // a segment's ends is continuous where clamping a point is not -- but
+      // against the world plane z = BEAM_FLOOR_Z rather than against the length
+      // of cone that exists.
+      //
+      // Something has to do this, because depth testing does not: it *hides*
+      // the cone behind whatever is in front of it, which is a different thing
+      // from ending it. The full 150 m of cone still exists under the floor,
+      // and a camera that can see past the floor's own edge sees all of it --
+      // that beam has open air behind it and is telling the truth about its own
+      // depth, so no amount of screen-space work can remove it.
+      //
+      // A fixed plane is a deliberately blunt answer, and it is blunt in the
+      // safe direction: it can never cut a beam that should have carried on.
+      // The two sharper answers were considered and are recorded in the beam
+      // notes -- a plane from a raycast down the axis (rejected: the plane is
+      // infinite, so a beam clipping a truss loses everything below it), and a
+      // depth map rendered from each fixture, which is the real fix and is
+      // where this should end up.
+      if (abs(viewDir.z) > 1e-6) {
+        float sFloor = (BEAM_FLOOR_Z - cameraPos.z) / viewDir.z;
+        if (viewDir.z < 0.0) sHi = min(sHi, sFloor);
+        else sLo = max(sLo, sFloor);
+      } else if (cameraPos.z < BEAM_FLOOR_Z) {
+        // Running level, below the floor: none of this ray is lit.
+        sLo = sHi;
+      }
+
       chord = max(sHi - sLo, 0.0);
       zMid = clamp(oz + vz * (sLo + sHi) * 0.5, 0.0, vZFar);
     }
@@ -291,17 +336,60 @@ float beamProfile(vec3 viewDir) {
   return chordShape * softness;
 }
 
-float floorFade(vec3 worldPos)
-{
-  float h = worldPos.z;
+/**
+ * @function viewDistance
+ * @brief turns a depth-buffer reading into metres from the eye
+ * @param float depth 0..1 as stored
+ * @returns float distance along the view axis
+ */
+float viewDistance(float depth) {
+  float ndc = depth * 2.0 - 1.0;
+  return (2.0 * cameraNear * cameraFar)
+    / (cameraFar + cameraNear - ndc * (cameraFar - cameraNear));
+}
 
-  float fadeStart = 0.0;
-  float fadeEnd   = 0.01;
+/**
+ * @function surfaceFade
+ * @brief fades the beam out as it approaches whatever is behind it
+ * @returns float 0 at the surface, 1 a comfortable distance in front of it
+ *
+ * A cone is a surface, so where it passes through the floor or a truss it cuts
+ * a hard line into it -- the beam is *in* the geometry, and geometry has no
+ * business having an edge drawn on it by the air.
+ *
+ * This is half of what `floorFade` used to do, and the better half. The other
+ * half -- ending the beam -- is the z = 0 clip in `beamProfile`, which is
+ * still a hardcoded plane and still knows nothing about a floor that has been
+ * moved, raked or deleted. Do not conflate the two: softening the crossing and
+ * ending the shaft are different jobs, and an attempt to make one mechanism do
+ * both is what the beam notes record as rejected.
+ *
+ * This is the soft-particles half of John Chapman's original technique, which
+ * threex.volumetricspotlight -- the ancestor of this shader -- dropped because
+ * three.js stored depth in 8 bits in 2013. It does not any more.
+ *
+ * Depth testing already discards fragments behind geometry, so the comparison
+ * is one-sided: this only has to soften the approach. Where nothing is behind,
+ * the depth reads the far plane and the beam is left at full strength.
+ */
+float surfaceFade() {
+  // Straight from the drawing buffer's own size -- the depth is the composer's
+  // and matches the frame exactly.
+  vec2 uv = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
+  float stored = texture2D(sceneDepth, uv).x;
 
-  float t = clamp((h - fadeStart) / (fadeEnd - fadeStart), 0.0, 1.0);
+  // Nothing usable behind this pixel, so nothing to fade against.
+  //
+  // 1.0 is the cleared far plane -- open air, and the common case for a beam
+  // pointing at the sky. 0.0 means the texture is not carrying depth at all,
+  // and that has to read as "no fade" rather than "fully faded": taken as a
+  // surface sitting at the near plane it removes every beam in the scene,
+  // which is exactly what it did.
+  if (stored >= 1.0 || stored <= 0.0) return 1.0;
 
-  // soften curve (key part)
-  return t * t * (3.0 - 2.0 * t); // smoothstep-like but explicit
+  float behind = viewDistance(stored);
+  float here = viewDistance(gl_FragCoord.z);
+  return clamp((behind - here) / BEAM_SOFT_DISTANCE, 0.0, 1.0);
 }
 
 void main() {
@@ -325,7 +413,7 @@ void main() {
 
   float intensity = attenuation * anglePower;
 
-  float fade = floorFade(vAbsoluteWorldPosition.xyz);
+  float fade = surfaceFade();
 
   float fog = computeFog(intensity);
 

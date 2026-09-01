@@ -1373,6 +1373,8 @@ class Visualizer {
       // the displayed size disagreed for a frame every frame of a drag, which
       // is the flicker. CSS sizes the canvas; this only sizes what is drawn.
       this.renderer.setSize(width, height, false);
+      // Sized to the drawing buffer, so the depth texture it carries lines up
+      // with `gl_FragCoord` in the beam shader without a scale factor.
       if (finalComposer) finalComposer.setSize(width, height);
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
@@ -1541,6 +1543,25 @@ class Visualizer {
       // something is selected: with nothing picked, no instance can be moving.
       if (Controls.pooledInstances && Controls.pooledInstances.length) {
         SceneObjects.syncFromOwners();
+      }
+      // Handed over per frame, not once at build time: the composer creates
+      // its stable depth texture lazily, so at build time there is nothing to
+      // bind and the beams were left sampling an empty texture. An unbound
+      // depth reads 0, which `surfaceFade` would take for a surface at the
+      // near plane -- and that removed every beam in the scene.
+      //
+      // It is last frame's depth. A shader cannot sample the depth buffer it
+      // is writing into, and the beams are drawn in the same pass as the
+      // geometry they fade against, so the blit is always one frame behind.
+      // Invisible on a fade spanning more than a metre, and free: a depth
+      // prepass was built first and measured 10 ms on the 100-mover ring --
+      // the extra target switch, not fill rate, since halving its resolution
+      // changed nothing.
+      //
+      // Only opaque geometry is in it: beams write no depth, so they never
+      // fade against each other, which is right. A beam is air, not a wall.
+      if (finalComposer && finalComposer.stableDepthTexture) {
+        MovingHead.setSceneDepth(finalComposer.stableDepthTexture, this.camera);
       }
       if (finalComposer) {
         finalComposer.render();

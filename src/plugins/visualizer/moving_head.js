@@ -757,6 +757,21 @@ class MovingHead {
   }
 
   /**
+   * Hands the beams the depth of everything solid in front of them.
+   *
+   * @public
+   * @param {THREE.DepthTexture} texture the composer's scene depth
+   * @param {THREE.Camera} camera for the near and far planes
+   */
+  static setSceneDepth(texture, camera) {
+    if (!beamMesh || !beamMesh.material || !beamMesh.material.uniforms) return;
+    const u = beamMesh.material.uniforms;
+    u.sceneDepth.value = texture;
+    u.cameraNear.value = camera.near;
+    u.cameraFar.value = camera.far;
+  }
+
+  /**
    * Color wheel slot value
    *
    * @type {Number}
@@ -1428,6 +1443,22 @@ class MovingHead {
           type: 'f',
           value: 1.0,
         },
+        // The opaque scene's depth, blitted by the EffectComposer for the
+        // ambient haze and borrowed here -- see where `stableDepthTexture` is
+        // handed over in `visualizer.js`. It softens the line the cone would
+        // otherwise draw across whatever it passes through. Where the beam
+        // *ends* is a different question, answered at z = 0 in the shader.
+        sceneDepth: {
+          value: null,
+        },
+        cameraNear: {
+          type: 'f',
+          value: 0.01,
+        },
+        cameraFar: {
+          type: 'f',
+          value: 1000.0,
+        },
         // The shared haze field: the volume itself, and the cycling amount
         // when the scene is built with it. Empty in mode 0.
         ...hazeUniforms(),
@@ -1443,6 +1474,10 @@ class MovingHead {
   static prepareCapInstance() {
     const capGeometry = new THREE.CircleGeometry(BEAM_TOP_RADIUS, 40);
     const capMaterial = new THREE.MeshBasicMaterial({
+      // No depth, or the beam fades against the very disc it comes out of --
+      // the surface fade reads the scene's depth, and this sits exactly at the
+      // beam's origin. It is a lens face, not an obstacle.
+      depthWrite: false,
       side: THREE.DoubleSide,
     });
 
