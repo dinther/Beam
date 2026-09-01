@@ -19,7 +19,7 @@
 - sACN Still to confirm all the user params are present. Ah yes. Madmapper increases the universe for the 
 - Add copy paste and delete toolbar buttons
 - I can't arrange item order anymore
-- Beam needs selector for sACN or Art-Net because it has to adjust the exported fixture files to madmapper
+
 
 
 
