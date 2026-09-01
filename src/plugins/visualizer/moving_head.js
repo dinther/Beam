@@ -74,6 +74,26 @@ const BEAM_SEGMENTS = 1;
 const BEAM_LENGTH = 100;
 const BEAM_TOP_RADIUS = 0.09;
 const BEAM_MAX_ANGLE = 45;
+/**
+ * How much of the cone's radius is at full brightness, before the penumbra.
+ *
+ * 1.0 is a hard-edged beam and 0.0 is all penumbra. This is the fixture's
+ * focus, and it is the one quantity GDTF states outright: `BeamAngle` is the
+ * cone at 50% intensity and `FieldAngle` the cone at 10%, so their ratio is
+ * this number. Until profiles are parsed it is one value for every fixture --
+ * see the photometry note, where flux, decay and the beam/field pair all
+ * arrive together.
+ */
+const BEAM_PENUMBRA_RATIO = 0.65;
+/**
+ * What a focus channel moves the penumbra between, fully out to fully in.
+ *
+ * Neither end reaches its limit. At 1.0 the wall becomes the hard edge this
+ * model exists to remove, and a real fixture cannot focus that perfectly
+ * anyway; at 0.0 the beam is all penumbra and has no core to speak of.
+ */
+const BEAM_PENUMBRA_DEFOCUSED = 0.15;
+const BEAM_PENUMBRA_FOCUSED = 0.95;
 
 /**
  * The beam fragment shader, with the scene's haze configuration prepended.
@@ -161,9 +181,17 @@ let emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
   new Float32Array(capacity),
   1,
 );
+/**
+ * Per instance: x the beam half-angle, y a change flag, z the beam's penumbra.
+ *
+ * Three components rather than two since the focus channel arrived. The shader
+ * already declared this `vec3` while the buffer supplied two, so `z` was
+ * reading the 0.0 WebGL fills a missing component with -- which is why it could
+ * be widened here without touching the attribute declaration.
+ */
 let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(capacity * 2),
-  2,
+  new Float32Array(capacity * 3),
+  3,
 );
 
 const baseGeo = new THREE.InstancedBufferGeometry();
@@ -376,6 +404,11 @@ class MovingHead {
       throw new Error(`Cannot place more than ${ABSOLUTE_MAX_INSTANCES} moving heads`);
     }
     this._id = instanceCount++;
+    // Before anything can read it. The buffer is zero-filled, and zero is a
+    // legitimate penumbra meaning "all softness, no core" -- so a fixture
+    // without a focus channel would have rendered as fully defocused rather
+    // than as the default.
+    MovingHead.writeBeamPenumbra(this._id, null);
     this._position = new THREE.Vector3();
     this._rotation = new THREE.Vector3();
     this._minAngle = data.minAngle + 1.0;
@@ -679,11 +712,48 @@ class MovingHead {
     angle_buffer_attribute.needsUpdate = true;
   }
 
+  /**
+   * Focus, 0 fully out to 100 fully in.
+   *
+   * Drives two separate things, and used to drive only the first: the
+   * SpotLight's penumbra, which softens the pool of light this fixture throws
+   * on to surfaces, and the penumbra of the visible shaft. They are different
+   * quantities in different renderers -- three's own lighting, and
+   * `beam.fragment.glsl` -- and nothing connected the second, so every beam in
+   * the room shared one hardcoded focus however the fader moved.
+   *
+   * @type {Number}
+   */
   set focus(focus) {
     this._spotLight.penumbra = Math.max(
       SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA - SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA * (focus / 100),
       0.3,
     );
+    this._focus = focus;
+    MovingHead.writeBeamPenumbra(this._id, focus);
+  }
+
+  get focus() {
+    return this._focus;
+  }
+
+  /**
+   * Puts a fixture's beam penumbra into the instance buffer.
+   *
+   * @public
+   * @param {Number} id instance id
+   * @param {Number|null} focus 0..100, or null for a fixture with no focus
+   *   channel -- which takes the default rather than the fully-soft end, since
+   *   a fixture that cannot be focused is not a fixture that is out of focus.
+   */
+  static writeBeamPenumbra(id, focus) {
+    const span = BEAM_PENUMBRA_FOCUSED - BEAM_PENUMBRA_DEFOCUSED;
+    const dial = Math.min(Math.max(focus, 0), 100) / 100;
+    const ratio = focus === null || focus === undefined
+      ? BEAM_PENUMBRA_RATIO
+      : BEAM_PENUMBRA_DEFOCUSED + span * dial;
+    angle_buffer_attribute.setZ(id, ratio);
+    angle_buffer_attribute.needsUpdate = true;
   }
 
   /**
@@ -1286,13 +1356,33 @@ class MovingHead {
       transparent: true,
       depthWrite: false,
       clipping: true,
-      side: THREE.DoubleSide,
+      // One side, not two. `beamProfile` works out the whole path a view ray
+      // takes through the cone from the ray and the axis alone, so it does not
+      // need a second fragment to accumulate anything -- and with DoubleSide it
+      // got one anyway, drawing the beam twice.
+      //
+      // That would merely be a brightness scale if the count were constant, and
+      // it is not: the cone is an open tube, so a ray crossing both walls is
+      // drawn twice while one leaving through the open far end is drawn once.
+      // The count steps along the rim, and a 2:1 step in the middle of a smooth
+      // gradient is the dark edge -- an ellipse down one beam, a line where one
+      // cone's rim crosses another. Measured on the two-mover scene: 30 above
+      // the rim against 17 below it.
+      //
+      // FrontSide rather than BackSide because the outward-facing near wall is
+      // the one every ray meets first, including rays that leave through the
+      // opening.
+      side: THREE.FrontSide,
       blending: THREE.AdditiveBlending,
       vertexShader: VOLUMETRIC_BEAM_VERTEX_SHADER,
       fragmentShader: BEAM_FRAGMENT_SHADER,
       fog: false,
       toneMapped: false,
-      dithering: false,
+      // Three's own banding remedy, and the beam is its textbook case: large
+      // smooth gradients are where quantisation contours form and where the
+      // eye's lateral inhibition (Mach banding) then draws lines that are not
+      // in the data. This was explicitly off.
+      dithering: true,
       uniforms: {
         cameraDir: {
           type: 'v3',

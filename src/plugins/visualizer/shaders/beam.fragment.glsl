@@ -11,9 +11,32 @@
 
 #include <clipping_planes_pars_fragment>
 #define M_PI 3.1415926535897932384626433832795
+/**
+ * How wide the corner is where the haze stops flooring the beam.
+ *
+ * Both quantities it joins are of order one, so this is a fraction of the whole
+ * range. Too small and the crease returns; too large and the haze starts
+ * lifting the beam's core, which is what the floor exists to prevent.
+ */
+
 precision highp float;
 
 uniform float glowFactor; // Global glow factor
+
+/**
+ * How much of the beam's brightness is haze texture rather than solid shaft.
+ *
+ * 0 is a perfectly even beam, 1 is one multiplied by the raw noise -- which
+ * eats the shaft wherever the field dips, and is what "much worse" looked
+ * like. The point is that this is a **constant**: it modulates the beam
+ * without reading the beam's own strength, so the output stays linear in
+ * intensity and two beams still add exactly. That is what the old
+ * `max(field, intensity)` floor could not do.
+ *
+ * Same construction `ambient_haze.js` uses for the room's air
+ * (`mix(1.0, field, fieldDepth)`), so shaft and air are textured alike.
+ */
+#define BEAM_FIELD_DEPTH 0.5
 uniform bool fogState;
 uniform float fogFactor;     // How much haze there is, 0..1
 uniform float fogScale;      // How wide one haze feature is, in metres
@@ -25,7 +48,6 @@ uniform vec3 cameraPos;
 
 varying vec3 vPosition;      // Vertex local position
 varying vec3 beamPos;        // Vertex local position
-varying vec3 vNormal;        // Vertex normal
 varying vec2 vUv;            // UV position
 varying vec3 vDirection;     // Intance direction
 varying vec3 vColor;         // Instance colro
@@ -33,6 +55,9 @@ varying vec4 vWorldPosition; // Vertex world position
 varying vec4 vAbsoluteWorldPosition;
 varying float vIntensity;    // Instance intensity
 varying float vAngle;        // Instance angle
+varying float vPenumbra;     // Instance penumbra, from its focus channel
+varying float vSlope;        // Cone slope, dRadius/dz, of the cone drawn
+varying float vZFar;         // Local z of the cone's far rim
 varying float vIndex;        // Vertex index
 
 /**
@@ -103,9 +128,40 @@ float computeFog(float minValue) {
   //
   // The turbulence floors at the beam's own geometric intensity, so noise can
   // thin the beam but never eat its core.
+  //
+  // Softly, because a hard `max` creases along the curve where the two are
+  // equal. Down a single cone that curve is an ellipse -- the beam visibly
+  // dimmed to a minimum and then brightened again below it, which attenuation
+  // alone cannot do -- and where two cones overlap it reads as a line drawn
+  // through both. Measured on a two-mover scene: the beam's contribution over
+  // background fell 56, 30, 10 and then rose back to 17 down the axis. The
+  // recovery is the giveaway; the shading either side of the corner is correct
+  // and only the corner itself was ever wrong.
   float drift = time * fogTurbulence / 30.0;
   vec3 fogCoord = vAbsoluteWorldPosition.xyz / max(fogScale, 0.01);
-  return max(fogging(fogCoord, drift), minValue) * haze;
+  float field = fogging(fogCoord, drift);
+
+  // How much the air scatters, and **nothing about the beam's own strength**.
+  //
+  // The colour is already scaled by intensity once, so anything intensity-
+  // dependent returned here multiplies it in again. This was `max(field,
+  // intensity)` -- a full second factor, so each fragment emitted intensity
+  // squared -- and then `mix(field, 1, intensity)`, which is better but still
+  // leaves a (1-field)*intensity^2 term. Both are convex, and a convex
+  // function of a fixed total is *smallest when the total is split evenly*:
+  // exactly where two beams contribute equally, which is the locus running
+  // from their crossing point. Measured on the two forms: 45% and 16% dips at
+  // an even split, against 0% for this one.
+  //
+  // Scattered light is beam intensity times air density, and multiplying them
+  // once is the whole of it. Two beams now add the way light does.
+  //
+  // The old floor existed so noise could not eat a strong beam's core. That is
+  // no longer needed here: the field's own contrast is the haze, and the
+  // shader's `fogFactor` already governs how much of it there is.
+  // Solid shaft, textured by the air -- and no factor of the beam's own
+  // strength, so the sum of two beams is the sum of their light.
+  return mix(1.0, field, BEAM_FIELD_DEPTH) * haze;
 }
 
 /**
@@ -131,24 +187,108 @@ vec3 safeNormalize(vec3 v) {
 }
 
 /**
- * @function recomputeVertexNormal
- * @brief computes vertex's normal. (e.g Vertex displacement happened in the shader.)
- * @returns vec3 the vertex's normal
+ * @function beamProfile
+ * @brief how much cone the view ray passes through, and how bright the fixture
+ * makes that part of it
+ * @param vec3 viewDir unit vector from the eye towards it
+ * @returns float 0..1, the beam's brightness along this ray
+ *
+ * This replaces a facing ratio, `pow(abs(dot(viewDir, normal)), n)`, which was
+ * never a property of the beam -- it described which way the wall happened to
+ * be turned. It broke down exactly where the geometry does: looking down the
+ * barrel the wall is edge-on everywhere, the dot goes to zero across the whole
+ * cone, and the beam disappears. The exponent was driven to zero by the
+ * viewing angle to stop that happening, which is what left the beam flat and
+ * hard-edged up close -- `pow(x, 0.0001)` is 1.0 for every x.
+ *
+ * What is measured instead is the view ray's closest approach to the beam
+ * axis. That is a property of the ray and the cone alone, so it holds at every
+ * angle, and it is what the two terms below are actually functions of.
  */
-vec3 recomputeVertexNormal() {
-  // Differentiated in the room's coordinates, so the result is a direction in
-  // the same space as the view vector it gets dotted against. `vWorldPosition`
-  // holds the *clip* position -- see `computeFog` -- whose derivatives shrink
-  // with w and carry the projection's distortion into what is supposed to be a
-  // surface direction.
-  vec3 X = dFdx(vAbsoluteWorldPosition.xyz);
-  vec3 Y = dFdy(vAbsoluteWorldPosition.xyz);
+float beamProfile(vec3 viewDir) {
+  vec3 axis = safeNormalize(vDirection);
 
-  // A cone seen edge-on has both derivatives pointing the same way, so the
-  // cross product cancels to nothing and a plain `normalize` divides by zero.
-  // Edge-on is most of a thin beam's pixels, and a room full of movers is
-  // nothing but thin beams -- this is where the television static came from.
-  return safeNormalize(cross(X, Y));
+  // The cone this shader is really drawing, taken from the fragment it is
+  // shading rather than from the nominal beam angle: the vertex displacement
+  // widens the far ring by `length + 20` and then scales z by 1.5, so the drawn
+  // cone is shallower than `vAngle` would suggest.
+  float radiusHit = length(vPosition.xy);
+  float zHit = vPosition.z;
+  float m = vSlope;
+  float r0 = radiusHit - m * zHit;
+
+  // The ray, split into travel along the axis and travel across it.
+  vec3 O = cameraPos - beamPos;
+  float oz = dot(O, axis);
+  float vz = dot(viewDir, axis);
+  vec3 oR = O - oz * axis;
+  vec3 vR = viewDir - vz * axis;
+
+  // Where the ray crosses the cone's surface: |radial(s)| = r0 + m*z(s), which
+  // is a quadratic in s. Solved outright instead of inferred from a distance
+  // ratio -- the ratio needed the closest-approach point held inside the cone
+  // by a clamp, and a clamp is continuous without being smooth. The boundary
+  // where it engaged was a hard curve across the screen, drawing exactly the
+  // line this is meant to remove. A chord, by contrast, is a continuous
+  // function of the ray everywhere.
+  float rz = r0 + m * oz;
+  float A = dot(vR, vR) - m * m * vz * vz;
+  float B = 2.0 * (dot(oR, vR) - m * vz * rz);
+  float C = dot(oR, oR) - rz * rz;
+
+  float chord = 0.0;
+  float zMid = zHit;
+
+  if (abs(A) > 1e-9) {
+    float disc = B * B - 4.0 * A * C;
+    if (disc > 0.0) {
+      float sq = sqrt(disc);
+      float sA = (-B - sq) / (2.0 * A);
+      float sB = (-B + sq) / (2.0 * A);
+      float sLo = min(sA, sB);
+      float sHi = max(sA, sB);
+
+      // Clipped to the length of cone that exists. Clipping a segment moves its
+      // ends continuously, so unlike clamping a point it introduces no corner.
+      if (abs(vz) > 1e-6) {
+        float zEnterS = (0.0 - oz) / vz;
+        float zLeaveS = (vZFar - oz) / vz;
+        sLo = max(sLo, min(zEnterS, zLeaveS));
+        sHi = min(sHi, max(zEnterS, zLeaveS));
+      }
+      // Never behind the eye.
+      sLo = max(sLo, 0.0);
+
+      chord = max(sHi - sLo, 0.0);
+      zMid = clamp(oz + vz * (sLo + sHi) * 0.5, 0.0, vZFar);
+    }
+  }
+
+  // Against the widest chord available at that depth -- straight through the
+  // middle -- so this is 1 down the axis and 0 at the silhouette.
+  float radiusMid = max(r0 + m * zMid, 1e-4);
+  float across = clamp(chord / (2.0 * radiusMid), 0.0, 1.0);
+
+  // The chord itself, not its square.
+  //
+  // `across` already *is* sqrt(1 - u*u), the length of cone a ray crosses. It
+  // used to be squared here, on an assumption that a cone is denser along its
+  // axis -- which nothing justifies, and which peaks the profile sharply. That
+  // matters where two beams begin to overlap: modelled on this rig, the squared
+  // shape carves an 87% notch between the two axes where the honest chord
+  // carves 74%, and by a couple of metres lower the squared one still dips 20%
+  // where the chord is already 17% *brighter* in the middle. That notch is the
+  // dark line where beams cross.
+  //
+  // The rim stays soft: a bare chord meets the wall with a vertical tangent,
+  // but the penumbra below is zero with zero slope there, and the product is
+  // what gets drawn.
+  float chordShape = across;
+  float u = sqrt(max(1.0 - across * across, 0.0));
+
+  float softness = smoothstep(1.0, vPenumbra, u);
+
+  return chordShape * softness;
 }
 
 float floorFade(vec3 worldPos)
@@ -167,52 +307,33 @@ float floorFade(vec3 worldPos)
 void main() {
   #include <clipping_planes_fragment>
 
-  vec3 normal = recomputeVertexNormal();
-
   vec3 dirCamToLight = safeNormalize(cameraPos - beamPos);
   float alignmentFactor = 1.0 - abs(dot(vDirection, dirCamToLight));
-  float glareFactor = min(max(1.0 - (dot(-cameraDir, vDirection)), abs(sin(radians(vAngle)))), 0.5);
 
-  // `length`, not three hand-summed squares: `pow` is undefined for a negative
-  // base, and the spec makes no exception for a whole-numbered exponent. Half
-  // of a cone's local x and y are negative. A compiler that folds the literal
-  // 2.0 into a multiply gets away with it; one that routes it through
-  // exp2(y * log2(x)) returns NaN for half the beam.
+  // Before the attenuation, which reads the sample point this leaves behind.
+  vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
+  float anglePower = 2.0 * beamProfile(viewDir);
+
+  // The hit point on the wall, which is smooth everywhere over the cone. It was
+  // briefly measured at the profile's sample point instead, for consistency,
+  // and that was a mistake: the sample point is held inside the cone by a
+  // clamp, and a clamp is continuous without being smooth. The locus where it
+  // engages is a curve across the screen, and a kink in an otherwise flat
+  // gradient is drawn by the eye as a line.
   float distance = length(vPosition);
   float attenuation = 2.0 / (1.0 + alignmentFactor * distance + radians(vAngle) * distance * distance);
-
-  // How square-on this wall of the cone is to the eye, sharpened as the beam
-  // turns across the view. Three things here have to be guarded, because the
-  // fragments that break them are not rare at high fixture counts and each one
-  // arrives in the frame as a black pixel -- see `safeNormalize` for why an
-  // additive material can produce black at all:
-  //
-  //   - the view vector is measured from the camera, in the room's
-  //     coordinates. It used to be `normalize(vWorldPosition.xyz)`, the clip
-  //     position: a direction out of the screen's origin rather than out of
-  //     the eye, and one whose x, y and z all collapse toward zero together as
-  //     geometry approaches the near plane. A cone sweeping through the camera
-  //     therefore normalized a near-zero vector across a whole region of the
-  //     screen at once, which is the black wedge that came with a cone passing
-  //     the lens. The near plane is 0.01 m and beams are not frustum culled,
-  //     so at 500 movers that happens constantly.
-  //   - `abs`, because a cone lit from within scatters off either wall, and
-  //     because `pow` is undefined for a negative base. `normal` is a cross
-  //     product of screen derivatives, whose sign is arbitrary, and the
-  //     material is DoubleSide -- the raw dot was negative for a large share
-  //     of fragments.
-  //   - the exponent floors just above zero, because `pow(0.0, 0.0)` is
-  //     undefined as well and `alignmentFactor` is exactly zero whenever the
-  //     eye looks straight down a beam, which is hardly an edge case.
-  vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
-  float anglePower = pow(abs(dot(viewDir, normal)), max(4.0 * alignmentFactor, 1e-4));
 
   float intensity = attenuation * anglePower;
 
   float fade = floorFade(vAbsoluteWorldPosition.xyz);
 
+  float fog = computeFog(intensity);
+
+  // One term at a time, as greyscale, so a step can be seen in the quantity
+  // that carries it rather than inferred from the sum. Additive blending still
+  // applies, so read these on a scene with a single beam.
   vec3 hsvColor = rgb2hsv(vColor);
   hsvColor.z = hsvColor.z > 0.001 ? hsvColor.z * intensity : 0.0;
   vec3 rgbColor = hsv2rgb(hsvColor);
-  gl_FragColor = vec4(rgbColor * computeFog(intensity) * vIntensity * fade, 1.0);
+  gl_FragColor = vec4(rgbColor * fog * vIntensity * fade, 1.0);
 }

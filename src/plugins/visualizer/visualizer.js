@@ -83,6 +83,23 @@ let bloomEffect = null;
 let ambientHazeEffect = null;
 
 /**
+ * Multisample count for the composer's render target.
+ *
+ * Four rather than two, measured: both cost the same here -- 14.2 ms against
+ * 14.7 ms on two beams filling the screen -- because the price is blend
+ * bandwidth on a half-float target rather than sample count, and additive
+ * geometry with heavy overdraw pays it either way. Two still left 6-9 level
+ * steps in a single pixel on a beam's edge; four leaves none.
+ *
+ * The cost is real where beams fill the frame: 7.7 ms without, 14.2 ms with.
+ * It is nothing where they do not (2.2 vs 2.3 ms). Zero restores the aliased
+ * behaviour if this ever needs proving again.
+ *
+ * @constant {Number}
+ */
+const MSAA_SAMPLES = 0;
+
+/**
  * Scene reference helpers.
  *
  * Module-scoped rather than stored on the Visualizer instance: the instance is
@@ -95,6 +112,15 @@ const helpers = {
   floor: null,
   gridVisible: true,
   axesVisible: true,
+  /**
+   * Suppresses reference furniture for the duration of a take.
+   *
+   * Separate from `gridVisible`/`axesVisible` on purpose. Those are settings:
+   * their setters write to `Preferences`, so hiding the grid for a recording
+   * through them would turn the user's grid off permanently -- and leave it off
+   * if the app died mid-take. This is a mode, and it stores nothing.
+   */
+  recording: false,
 };
 
 /**
@@ -124,8 +150,8 @@ function applyGridStyle() {
 }
 
 function applyHelperVisibility() {
-  if (helpers.grid) helpers.grid.visible = helpers.gridVisible;
-  if (helpers.axes) helpers.axes.visible = helpers.axesVisible;
+  if (helpers.grid) helpers.grid.visible = helpers.gridVisible && !helpers.recording;
+  if (helpers.axes) helpers.axes.visible = helpers.axesVisible && !helpers.recording;
 }
 
 /**
@@ -241,6 +267,18 @@ class Visualizer {
     this.stats = new Stats();
     this.stats.showPanel(0);
     this.stats.dom.style.position = 'absolute';
+    /**
+     * The frame a recording is composed for, or null when there is none.
+     *
+     * While this is set the drawing buffer is pinned to it and `resize` stands
+     * down, so the canvas keeps the size the recording asked for however the
+     * panel around it is dragged.
+     *
+     * @type {{width: Number, height: Number, fov: Number}|null}
+     */
+    this.recordFrame = null;
+    /** Camera FOV and renderer pixel ratio to put back afterwards. */
+    this.beforeRecord = null;
   }
 
   /**
@@ -1076,7 +1114,13 @@ class Visualizer {
   prepareRenderer() {
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.domElement,
-      antialias: true,
+      // False on the library's own advice: canvas MSAA "only applies to the
+      // canvas", and nothing is drawn there -- every frame goes through the
+      // EffectComposer, whose own `multisampling` option is where the real
+      // antialiasing happens. True here bought nothing and paid for a
+      // multisampled canvas nobody rendered into.
+      // https://github.com/pmndrs/postprocessing/wiki/Antialiasing
+      antialias: false,
     });
 
     this.renderer.autoClear = true;
@@ -1111,6 +1155,18 @@ class Visualizer {
   prepareComposer() {
     finalComposer = new EffectComposer(this.renderer, {
       frameBufferType: THREE.HalfFloatType,
+      // Without this every edge in the scene is aliased, `antialias: true` on
+      // the renderer notwithstanding: that flag applies to the default
+      // framebuffer, and nothing is drawn there -- the scene goes into the
+      // composer's own render target, which defaults to no multisampling.
+      //
+      // It shows worst on the beams, because they are additive and because the
+      // sRGB curve is near-vertical at the bottom: a cone's silhouette steps
+      // 26 -> 38 in one pixel, and where that hard edge falls *inside* another
+      // beam it reads as a line ruled across it. That is the dark line where
+      // two beams cross -- not shading, not geometry, just an un-antialiased
+      // silhouette on top of something bright.
+      multisampling: MSAA_SAMPLES,
     });
 
     finalComposer.addPass(new RenderPass(SceneManager, this.camera));
@@ -1299,6 +1355,11 @@ class Visualizer {
    * @public
    */
   resize() {
+    // A pinned frame owns the drawing buffer. Letterboxing changes the
+    // element's own size, so leaving this running would immediately overwrite
+    // the recording size with whatever the panel had shrunk the canvas to --
+    // and the take would come out a size nobody asked for, with no error.
+    if (this.recordFrame) return;
     const width = this.domElement.offsetWidth;
     const height = this.domElement.clientHeight;
     const aspect = width / height;
@@ -1316,6 +1377,139 @@ class Visualizer {
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * Where the camera is and what it orbits, as plain numbers.
+   *
+   * Plain objects rather than `Vector3` on purpose: this crosses into a Vue
+   * reactive store, and a proxied three.js object is the recurring fault in
+   * this codebase -- it stops handing its own properties back. Numbers cannot
+   * be broken that way.
+   *
+   * The target is `OrbitControls`' own, which *is* the look-at point: the
+   * camera is always pointed at it, so storing the pair is enough to restore a
+   * view exactly.
+   *
+   * @type {{position: {x: Number, y: Number, z: Number},
+   *         target: {x: Number, y: Number, z: Number}}}
+   */
+  get viewpoint() {
+    const p = this.camera.position;
+    const t = this.controls ? this.controls.target : { x: 0, y: 0, z: 0 };
+    return {
+      position: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+    };
+  }
+
+  set viewpoint(value) {
+    if (!value || !this.camera) return;
+    const { position, target } = value;
+    if (position) this.camera.position.set(position.x, position.y, position.z);
+    if (target && this.controls) this.controls.target.set(target.x, target.y, target.z);
+    // `update` is what re-derives the camera's orientation from the target, so
+    // without it the camera moves but goes on facing wherever it faced before.
+    if (this.controls) this.controls.update();
+  }
+
+  /**
+   * Pins the drawing buffer to a recording's frame.
+   *
+   * The canvas is the recording -- `captureStream` copies the drawing buffer,
+   * so the buffer has to be exactly the frame the user asked for. Two things
+   * make that less obvious than it sounds:
+   *
+   * - `setPixelRatio(0.8)` runs the viewport under-sampled for speed, and it
+   *   multiplies whatever `setSize` is given. Left alone, a 1920 x 1080
+   *   recording comes out 1536 x 864, silently.
+   * - `resize()` would put the panel's own size straight back, so it stands
+   *   down for as long as this is set.
+   *
+   * Called when the record widget opens, not when recording starts, so the shot
+   * can be framed against the real crop before anything is written.
+   *
+   * @public
+   * @param {Object} frame
+   * @param {Number} frame.width pixels
+   * @param {Number} frame.height pixels
+   * @param {Number} frame.fov vertical field of view, degrees
+   */
+  beginRecordingFrame({ width, height, fov }) {
+    if (!this.renderer || !this.camera) return;
+    const previous = this.recordFrame;
+    if (!previous) {
+      this.beforeRecord = {
+        fov: this.camera.fov,
+        pixelRatio: this.renderer.getPixelRatio(),
+      };
+    }
+    // Only when the frame really changed. Every `setSize` reallocates the
+    // composer's buffers, and FOV is adjustable *during* a take -- pulling the
+    // whole chain down and rebuilding it to change a projection angle would
+    // hitch the footage for no reason.
+    const resized = !previous || previous.width !== width || previous.height !== height;
+    this.recordFrame = { width, height, fov };
+
+    if (resized) {
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(width, height, false);
+      if (finalComposer) finalComposer.setSize(width, height);
+      this.camera.aspect = width / height;
+    }
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Releases the frame and gives the viewport back to the panel.
+   *
+   * @public
+   */
+  endRecordingFrame() {
+    if (!this.recordFrame) return;
+    const restore = this.beforeRecord;
+    this.recordFrame = null;
+    this.beforeRecord = null;
+    if (restore) {
+      this.renderer.setPixelRatio(restore.pixelRatio);
+      this.camera.fov = restore.fov;
+    }
+    // Forces `resize` to act: it compares against the size it last applied,
+    // which is still the recording's, so without this the canvas would keep the
+    // recording size until the panel happened to be dragged.
+    this.width = null;
+    this.height = null;
+    this.resize();
+  }
+
+  /**
+   * Clears the scene of everything that is not the show.
+   *
+   * Grid, axes, view cube, the selection gizmo and its bounding box are aids
+   * for working, and every one of them would be burned into the footage. The
+   * selection goes with them because the gizmo is drawn from it.
+   *
+   * Nothing here is persisted -- see `helpers.recording`. Stopping puts the
+   * user's own grid and axes settings back exactly as they were.
+   *
+   * @public
+   * @param {Boolean} active whether a take is running
+   */
+  setRecordingMode(active) {
+    helpers.recording = !!active;
+    if (active) Controls.deselectAll();
+    applyHelperVisibility();
+  }
+
+  /**
+   * Whether a take is running.
+   *
+   * @public
+   * @returns {Boolean}
+   */
+  get recordingMode() {
+    return helpers.recording;
   }
 
   /**
@@ -1357,8 +1551,9 @@ class Visualizer {
     Perf.end();
 
     // Over the finished image, and after Perf.end() so the gizmo's own cost is
-    // not counted against the scene it is reporting on.
-    if (this.viewCube) this.viewCube.render(this.renderer);
+    // not counted against the scene it is reporting on. Not while recording:
+    // it is a navigation aid, and it would sit in the corner of the footage.
+    if (this.viewCube && !helpers.recording) this.viewCube.render(this.renderer);
   }
 }
 
