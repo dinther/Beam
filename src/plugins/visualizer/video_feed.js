@@ -61,6 +61,7 @@ class VideoFeed {
     // already stale by the time it could be drawn.
     this._pending = null;
     this._frames = 0;
+    this._holders = 1;
   }
 
   get name() { return this._name; }
@@ -71,6 +72,22 @@ class VideoFeed {
   /** Width of the *picture*, which for UYVY is twice the texture's. */
   get width() { return this._width; }
 
+  /**
+   * The bytes of the newest frame, exactly as uploaded.
+   *
+   * For anything that has to show this feed in a **second WebGL context** --
+   * the slicing popup does, because a texture belongs to the context that
+   * uploaded it and cannot be handed to another. The array is replaced each
+   * frame rather than written into, so a holder must re-read it rather than
+   * keep a reference; `frameCount` says when.
+   *
+   * @returns {Uint8Array|null}
+   */
+  get pixels() { return this._texture ? this._texture.image.data : null; }
+
+  /** Texture width, which is half the picture's when the format is UYVY. */
+  get texels() { return this._texture ? this._texture.image.width : 0; }
+
   get height() { return this._height; }
 
   /** @returns {THREE.DataTexture|null} null until the first frame lands */
@@ -78,6 +95,9 @@ class VideoFeed {
 
   /** How many frames have been taken up into the texture. */
   get frameCount() { return this._frames; }
+
+  /** Claims this feed for one more holder. See `close`. */
+  retain() { this._holders += 1; }
 
   /**
    * Takes delivery of a frame. Called from the message listener, not by users.
@@ -161,8 +181,16 @@ class VideoFeed {
     return true;
   }
 
-  /** Stops the receiver and releases the texture. */
+  /**
+   * Stops the receiver and releases the texture, once nobody wants it.
+   *
+   * Reference counted, because two things legitimately want the same source
+   * at once -- the scene and the slicing popup -- and a second receiver on one
+   * sender is a second 16 MB frame every 33 ms for the same pixels.
+   */
   close() {
+    this._holders -= 1;
+    if (this._holders > 0) return;
     feeds.delete(this._handle);
     if (available()) window.ndi.close(this._handle);
     if (this._texture) {
@@ -192,6 +220,13 @@ async function sources(waitMs) {
  */
 async function open(name) {
   if (!available()) return null;
+  // Shared rather than duplicated. Whoever opens second gets the same feed and
+  // a claim on it; `close` only tears down when the last claim goes.
+  const existing = Array.from(feeds.values()).find((feed) => feed.name === name);
+  if (existing) {
+    existing.retain();
+    return existing;
+  }
   const handle = await window.ndi.open(name);
   const feed = new VideoFeed(handle, name);
   feeds.set(handle, feed);

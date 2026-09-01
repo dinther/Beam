@@ -15,6 +15,7 @@
     <newshow-popup v-model="newProjectPopupState" />
     <saveas-popup v-model="saveasPopupState" />
     <artnet-popup v-model="artnetPopupState" />
+    <video-popup v-model="videoPopupState" />
     <madmapper-popup v-model="madmapperPopupState" />
   </uk-flex>
 </template>
@@ -27,6 +28,7 @@ import CreditsPopup from './_popups/popup.credits.vue';
 import NewshowPopup from './_popups/popup.newshow.vue';
 import SaveasPopup from './_popups/popup.saveas.vue';
 import ArtnetPopup from './_popups/popup.artnet.vue';
+import VideoPopup from './_popups/popup.video.vue';
 import MadmapperPopup from './_popups/popup.madmapper.vue';
 
 export default {
@@ -43,6 +45,7 @@ export default {
     SaveasPopup,
     ArtnetPopup,
     MadmapperPopup,
+    VideoPopup,
   },
   data() {
     return {
@@ -59,6 +62,7 @@ export default {
        * Art-Net settings popup state
        */
       artnetPopupState: false,
+      videoPopupState: false,
       /**
        * MadMapper layout export popup state
        */
@@ -182,6 +186,14 @@ export default {
               icon: 'zoom',
               callback: () => {
                 this.artnetPopupState = true;
+              },
+            },
+            {
+              name: 'Video',
+              shortcut: 'Ctrl+Shift+I',
+              icon: 'visualizer',
+              callback: () => {
+                this.videoPopupState = true;
               },
             },
           ],

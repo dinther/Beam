@@ -68,16 +68,21 @@ const UYVY_VERTEX = /* glsl */`
 /**
  * A material that draws whatever the feed is currently carrying.
  *
- * @param {Object} feed a VideoFeed with a texture
+ * The texture is passed separately because a texture belongs to the WebGL
+ * context that uploaded it: the slicing popup renders the same feed in a
+ * context of its own and supplies its own.
+ *
+ * @param {Object} feed anything with `format`, `width`, `height`
+ * @param {THREE.Texture} [texture] defaults to the feed's own
  * @returns {THREE.Material}
  */
-export default function createVideoMaterial(feed) {
+export default function createVideoMaterial(feed, texture = feed.texture) {
   if (feed.format !== 'UYVY') {
-    return new THREE.MeshBasicMaterial({ map: feed.texture, toneMapped: false });
+    return new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
   }
   return new THREE.ShaderMaterial({
     uniforms: {
-      packed: { value: feed.texture },
+      packed: { value: texture },
       pictureSize: { value: new THREE.Vector2(feed.width, feed.height) },
     },
     vertexShader: UYVY_VERTEX,

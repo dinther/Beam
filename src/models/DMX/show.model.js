@@ -10,6 +10,7 @@ import {
 
 import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
+import VideoConnector from './video_connector';
 import FixturePool from './fixture.pool.model';
 import Group from './group.model';
 import Structure from './structure.model';
@@ -154,6 +155,14 @@ class Show extends EventEmitter {
      * exception everywhere.
      */
     this.objects = [];
+    /**
+     * Named regions of a video feed that devices are patched to.
+     *
+     * Not scene items: a connector has no position and nothing draws it, so it
+     * is closer to a universe than to a fixture and stays out of the item
+     * list. See `video_connector.js`.
+     */
+    this.videoConnectors = [];
     /** Library models available to place, by key. Read once per load. */
     this.objectLibrary = {};
     /** Saved structure definitions, keyed by name, for placing again. */
@@ -233,6 +242,9 @@ class Show extends EventEmitter {
       // collects it, which is the same bargain profiles make.
       objects: this.objects.map((object) => object.showData),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
+      // The rectangles, and deliberately not which sender fills them: that is
+      // a fact about one machine, and this file opens on others.
+      videoConnectors: this.videoConnectors.map((connector) => connector.showData),
     };
   }
 
@@ -337,6 +349,9 @@ class Show extends EventEmitter {
     this.structures = [];
     this.objects.forEach((object) => object.dispose());
     this.objects = [];
+    // Nothing to dispose: a connector holds no scene node and no GPU
+    // resource, only numbers.
+    this.videoConnectors = [];
     this.isSaved = true;
   }
 
@@ -580,6 +595,9 @@ class Show extends EventEmitter {
 
     this.loading.message = 'Placing objects';
     await this.prepareObjects(showData);
+
+    this.videoConnectors = (showData.videoConnectors || [])
+      .map((data) => new VideoConnector(data));
 
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
