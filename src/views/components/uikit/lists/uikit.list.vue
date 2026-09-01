@@ -402,6 +402,14 @@ export default {
     // made before this list existed.
     this.applyExternalHighlight(this.highlightIds);
     if (this.updateTree(this.items)) {
+      // The same rule as the highlight above, and it was missing: a list whose
+      // owner already has a selection has to show it on the first paint. The
+      // `selectedId` watcher only fires on a change, and the `items` watcher
+      // that also applies it only fires if the items arrive *after* mount.
+      // Lists fed asynchronously -- the patch bay -- were covered by that
+      // accident; one handed a complete list up front showed no selection at
+      // all until the owner happened to change it.
+      this.applyExternalSelection(this.selectedId);
       if (this.autoSelectFirst && this.tree[0]) {
         if (this.tree[0].value.unfold) {
           this.tree[0].unfolded = true;

@@ -199,6 +199,33 @@ contextBridge.exposeInMainWorld('appSession', {
   splashDue: ipcRenderer.sendSync('app:claimSplash'),
 });
 
+/**
+ * Video recording, written to disk as it encodes.
+ *
+ * The page never names a file. It asks for a recording under the project's name
+ * and is told where the file landed, so the only paths this can write are ones
+ * the main process chose.
+ */
+contextBridge.exposeInMainWorld('videoRecorder', {
+  /**
+   * @param {Object} payload `{ name, documentPath }`
+   * @returns {Promise<Object>} `{ ok, id, path, folder }` or `{ ok: false, error }`
+   */
+  begin: (payload) => ipcRenderer.invoke('video:begin', payload),
+  /**
+   * @param {Number} id recording id
+   * @param {ArrayBuffer} chunk encoded bytes
+   * @returns {Promise<Object>} `{ ok, bytes }` or `{ ok: false, error }`
+   */
+  write: (id, chunk) => ipcRenderer.invoke('video:write', id, chunk),
+  /** @returns {Promise<Object>} `{ ok, path, bytes }` or `{ ok: false, error }` */
+  end: (id) => ipcRenderer.invoke('video:end', id),
+  /** Closes a take and deletes its file. @returns {Promise<Object>} `{ ok }` */
+  abort: (id) => ipcRenderer.invoke('video:abort', id),
+  /** Shows a finished recording in Explorer. @returns {Promise<Boolean>} */
+  reveal: (target) => ipcRenderer.invoke('video:reveal', target),
+});
+
 contextBridge.exposeInMainWorld('documentStore', {
   /** @returns {Promise<Object|null>} the show, or null when unreadable */
   read: (target) => ipcRenderer.invoke('document:read', target),

@@ -22,6 +22,7 @@ import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
 import documentstore from './documentstore';
+import videorecorder from './videorecorder';
 import environmentstore from './environmentstore';
 import fileexport from './fileexport';
 
@@ -171,6 +172,9 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    // Before the window is gone: a recording still running has just lost the
+    // page that was feeding it, and an unclosed write stream loses its tail.
+    videorecorder.closeAll();
     if (mainWindow) mainWindow.destroy();
     mainWindow = null;
   });
@@ -319,6 +323,21 @@ function setupLibrary() {
 }
 
 /**
+ * Video recordings of the visualizer, streamed to disk as they encode.
+ *
+ * Chunk writes are `handle` rather than `send` so a full disk or a closed
+ * stream reaches the page as a rejected promise it can stop on, instead of
+ * failing silently for the rest of the take.
+ */
+function setupVideoRecorder() {
+  ipcMain.handle('video:begin', (_event, payload) => videorecorder.begin(payload));
+  ipcMain.handle('video:write', (_event, id, chunk) => videorecorder.write(id, chunk));
+  ipcMain.handle('video:end', (_event, id) => videorecorder.end(id));
+  ipcMain.handle('video:abort', (_event, id) => videorecorder.abort(id));
+  ipcMain.handle('video:reveal', (_event, target) => videorecorder.reveal(target));
+}
+
+/**
  * Show documents at paths the user chose.
  */
 function setupDocumentStore() {
@@ -395,6 +414,7 @@ app.whenReady().then(() => {
   setupFileExport();
   setupLibrary();
   setupDocumentStore();
+  setupVideoRecorder();
 
   app.on('activate', () => {
     // On macOS it's common to re-create a window in the app when the

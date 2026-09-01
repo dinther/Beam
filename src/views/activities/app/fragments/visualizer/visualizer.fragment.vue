@@ -71,16 +71,46 @@
         color="var(--accent-blue)"
         @click="toggleHouseLights"
       />
-      <uk-spacer />
+      <div
+        v-show="!hidden"
+        class="tool_divider"
+      />
       <uk-button
         v-show="!hidden"
-        v-model="recording"
         square
-        :label="`record 00:${timer.toString().padStart(2, 0)}`"
-        :value="false"
-        toggleable
-        color="var(--accent-maroon)"
-        @click="handleRecording"
+        icon-only
+        label="Copy (Ctrl+C)"
+        icon="copy"
+        :disabled="!hasSelection"
+        @click="copySelection"
+      />
+      <uk-button
+        v-show="!hidden"
+        square
+        icon-only
+        label="Paste (Ctrl+V)"
+        icon="paste"
+        :disabled="!canPaste"
+        @click="pasteClipboard"
+      />
+      <uk-button
+        v-show="!hidden"
+        square
+        icon-only
+        label="Delete (Del)"
+        icon="trash"
+        :disabled="!hasSelection"
+        @click="deleteSelection"
+      />
+      <uk-spacer />
+      <!-- A plain button, not a toggle: it names where it takes you, and it
+           keeps one colour in both modes. A toggleable one lights up in its
+           active state, which would say "recording" when it means "here". -->
+      <uk-button
+        v-show="!hidden"
+        square
+        :label="studioActive ? 'To Editor' : 'To Studio'"
+        @click="toggleStudio"
       />
       <uk-button
         v-show="!hidden"
@@ -124,6 +154,8 @@
       id="visualizer"
       ref="visualizer"
       class="visualizer"
+      :class="{ framed: studioActive }"
+      :style="studioActive ? { '--record-aspect': studioAspect } : null"
     />
   </uk-flex>
 </template>
@@ -131,8 +163,17 @@
 <script>
 import Visualizer from '@/plugins/visualizer/visualizer';
 import EventBus from '@/plugins/eventbus';
+import Clipboard from '@/models/DMX/clipboard';
+import Selection from '@/models/DMX/selection';
+import Studio from '@/models/DMX/studio';
 
-const MAX_RECORDING_TIME_S = 15;
+/**
+ * How often the live camera's stored viewpoint is refreshed while orbiting.
+ *
+ * Fast enough that the position fields read as live, slow enough that a drag is
+ * not writing to a reactive store sixty times a second.
+ */
+const CAMERA_SYNC_MS = 100;
 
 export default {
   name: 'VisualizerFragment',
@@ -155,30 +196,6 @@ export default {
        */
       hidden: false,
       /**
-       * Media recorder handle
-       */
-      mediaRecorder: null,
-      /**
-       * videoStream handle
-       */
-      videoStream: null,
-      /**
-       * Video chunks
-       */
-      chunks: [],
-      /**
-       * Recording state
-       */
-      recording: false,
-      /**
-       * Recording timer
-       */
-      timer: 0,
-      /**
-       * timer timer handle
-       */
-      timerHandle: null,
-      /**
        * Autofocus state
        */
       autoFocus: false,
@@ -196,11 +213,128 @@ export default {
        * active tool un-highlights when it is clicked again.
        */
       modeTick: 0,
+      /** Interval keeping the live camera level with the view. */
+      cameraSyncHandle: null,
       /**
        * Auto rotation state
        */
       autoRotate: false,
     };
+  },
+
+  computed: {
+    /**
+     * Whether anything is selected, which is what copy and delete act on.
+     *
+     * Read from the selection store rather than from the scene, so the buttons
+     * follow a pick made in the item list as readily as one made here.
+     *
+     * @property {Boolean} hasSelection
+     */
+    hasSelection() {
+      return Selection.items.length > 0;
+    },
+    /**
+     * Whether there is anything to paste.
+     *
+     * The clipboard's chunk lives in a `reactive`, so this lights up the moment
+     * a copy is made anywhere -- the key, the button, or the item list.
+     *
+     * @property {Boolean} canPaste
+     */
+    canPaste() {
+      return !Clipboard.isEmpty;
+    },
+    /**
+     * Whether the app is in studio mode.
+     *
+     * @property {Boolean} studioActive
+     */
+    studioActive() {
+      return Studio.state.active;
+    },
+    /**
+     * The recording frame as a CSS `aspect-ratio`, for the letterbox.
+     *
+     * @property {String} studioAspect
+     */
+    studioAspect() {
+      return Studio.aspect;
+    },
+    /**
+     * The frame and lens the canvas should compose for.
+     *
+     * A single computed so one watcher covers a resize, a lens change and a cut
+     * to another camera -- three things that all mean "recompose".
+     *
+     * @property {Object} studioShot
+     */
+    studioShot() {
+      return Studio.shot;
+    },
+    /**
+     * Which camera is live.
+     *
+     * @property {String} activeCameraId
+     */
+    activeCameraId() {
+      return Studio.state.activeCameraId;
+    },
+  },
+
+  watch: {
+    /**
+     * Entering studio mode pins the canvas to the recording's frame and moves
+     * to the selected camera; leaving gives the canvas back to the panel and
+     * returns to the editor's own view.
+     *
+     * The editor keeps its viewpoint across the round trip, which is the point:
+     * filming from a camera placed across the room should not cost you the
+     * position you were working from.
+     *
+     * @param {Boolean} value
+     */
+    studioActive(value) {
+      const handle = this.$show.visualizerHandle;
+      if (!handle) return;
+      if (value) {
+        // Editor mode's live camera is always the editor camera, so what is on
+        // screen now belongs to it.
+        Studio.captureInto(Studio.SCENE_CAMERA_ID, handle.viewpoint);
+        this.applyShot();
+        this.applyCamera(Studio.state.activeCameraId);
+        this.startCameraSync();
+      } else {
+        this.stopCameraSync();
+        Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
+        handle.endRecordingFrame();
+        this.applyCamera(Studio.SCENE_CAMERA_ID);
+      }
+    },
+    /**
+     * Cutting to another camera.
+     *
+     * The one being left keeps whatever the view had become, so orbiting while
+     * a camera is live is how you adjust it -- there is no separate "save".
+     *
+     * @param {String} value
+     * @param {String} previous
+     */
+    activeCameraId(value, previous) {
+      if (!this.studioActive) return;
+      const handle = this.$show.visualizerHandle;
+      if (handle && previous) Studio.captureInto(previous, handle.viewpoint);
+      this.applyCamera(value);
+    },
+    /**
+     * Follows the frame and the lens while studio mode is on.
+     */
+    studioShot: {
+      deep: true,
+      handler() {
+        if (this.studioActive) this.applyShot();
+      },
+    },
   },
 
   async mounted() {
@@ -225,6 +359,41 @@ export default {
     EventBus.off('gizmo_mode', this.setGizmoModeFromScene);
   },
   methods: {
+    /**
+     * Copies the selection.
+     *
+     * Announced rather than done here, exactly as Ctrl+C is: what a fixture or
+     * a structure means when it is copied -- a container taking its members
+     * with it -- is the show's business, and the show is not something the
+     * visualizer reaches into.
+     *
+     * Copied rather than passed by reference: what consumes this changes the
+     * selection the entries came from.
+     *
+     * @public
+     */
+    copySelection() {
+      if (!this.hasSelection) return;
+      EventBus.emit('copy_requested', Selection.items.map((entry) => ({ ...entry })));
+    },
+    /**
+     * Pastes whatever was last copied.
+     *
+     * @public
+     */
+    pasteClipboard() {
+      if (!this.canPaste) return;
+      EventBus.emit('paste_requested');
+    },
+    /**
+     * Deletes the selection.
+     *
+     * @public
+     */
+    deleteSelection() {
+      if (!this.hasSelection) return;
+      EventBus.emit('delete_requested', Selection.items.map((entry) => ({ ...entry })));
+    },
     /**
      * Switches the transform gizmo between its two tools.
      *
@@ -339,78 +508,64 @@ export default {
       this.$show.visualizerHandle.houseLights = value;
     },
     /**
-     * Start canvas recording process
+     * Switches between the editor and the studio.
+     *
+     * A mode, not a panel: the studio takes over the widget bar at the bottom
+     * of the window as well as the shape of the canvas, because filming and
+     * editing want different controls in the same space.
+     *
+     * A take running when the studio is left stops itself -- the recording
+     * widget watches for exactly this and closes its file in an orderly way,
+     * rather than being unmounted with an encoder still going.
      *
      * @public
      */
-    startRecording() {
-      if (!this.recording) {
-        // TODO: set this as a visualizer parameter
-        this.videoStream = this.$refs.visualizer.captureStream(24);
-        this.mediaRecorder = new MediaRecorder(this.videoStream, {
-          audioBitsPerSecond: 0,
-          videoBitsPerSecond: 600 * 1024 * 1024,
-          mimeType: 'video/webm',
-        });
-        this.mediaRecorder.start();
-        this.recording = true;
-        setTimeout(() => {
-          this.stopRecording();
-        }, (MAX_RECORDING_TIME_S * 1000));
-        this.timerHandle = setInterval(() => {
-          this.timer++;
-        }, (1000));
-        this.mediaRecorder.ondataavailable = (e) => {
-          this.chunks.push(e.data);
-        };
-        this.mediaRecorder.onstop = () => {
-          const blob = new Blob(this.chunks, { type: 'video/mp4' });
-          this.chunks = [];
-          const uri = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          // Named for the project rather than for `name`, which stops being
-          // true the moment a project is saved under a name of its own. The
-          // `studio_` this carried was ASLS Studio's, and outlived the rename.
-          link.download = `beam_${this.$show.documentTitle.toLowerCase()}_rec`;
-          link.href = uri;
-          // Added before it is clicked, because it was being *removed* without
-          // ever having been added -- `removeChild` on a node that is not a
-          // child throws NotFoundError, after the click, so the download
-          // started and the handler died on the next line.
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          // And the blob is released. Nothing did, so every recording stayed
-          // in memory for the life of the session -- which for video is the
-          // expensive kind of leak.
-          URL.revokeObjectURL(uri);
-        };
-      }
+    toggleStudio() {
+      Studio.setActive(!Studio.state.active);
     },
     /**
-     * Stops canvas recording process
+     * Pins the canvas to the current frame and lens.
      *
      * @public
      */
-    stopRecording() {
-      if (this.recording) {
-        this.mediaRecorder.stop();
-        this.recording = false;
-        clearInterval(this.timerHandle);
-        this.timer = 0;
-      }
+    applyShot() {
+      const handle = this.$show.visualizerHandle;
+      if (handle) handle.beginRecordingFrame(Studio.shot);
     },
     /**
-     * Handles scene recording
+     * Moves the view to a camera's stored viewpoint.
+     *
+     * @public
+     * @param {String} id camera id
+     */
+    applyCamera(id) {
+      const handle = this.$show.visualizerHandle;
+      const viewpoint = Studio.viewpointOf(id);
+      if (handle && viewpoint) handle.viewpoint = viewpoint;
+    },
+    /**
+     * Keeps the live camera's stored viewpoint level with the actual view.
+     *
+     * Polled rather than driven from `OrbitControls`' change event, which fires
+     * per frame of a drag: this writes six numbers into a reactive store, and
+     * at 60 Hz that re-renders the camera widget for every pixel of mouse
+     * movement. Ten times a second is faster than the fields can be read.
      *
      * @public
      */
-    handleRecording(state) {
-      if (state) {
-        this.startRecording();
-      } else {
-        this.stopRecording();
-      }
+    startCameraSync() {
+      this.stopCameraSync();
+      this.cameraSyncHandle = setInterval(() => {
+        const handle = this.$show.visualizerHandle;
+        if (handle) Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
+      }, CAMERA_SYNC_MS);
+    },
+    /**
+     * @public
+     */
+    stopCameraSync() {
+      clearInterval(this.cameraSyncHandle);
+      this.cameraSyncHandle = null;
     },
   },
 };
@@ -419,6 +574,27 @@ export default {
 <style scoped>
 #visualizer{
   cursor: grab;
+}
+/**
+ * The letterbox, while the record widget is open.
+ *
+ * `#visualizer` rather than `.visualizer` on purpose: the class is on the panel
+ * *and* the canvas, and it sizes both to 100% with `!important`. The id beats
+ * that on specificity without touching the panel.
+ *
+ * The drawing buffer is already the recording's exact size -- see
+ * `Visualizer.beginRecordingFrame`. This only decides how that buffer is
+ * displayed, so what is on screen is the frame that is being recorded, whole,
+ * rather than a stretched or cropped version of it.
+ */
+#visualizer.framed {
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: var(--record-aspect, 16 / 9);
+  margin: auto;
+  outline: 1px solid var(--primary-dark);
 }
 .visualizer {
   display: flex;
