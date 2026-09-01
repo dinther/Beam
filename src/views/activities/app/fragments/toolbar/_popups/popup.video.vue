@@ -106,6 +106,11 @@
             />
           </uk-flex>
 
+          <uk-checkbox
+            v-model="snapEnabled"
+            label="Snap to edges"
+          />
+
           <template v-if="selected">
             <h4>{{ selected.name }}</h4>
             <uk-txt-input
@@ -144,6 +149,12 @@
                 :precision="1"
               />
             </uk-flex>
+            <uk-select-input
+              label="Lock shape"
+              :model-value="aspectIndex"
+              :options="aspectOptions"
+              @input="pickAspect"
+            />
             <uk-flex :gap="4">
               <uk-button
                 :label="`Rotate ${selected.rotation}°`"
@@ -173,7 +184,7 @@ import * as THREE from 'three';
 import PopupMixin from '@/views/mixins/popup.mixin';
 import VideoFeed from '@/plugins/visualizer/video_feed';
 import createVideoMaterial from '@/plugins/visualizer/video_material';
-import VideoConnector from '@/models/DMX/video_connector';
+import VideoConnector, { CONNECTOR_ASPECTS } from '@/models/DMX/video_connector';
 
 /**
  * @namespace views/activities/app/fragments/toolbar/popups
@@ -195,6 +206,15 @@ import VideoConnector from '@/models/DMX/video_connector';
  */
 const PREVIEW_FPS = 10;
 
+/**
+ * How close an edge has to come before it snaps, in screen pixels.
+ *
+ * Screen rather than fractions of the frame, because it is a hand-eye
+ * tolerance: the same 6 px feels right whether the source is 1080p or 4K, and
+ * the same fraction would not.
+ */
+const SNAP_PIXELS = 6;
+
 export default {
   name: 'VideoPopup',
   compatConfig: { MODE: 3 },
@@ -207,6 +227,7 @@ export default {
       feed: null,
       selectedId: null,
       hasPicture: false,
+      snapEnabled: true,
       status: 'Looking for sources…',
     };
   },
@@ -227,6 +248,26 @@ export default {
     sourceOptions() {
       if (!this.sources.length) return ['No sources found'];
       return this.sources.map((source) => source.name);
+    },
+    aspectOptions() {
+      return CONNECTOR_ASPECTS.map((entry) => entry.label);
+    },
+    aspectIndex() {
+      if (!this.selected) return 0;
+      const at = CONNECTOR_ASPECTS.findIndex(
+        (entry) => Math.abs(entry.value - this.selected.aspect) < 1e-6,
+      );
+      return at < 0 ? 0 : at;
+    },
+    /**
+     * The frame's own pixel aspect, which a locked shape is measured against.
+     *
+     * Zero until a frame lands, and a zero disables the lock rather than
+     * guessing 16:9 -- a wrong guess reshapes the user's rectangles.
+     */
+    sourceAspect() {
+      if (!this.feed || !this.feed.width || !this.feed.height) return 0;
+      return this.feed.width / this.feed.height;
     },
     sourceIndex() {
       const at = this.sources.findIndex((source) => source.name === this.sourceName);
@@ -290,7 +331,13 @@ export default {
       return Math.round(this.selected.rect[key] * 1000) / 10;
     },
     writeRect(patch) {
-      if (this.selected) this.selected.setRect(patch);
+      if (this.selected) this.selected.setRect(patch, this.sourceAspect);
+    },
+
+    pickAspect(index) {
+      const entry = CONNECTOR_ASPECTS[index];
+      if (!entry || !this.selected) return;
+      this.selected.setAspect(entry.value, this.sourceAspect);
     },
 
     async opened() {
@@ -462,6 +509,75 @@ export default {
       };
     },
 
+    /**
+     * Every line worth snapping to: the frame's own edges, and both edges of
+     * every other connector.
+     *
+     * The dragged one is left out, or it would snap to where it already is
+     * and never move.
+     *
+     * @param {Object} exclude the connector being dragged
+     * @returns {Object} `{ xs, ys, tolX, tolY }`, all normalised
+     */
+    snapLines(exclude) {
+      const { stage } = this.$refs;
+      const width = (stage && stage.clientWidth) || 1;
+      const height = (stage && stage.clientHeight) || 1;
+      const xs = [0, 1];
+      const ys = [0, 1];
+      this.connectors.forEach((connector) => {
+        if (exclude && connector.id === exclude.id) return;
+        xs.push(connector.rect.x, connector.rect.x + connector.rect.width);
+        ys.push(connector.rect.y, connector.rect.y + connector.rect.height);
+      });
+      return {
+        xs, ys, tolX: SNAP_PIXELS / width, tolY: SNAP_PIXELS / height,
+      };
+    },
+
+    /**
+     * Pulls a single edge onto the nearest line.
+     *
+     * @param {Number} value the edge, normalised
+     * @param {Array} lines candidates
+     * @param {Number} tolerance how close counts
+     * @returns {Number}
+     */
+    snapEdge(value, lines, tolerance) {
+      if (!this.snapEnabled) return value;
+      let best = value;
+      let nearest = tolerance;
+      lines.forEach((line) => {
+        const distance = Math.abs(line - value);
+        if (distance < nearest) { nearest = distance; best = line; }
+      });
+      return best;
+    },
+
+    /**
+     * Pulls a whole span onto a line by **whichever of its two edges is
+     * closer**, so a box can be butted up against a neighbour from either
+     * side without the user thinking about which edge they are aiming.
+     *
+     * @param {Number} lead the leading edge
+     * @param {Number} size the span's length
+     * @param {Array} lines candidates
+     * @param {Number} tolerance
+     * @returns {Number} the adjusted leading edge
+     */
+    snapSpan(lead, size, lines, tolerance) {
+      if (!this.snapEnabled) return lead;
+      let best = lead;
+      let nearest = tolerance;
+      lines.forEach((line) => {
+        const toLead = Math.abs(line - lead);
+        if (toLead < nearest) { nearest = toLead; best = line; }
+        const toTrail = Math.abs(line - (lead + size));
+        if (toTrail < nearest) { nearest = toTrail; best = line - size; }
+      });
+      return best;
+    },
+
     /** Where a pointer is, as a fraction of the frame. */
     fractionAt(event) {
       const { stage } = this.$refs;
@@ -533,21 +649,37 @@ export default {
       if (!this.drag || !this.drag.connector) return;
       const at = this.fractionAt(event);
       const { mode, connector } = this.drag;
+      const aspect = this.sourceAspect;
+      const {
+        xs, ys, tolX, tolY,
+      } = this.snapLines(connector);
+
       if (mode === 'move') {
-        connector.setRect({ x: at.x - this.drag.grab.x, y: at.y - this.drag.grab.y });
-      } else if (mode === 'resize') {
+        const { width, height } = connector.rect;
         connector.setRect({
-          width: at.x - connector.rect.x,
-          height: at.y - connector.rect.y,
-        });
+          x: this.snapSpan(at.x - this.drag.grab.x, width, xs, tolX),
+          y: this.snapSpan(at.y - this.drag.grab.y, height, ys, tolY),
+        }, aspect);
+      } else if (mode === 'resize') {
+        // Only the corner under the pointer moves, so only that edge snaps.
+        connector.setRect({
+          width: this.snapEdge(at.x, xs, tolX) - connector.rect.x,
+          height: this.snapEdge(at.y, ys, tolY) - connector.rect.y,
+        }, aspect);
       } else {
         const { from } = this.drag;
+        const toX = this.snapEdge(at.x, xs, tolX);
+        const toY = this.snapEdge(at.y, ys, tolY);
+        // The corner the drag started from snaps too, so a box drawn against
+        // a neighbour lands flush on both sides rather than only the last.
+        const fromX = this.snapEdge(from.x, xs, tolX);
+        const fromY = this.snapEdge(from.y, ys, tolY);
         connector.setRect({
-          x: Math.min(from.x, at.x),
-          y: Math.min(from.y, at.y),
-          width: Math.abs(at.x - from.x),
-          height: Math.abs(at.y - from.y),
-        });
+          x: Math.min(fromX, toX),
+          y: Math.min(fromY, toY),
+          width: Math.abs(toX - fromX),
+          height: Math.abs(toY - fromY),
+        }, aspect);
       }
     },
 
@@ -596,6 +728,8 @@ export default {
   align-items: center;
   justify-content: center;
   margin: 0;
+  font-family: Roboto-Medium, sans-serif;
+  font-size: 11px;
   color: #7a7a7a;
 }
 
@@ -603,21 +737,37 @@ export default {
   position: absolute;
   cursor: move;
   background: rgba(90, 200, 220, 0.12);
-  border: 1px solid rgba(90, 200, 220, 0.8);
+  border: 1px solid rgba(120, 230, 255, 0.95);
+  /* A light line alone vanishes on a light frame, and a test pattern is mostly
+     white. The dark ring either side of it means the edge reads on anything --
+     the same trick a marquee has always used. */
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.75),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.75);
 }
 
 .video_slice.selected {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.9);
 }
 
 .video_slice_name {
   position: absolute;
   top: 2px;
   left: 4px;
+  /* Named explicitly: `global.css` styles h1-h4, p and button, and sets no
+     font on body -- so anything else falls through to the browser default,
+     which is a serif. */
+  font-family: Roboto-Medium, sans-serif;
   font-size: 11px;
   color: #fff;
-  text-shadow: 0 1px 2px #000;
+  /* Outlined rather than dropped, for the same reason as the border. */
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.95);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -630,6 +780,7 @@ export default {
   height: 9px;
   cursor: nwse-resize;
   background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
 }
 
 .video_side {
@@ -647,9 +798,15 @@ export default {
   display: block;
   width: 100%;
   padding: 4px 8px;
-  font: inherit;
-  color: inherit;
+  /* Not `font: inherit`. That is what put Times in here: it overrides the
+     global `button` rule with whatever the parent has, and nothing up the
+     chain sets a family. The list also keeps the user's own capitals, where
+     the global button rule uppercases. */
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-lighter);
   text-align: left;
+  text-transform: none;
   cursor: pointer;
   background: none;
   border: 0;

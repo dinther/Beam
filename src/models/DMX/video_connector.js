@@ -26,6 +26,25 @@ let nextId = 0;
 /** Rotations a connector may apply, in degrees clockwise. */
 export const CONNECTOR_ROTATIONS = [0, 90, 180, 270];
 
+/**
+ * Shapes worth offering, as width over height in **pixels**.
+ *
+ * Landscape first, then the portrait ones a hung panel needs, then the wide
+ * ones a stage blend or a strip wants. `0` is free.
+ */
+export const CONNECTOR_ASPECTS = [
+  { label: 'Free', value: 0 },
+  { label: '16:9', value: 16 / 9 },
+  { label: '16:10', value: 16 / 10 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '3:2', value: 3 / 2 },
+  { label: '1:1', value: 1 },
+  { label: '9:16', value: 9 / 16 },
+  { label: '3:4', value: 3 / 4 },
+  { label: '21:9', value: 21 / 9 },
+  { label: '32:9', value: 32 / 9 },
+];
+
 class VideoConnector {
   /**
    * @param {Object} [data]
@@ -60,6 +79,11 @@ class VideoConnector {
     this.rotation = CONNECTOR_ROTATIONS.includes(data.rotation) ? data.rotation : 0;
     this.flipH = !!data.flipH;
     this.flipV = !!data.flipV;
+
+    // Width over height in **pixels**, not in the normalised space the rect
+    // lives in -- see `setRect`, where the difference matters. 0 is free.
+    const aspect = Number(data.aspect);
+    this.aspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 0;
   }
 
   get id() { return this._id; }
@@ -86,15 +110,56 @@ class VideoConnector {
    *
    * @param {Object} rect any of `{ x, y, width, height }`, normalised
    */
-  setRect(rect = {}) {
+  setRect(rect = {}, sourceAspect = 0) {
     const next = { ...this.rect, ...rect };
     // A degenerate rectangle is not a region, and a zero width would divide by
     // zero in whatever samples it.
     next.width = Math.min(Math.max(VideoConnector.clamp(next.width, this.rect.width), 0.001), 1);
     next.height = Math.min(Math.max(VideoConnector.clamp(next.height, this.rect.height), 0.001), 1);
+
+    // A locked shape is a ratio of **pixels**, and this rectangle is a
+    // fraction of the frame -- so the two only agree when the source is
+    // square. A 16:9 region of a 16:9 frame is a square in normalised space;
+    // of a 4:3 frame it is not. Getting this wrong gives a lock that looks
+    // right on one sender and skews on the next.
+    //
+    //   w_px / h_px = (w * W) / (h * H)  =>  w / h = aspect * H / W
+    if (this.aspect > 0 && sourceAspect > 0) {
+      // Whichever edge the caller moved is the one to keep; the other follows.
+      if (rect.height !== undefined && rect.width === undefined) {
+        next.width = (next.height * this.aspect) / sourceAspect;
+      } else {
+        next.height = (next.width * sourceAspect) / this.aspect;
+      }
+      // Shrunk to fit rather than clipped, so a locked region never silently
+      // stops being the shape it claims to be.
+      if (next.height > 1) {
+        next.height = 1;
+        next.width = (next.height * this.aspect) / sourceAspect;
+      }
+      if (next.width > 1) {
+        next.width = 1;
+        next.height = (next.width * sourceAspect) / this.aspect;
+      }
+    }
+
     next.x = Math.min(VideoConnector.clamp(next.x, this.rect.x), 1 - next.width);
     next.y = Math.min(VideoConnector.clamp(next.y, this.rect.y), 1 - next.height);
     this.rect = next;
+  }
+
+  /**
+   * Locks the shape, and reshapes what is there to match.
+   *
+   * Applied immediately rather than on the next drag: choosing 16:9 and
+   * seeing nothing happen reads as a control that does not work.
+   *
+   * @param {Number} aspect width over height in pixels, 0 for free
+   * @param {Number} sourceAspect the frame's own pixel aspect
+   */
+  setAspect(aspect, sourceAspect = 0) {
+    this.aspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 0;
+    if (this.aspect > 0) this.setRect({}, sourceAspect);
   }
 
   /** Cycles to the next quarter turn. */
@@ -119,6 +184,7 @@ class VideoConnector {
       rotation: this.rotation,
       flipH: this.flipH,
       flipV: this.flipV,
+      aspect: this.aspect,
     };
   }
 }
