@@ -116,6 +116,12 @@ export default defineConfig(async ({ command } = {}) => {
         lib: {
           entry: './src/electron/preload.js',
         },
+        rollupOptions: {
+          // `grandi` loads a `.node` binary, which cannot be bundled -- only
+          // required at runtime. Left in, rollup either inlines something that
+          // will not run or fails outright.
+          external: ['grandi'],
+        },
       },
     },
     renderer: {

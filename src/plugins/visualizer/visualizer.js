@@ -47,6 +47,8 @@ import AmbientHazeEffect from './ambient_haze';
 import Perf from './perf_overlay';
 import Preferences from './preferences';
 import createLEDDebugPanel from './led_debug_panel';
+import VideoFeed from './video_feed';
+import createVideoMaterial from './video_material';
 import {
   EffectComposer,
   RenderPass,
@@ -994,6 +996,9 @@ class Visualizer {
       // After the heads have moved, so what is packed is where they now point
       // rather than where they were a frame ago.
       LightField.update();
+      // Once per drawn frame, not once per frame received: a 60 fps sender
+      // into a busy renderer would otherwise pay for uploads nobody sees.
+      VideoFeed.updateAll();
     });
 
     // Read from Preferences rather than from Controls: this runs unawaited
@@ -1104,6 +1109,68 @@ class Visualizer {
     // Built either way, so switching the preference is instant rather than
     // needing the scene rebuilt; only its visibility follows the flag.
     this.debug = Preferences.get('debug');
+
+    if (this.debug) this.attachVideoTest();
+  }
+
+  /**
+   * Puts the first NDI source on a plane in the room.
+   *
+   * A harness, not a feature: it exists to prove that a frame gets from the
+   * network to a texture, and it should be replaced by real video connectors
+   * -- a source sliced into named regions that devices are patched to -- as
+   * soon as anything actually consumes one. Behind the debug flag because it
+   * opens a network receiver, which is not something to do behind a user's
+   * back.
+   *
+   * @public
+   */
+  async attachVideoTest() {
+    if (!VideoFeed.available()) return;
+    let sources = [];
+    try {
+      sources = await VideoFeed.sources();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[video] could not list NDI sources', err);
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[video] NDI sources: ${sources.map((s) => s.name).join(', ') || '(none)'}`);
+    if (!sources.length) return;
+
+    const feed = await VideoFeed.open(sources[0].name);
+    if (!feed) return;
+
+    // Built on the first frame, not before: until one lands nothing knows the
+    // aspect ratio -- guessing 16:9 is how a 4:3 feed ends up stretched and
+    // nobody notices for a week -- nor how its pixels are packed, which
+    // decides which material can draw it.
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
+    mesh.visible = false;
+    // Standing upright, facing the default view, clear of the rig.
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.set(0, 6, 4);
+    SceneManager.add(mesh);
+
+    const size = () => {
+      if (!feed.texture) return;
+      mesh.material = createVideoMaterial(feed);
+      const width = 8;
+      mesh.scale.set(width, (width * feed.height) / feed.width, 1);
+      mesh.visible = true;
+      // eslint-disable-next-line no-console
+      console.log(`[video] ${feed.name} -> ${feed.width}x${feed.height} ${feed.format}`);
+    };
+
+    // Polled rather than pushed: the feed has no event of its own yet, and one
+    // exists only to serve this harness.
+    const waiting = setInterval(() => {
+      if (feed.frameCount > 0) {
+        clearInterval(waiting);
+        size();
+      }
+    }, 100);
   }
 
   /**

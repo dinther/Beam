@@ -23,8 +23,12 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-# asarUnpack:
-#   - resources/**
+# A native addon cannot be loaded from inside an asar -- the OS loader needs a
+# real file on disk -- so grandi's binary and the NDI library it carries are
+# unpacked beside the archive. UNVERIFIED: no packaged build has been made
+# since NDI was added, so this is reasoning rather than evidence.
+asarUnpack:
+  - '**/node_modules/@grandi/**'
 win:
   executableName: Beam
 # Double-clicking a project opens it here. The extension is ours; the icon is

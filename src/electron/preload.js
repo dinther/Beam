@@ -1,5 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { contextBridge, ipcRenderer } from 'electron';
+import NDI from './ndi';
 
 /**
  * Renderer-facing Art-Net bridge.
@@ -265,4 +266,51 @@ contextBridge.exposeInMainWorld('documentStore', {
     ipcRenderer.on('document:requested', listener);
     return () => ipcRenderer.removeListener('document:requested', listener);
   },
+});
+
+/**
+ * Video in, over NDI.
+ *
+ * Unlike every other bridge here, nothing crosses to the main process: the
+ * addon runs in this process (see `ndi.js`), so a frame is already where it
+ * needs to be. What it cannot do is cross the **context** bridge -- that
+ * clones, and cloning 8 MB sixty times a second is 500 MB/s spent copying
+ * something we already have.
+ *
+ * So frames go the way the Art-Net port does, by `window.postMessage`, which
+ * reaches the page's own world and can carry a transfer list. The buffer is
+ * moved, not copied -- detached here the instant it is sent, which is safe
+ * because every frame arrives in an ArrayBuffer of its own.
+ */
+contextBridge.exposeInMainWorld('ndi', {
+  /**
+   * @param {Number} [waitMs] how long to let discovery run
+   * @returns {Promise<Array>} `{ name, urlAddress }`
+   */
+  sources: (waitMs) => NDI.sources(waitMs),
+  /**
+   * Opens a source. Frames arrive as `window` messages carrying
+   * `{ channel: 'ndi:frame', handle, width, height, format, stride, buffer }`;
+   * listen for them before calling this.
+   *
+   * @param {String} name exactly as `sources` reported it
+   * @returns {Promise<Number>} handle, for `close`
+   */
+  open: async (name) => {
+    let handle = null;
+    handle = await NDI.open(name, (frame) => {
+      window.postMessage({
+        channel: 'ndi:frame',
+        handle,
+        width: frame.width,
+        height: frame.height,
+        format: frame.format,
+        stride: frame.stride,
+        buffer: frame.buffer,
+      }, '*', [frame.buffer]);
+    });
+    return handle;
+  },
+  /** @param {Number} handle from `open` */
+  close: (handle) => NDI.close(handle),
 });
