@@ -150,7 +150,7 @@
               />
             </uk-flex>
             <uk-select-input
-              label="Lock shape"
+              label="Aspect"
               :model-value="aspectIndex"
               :options="aspectOptions"
               @input="pickAspect"
@@ -228,6 +228,13 @@ export default {
       selectedId: null,
       hasPicture: false,
       snapEnabled: true,
+      /**
+       * The shape the next box gets.
+       *
+       * Carrying it forward is the point: someone carving a canvas into
+       * twelve 16:9 regions chooses the ratio once, not twelve times.
+       */
+      lastAspect: 0,
       status: 'Looking for sources…',
     };
   },
@@ -336,8 +343,9 @@ export default {
 
     pickAspect(index) {
       const entry = CONNECTOR_ASPECTS[index];
-      if (!entry || !this.selected) return;
-      this.selected.setAspect(entry.value, this.sourceAspect);
+      if (!entry) return;
+      this.lastAspect = entry.value;
+      if (this.selected) this.selected.setAspect(entry.value, this.sourceAspect);
     },
 
     async opened() {
@@ -479,7 +487,9 @@ export default {
           width: size,
           height: size,
         },
+        aspect: this.lastAspect,
       });
+      connector.setRect({}, this.sourceAspect);
       this.$show.videoConnectors.push(connector);
       this.selectedId = connector.id;
     },
@@ -604,6 +614,7 @@ export default {
         rect: {
           x: from.x, y: from.y, width: 0.005, height: 0.005,
         },
+        aspect: this.lastAspect,
       });
       this.$show.videoConnectors.push(connector);
       this.selectedId = connector.id;
@@ -624,7 +635,18 @@ export default {
 
     startResize(event, connector) {
       this.selectedId = connector.id;
-      this.drag = { mode: 'resize', connector };
+      const at = this.fractionAt(event);
+      // The grip hangs outside the corner it drags, so the pointer is a few
+      // pixels past it. Without this the edge jumps to the pointer the instant
+      // the drag starts, and every snap is measured from the wrong place.
+      this.drag = {
+        mode: 'resize',
+        connector,
+        grab: {
+          x: at.x - (connector.rect.x + connector.rect.width),
+          y: at.y - (connector.rect.y + connector.rect.height),
+        },
+      };
       this.listen(event);
     },
 
@@ -661,11 +683,30 @@ export default {
           y: this.snapSpan(at.y - this.drag.grab.y, height, ys, tolY),
         }, aspect);
       } else if (mode === 'resize') {
-        // Only the corner under the pointer moves, so only that edge snaps.
-        connector.setRect({
-          width: this.snapEdge(at.x, xs, tolX) - connector.rect.x,
-          height: this.snapEdge(at.y, ys, tolY) - connector.rect.y,
-        }, aspect);
+        // The corner, not the pointer -- they differ by where the grip was
+        // grabbed.
+        const cornerX = at.x - this.drag.grab.x;
+        const cornerY = at.y - this.drag.grab.y;
+        const toX = this.snapEdge(cornerX, xs, tolX);
+        const toY = this.snapEdge(cornerY, ys, tolY);
+
+        // With a shape locked, only one edge can be obeyed -- the other is
+        // derived from it. Obeying the width always meant a locked box could
+        // never snap to a horizontal line, which reads as snapping being
+        // broken rather than as a consequence of the lock. So whichever edge
+        // actually caught a line, and by the smaller margin, leads.
+        const caughtX = toX !== cornerX;
+        const caughtY = toY !== cornerY;
+        const leadY = connector.aspect > 0 && caughtY
+          && (!caughtX || Math.abs(toY - cornerY) * tolX < Math.abs(toX - cornerX) * tolY);
+        if (leadY) {
+          connector.setRect({ height: toY - connector.rect.y }, aspect);
+        } else {
+          connector.setRect({
+            width: toX - connector.rect.x,
+            height: toY - connector.rect.y,
+          }, aspect);
+        }
       } else {
         const { from } = this.drag;
         const toX = this.snapEdge(at.x, xs, tolX);
@@ -774,13 +815,18 @@ export default {
 
 .video_slice_grip {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 9px;
-  height: 9px;
+  right: -6px;
+  bottom: -6px;
+  /* Bigger than it looks like it needs to be. At 9 px half the target hung
+     outside the box, and a miss lands on the box instead -- which starts a
+     move. "Movement snaps but sizing doesn't" is what that feels like from
+     the outside, because the resize never began. */
+  width: 13px;
+  height: 13px;
   cursor: nwse-resize;
   background: #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
+  touch-action: none;
 }
 
 .video_side {
