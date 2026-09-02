@@ -59,15 +59,41 @@ class VideoConnector {
     nextId += 1;
     this._id = data.id === undefined ? nextId : data.id;
     if (this._id >= nextId) nextId = this._id + 1;
-    this.name = data.name || `Connector ${this._id}`;
+    // Named after a socket rather than after the concept. "Connector 3" names
+    // the category; "HDMI 3" reads as something you plug a cable into, which
+    // is the mental model that makes a projector's Source Select channel
+    // explain itself -- a real projector cycles exactly these labels. It is a
+    // white lie: the picture arrives over NDI. Paul's call, made knowing that,
+    // because the clarity is worth more than the pedantry. Only the default
+    // label is a socket; the *concept* stays a connector everywhere else.
+    this.name = data.name || `HDMI ${this._id}`;
 
-    // Normalised, with the origin at the picture's top-left -- the corner a
-    // user sees, and the one the editor draws from. Storing pixels would tie
-    // a show to the resolution it was built against, and a sender that
-    // switches from 4K to 1080p is a mouse click in either MadMapper or
-    // Resolume.
+    // The frame the rectangle was authored against, which is what lets it be
+    // written down in pixels. Zero until something has seen a real feed.
+    const frame = data.frame || {};
+    this.frame = {
+      width: Math.max(Math.round(Number(frame.width) || 0), 0),
+      height: Math.max(Math.round(Number(frame.height) || 0), 0),
+    };
+
+    // Held normalised, with the origin at the picture's top-left -- the corner
+    // a user sees, and the one the editor draws from. Normalised is what a
+    // sender that switches from 4K to 1080p needs, and that is a mouse click
+    // in either MadMapper or Resolume.
+    //
+    // It is *written down* in pixels of `frame`, though, because percentages
+    // cannot say "start at 1650 and take 540 across": a tenth of a percent of
+    // a 4K frame is nearly four pixels, so whole numbers in this space simply
+    // do not land on pixel boundaries. Storing the frame beside them keeps
+    // both -- an exact edge to author against, and a fraction to sample with.
     const rect = data.rect || {};
-    this.rect = {
+    const authored = this.frame.width > 0 && this.frame.height > 0;
+    this.rect = authored ? {
+      x: VideoConnector.clamp(Number(rect.x) / this.frame.width, 0),
+      y: VideoConnector.clamp(Number(rect.y) / this.frame.height, 0),
+      width: VideoConnector.clamp(Number(rect.width) / this.frame.width, 1),
+      height: VideoConnector.clamp(Number(rect.height) / this.frame.height, 1),
+    } : {
       x: VideoConnector.clamp(rect.x, 0),
       y: VideoConnector.clamp(rect.y, 0),
       width: VideoConnector.clamp(rect.width, 1),
@@ -149,6 +175,67 @@ class VideoConnector {
   }
 
   /**
+   * The region in pixels of a frame.
+   *
+   * Rounded, because this is the number a user types and reads back: a slice
+   * has to be able to start on pixel 1650 and stay there.
+   *
+   * @param {Number} [frameWidth] defaults to the frame it was authored against
+   * @param {Number} [frameHeight]
+   * @returns {Object} `{ x, y, width, height }` in whole pixels
+   */
+  pixelRect(frameWidth, frameHeight) {
+    const width = Number(frameWidth) || this.frame.width;
+    const height = Number(frameHeight) || this.frame.height;
+    if (!width || !height) return null;
+    return {
+      x: Math.round(this.rect.x * width),
+      y: Math.round(this.rect.y * height),
+      width: Math.round(this.rect.width * width),
+      height: Math.round(this.rect.height * height),
+    };
+  }
+
+  /**
+   * Moves and resizes in pixels of the frame now arriving.
+   *
+   * Re-authors against that frame, so the numbers a user last typed are the
+   * numbers written down -- and a connector edited against a 1080p sender
+   * stops claiming to be a rectangle of a 4K one.
+   *
+   * @param {Object} patch any of `{ x, y, width, height }`, in pixels
+   * @param {Number} frameWidth
+   * @param {Number} frameHeight
+   */
+  setPixelRect(patch = {}, frameWidth = 0, frameHeight = 0) {
+    const width = Number(frameWidth) || this.frame.width;
+    const height = Number(frameHeight) || this.frame.height;
+    if (!width || !height) return;
+    const normalised = {};
+    if (patch.x !== undefined) normalised.x = patch.x / width;
+    if (patch.y !== undefined) normalised.y = patch.y / height;
+    if (patch.width !== undefined) normalised.width = patch.width / width;
+    if (patch.height !== undefined) normalised.height = patch.height / height;
+    // Free, deliberately: a locked aspect is a shape, and a pixel field is a
+    // measurement. Letting the lock rewrite the number just typed makes the
+    // field feel broken. The lock still governs dragging.
+    this.setRect(normalised, 0);
+    this.frame = { width, height };
+  }
+
+  /**
+   * Records the frame a connector is being worked against.
+   *
+   * @param {Number} width
+   * @param {Number} height
+   */
+  useFrame(width, height) {
+    const w = Math.round(Number(width) || 0);
+    const h = Math.round(Number(height) || 0);
+    if (w > 0 && h > 0) this.frame = { width: w, height: h };
+  }
+
+  /**
    * Locks the shape, and reshapes what is there to match.
    *
    * Applied immediately rather than on the next drag: choosing 16:9 and
@@ -168,6 +255,94 @@ class VideoConnector {
     this.rotation = CONNECTOR_ROTATIONS[(at + 1) % CONNECTOR_ROTATIONS.length];
   }
 
+  /** True when the quarter turn swaps the output's width and height. */
+  get swapsAxes() {
+    return this.rotation === 90 || this.rotation === 270;
+  }
+
+  /**
+   * Where a point of what the device receives lands in the source frame.
+   *
+   * Output space is the device's own: origin at the top-left of the picture it
+   * gets, `u` to the right and `v` down. The answer is in the same normalised,
+   * top-left-origin space the rectangle lives in, so it composes with `rect`
+   * and nothing else has to know how a quarter turn is expressed.
+   *
+   * **The order is rotate, then flip**, and that is a decision rather than an
+   * accident. A flip is what the viewer sees mirrored, so it is expressed in
+   * the output's own axes: ticking Flip H on a panel hung in portrait mirrors
+   * it left-to-right *as it hangs*, not left-to-right as the camera shot it.
+   * Flipping first would make the same tick mean top-to-bottom on a rotated
+   * connector, which is the sort of thing that reads as the control being
+   * broken.
+   *
+   * This is the one place that says what rotation and flip *mean*. The slicing
+   * preview is its first caller and a patched device will be its second; two
+   * implementations of a quarter turn would disagree the first time one of
+   * them was corrected.
+   *
+   * @param {Number} u 0..1 across the output
+   * @param {Number} v 0..1 down the output
+   * @returns {Object} `{ x, y }` normalised in the source frame
+   */
+  sampleAt(u, v) {
+    const uf = this.flipH ? 1 - u : u;
+    const vf = this.flipV ? 1 - v : v;
+
+    // Turning the region clockwise carries its bottom-left corner to the
+    // output's top-left, so an output row reads *down* a source column.
+    let sx = uf;
+    let sy = vf;
+    if (this.rotation === 90) {
+      sx = vf;
+      sy = 1 - uf;
+    } else if (this.rotation === 180) {
+      sx = 1 - uf;
+      sy = 1 - vf;
+    } else if (this.rotation === 270) {
+      sx = 1 - vf;
+      sy = uf;
+    }
+
+    return {
+      x: this.rect.x + sx * this.rect.width,
+      y: this.rect.y + sy * this.rect.height,
+    };
+  }
+
+  /**
+   * The shape of what the device receives, width over height in **pixels**.
+   *
+   * Not the same as the region's shape: a quarter turn transposes it, which is
+   * the whole reason a portrait panel can be fed from a landscape canvas.
+   *
+   * @param {Number} sourceAspect the frame's own pixel aspect
+   * @returns {Number} 0 when the frame's shape is not known yet
+   */
+  outputAspect(sourceAspect) {
+    if (!(sourceAspect > 0) || !this.rect.height) return 0;
+    const region = (this.rect.width * sourceAspect) / this.rect.height;
+    return this.swapsAxes ? 1 / region : region;
+  }
+
+  /**
+   * What the device receives, in pixels of the source.
+   *
+   * Rounded, because it is a readout rather than an allocation -- and a region
+   * is a fraction of a frame, so its edges rarely land on whole pixels.
+   *
+   * @param {Number} frameWidth
+   * @param {Number} frameHeight
+   * @returns {Object} `{ width, height }`
+   */
+  outputSize(frameWidth, frameHeight) {
+    const width = Math.round(this.rect.width * frameWidth);
+    const height = Math.round(this.rect.height * frameHeight);
+    return this.swapsAxes
+      ? { width: height, height: width }
+      : { width, height };
+  }
+
   get showData() {
     return {
       id: this._id,
@@ -175,12 +350,16 @@ class VideoConnector {
       // Flattened rather than spread: a connector held on the reactive show is
       // a Vue Proxy, and `structuredClone` refuses one when the show crosses
       // IPC to be written. `object.model.js` documents the same trap.
-      rect: {
+      // In pixels once a real frame has been seen, and as fractions before
+      // that. `frame` says which, so a show written either way reads back the
+      // same -- and one written before this existed still loads.
+      rect: this.pixelRect() || {
         x: this.rect.x,
         y: this.rect.y,
         width: this.rect.width,
         height: this.rect.height,
       },
+      frame: { width: this.frame.width, height: this.frame.height },
       rotation: this.rotation,
       flipH: this.flipH,
       flipV: this.flipV,

@@ -1,0 +1,29 @@
+# Line endings, settled once.
+#
+# This repository had no `.gitattributes` and relied on `core.autocrlf`, which
+# converts on checkout per machine. That meant the working tree could hold CRLF
+# while the stored blobs held LF -- so any file git touched (a checkout, a
+# stash pop, a restore) came back CRLF, and eslint, whose config enforces
+# `linebreak-style: LF`, reported thousands of errors that were nothing to do
+# with the code. It also broke text patterns anchored to "\n".
+#
+# `text=auto eol=lf` says it plainly: normalise text to LF in the repository and
+# check it out as LF everywhere. Nothing in this project needs CRLF -- it is
+# Node, Vue and GLSL, and the toolchain reads LF on every platform.
+* text=auto eol=lf
+
+# Never touched, whatever the extension detector thinks.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.glb binary
+*.gltf binary
+*.gdtf binary
+*.mmfl binary
+*.exe binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

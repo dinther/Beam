@@ -19,6 +19,10 @@ import Live from './live.model';
 import {
   buildLedBarProfile, expandLedBarProfile, withoutLedBarChannels,
 } from './generic/led_bar';
+import { buildProjectorProfile } from './generic/projector';
+import { buildDisplayProfile } from './generic/display';
+import VideoRouter from '../../plugins/visualizer/video_router';
+import { GENERIC_KINDS } from './generic/kinds';
 import { normaliseMatrixProfile } from './ofl_matrix';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
@@ -163,6 +167,10 @@ class Show extends EventEmitter {
      * list. See `video_connector.js`.
      */
     this.videoConnectors = [];
+    // Installed once, on the array itself rather than its contents: the popup
+    // edits connectors in place and pushes new ones, and the lookup reads the
+    // live array each time, so it never needs re-installing.
+    this.publishVideoConnectors();
     /** Library models available to place, by key. Read once per load. */
     this.objectLibrary = {};
     /** Saved structure definitions, keyed by name, for placing again. */
@@ -301,6 +309,21 @@ class Show extends EventEmitter {
    */
   async patchFixtures() {
     this.fixturePool.fixtures.forEach((fixture) => this.patchFixture(fixture));
+  }
+
+  /**
+   * Lets the scene turn a connector id into the connector itself.
+   *
+   * Installed here because this is the only object that knows both -- a
+   * renderer must not reach into the show, and the show must not know what a
+   * renderer wants. One function, set once, and `video_router.js` holds it.
+   *
+   * @public
+   */
+  publishVideoConnectors() {
+    VideoRouter.resolveWith((id) => (
+      (this.videoConnectors || []).find((connector) => connector.id === id) || null
+    ));
   }
 
   /**
@@ -1581,18 +1604,23 @@ class Show extends EventEmitter {
    * @param {String} manufacturer name the user chose
    * @param {String} model name the user chose
    * @param {Object} params geometry and wiring
+   * @param {String} [kind] which builder to use -- see `generic/kinds.js`
    * @returns {String} the profile's key
    */
-  async createGeneratedProfile(manufacturer, model, params) {
+  async createGeneratedProfile(manufacturer, model, params, kind = GENERIC_KINDS.BAR) {
     const key = `${manufacturer}/${model}`;
-    const profile = buildLedBarProfile(params);
+    let profile;
+    if (kind === GENERIC_KINDS.PROJECTOR) profile = buildProjectorProfile(params);
+    else if (kind === GENERIC_KINDS.DISPLAY) profile = buildDisplayProfile(params);
+    else profile = buildLedBarProfile(params);
     profile.name = model;
     this.generatedProfiles[key] = profile;
     if (typeof window !== 'undefined' && window.library) {
-      // Written without its channel list. Every entry is the same capability
-      // under a different name, and `asls.bar` already says what they are: a
-      // 256 x 256 tile is 196,608 of them, which is 33 MB of file saying
-      // nothing the geometry has not said already.
+      // A bar is written without its channel list. Every entry is the same
+      // capability under a different name, and `asls.bar` already says what
+      // they are: a 256 x 256 tile is 196,608 of them, which is 33 MB of file
+      // saying nothing the geometry has not said already. A projector has at
+      // most six, all different, so `withoutLedBarChannels` passes it through.
       await window.library.write(
         'profiles',
         key,

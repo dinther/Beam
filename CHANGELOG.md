@@ -1,5 +1,126 @@
 # Changelog
 
+## 0.1.0-alpha.8
+
+Beam projects. A generic projector throws a real picture onto the scene --
+occluded by whatever is in the way, softened by the haze it crosses, and
+photometrically honest about how much light a machine of that rating actually
+puts on a wall. Displays became parametric panels that can be curved. The video
+path grew a decode pass, pixel-exact slicing and a preview. And the MadMapper
+export learned that a group is a thing worth naming.
+
+### Projection mapping
+
+- **Projectors put light on the scene.** A generic projector with a parametric
+  body, a lens placed where the real one is, throw ratio, zoom and lens shift.
+  The picture lands on geometry, is cut where something blocks it, and falls off
+  with the angle it strikes at.
+- **Its own projective pass, not a spot light.** Three's SpotLight very nearly
+  fits -- the map projects, the shadow occludes -- and two things stop it. The
+  renderer's shadow-caster budget is eight texture units shared with every mover
+  in the show, and a mapping rig is three to six machines on one building; and a
+  spot light's shadow camera is a symmetric frustum, which cannot express lens
+  shift. A machine mapping a facade sits below it and shifts up, so a symmetric
+  frustum draws the picture somewhere the real one would not.
+- **One depth atlas, tiled.** Each projector renders what it can see into a tile
+  of a single texture: one texture unit however many projectors there are, and
+  the reason a church shadows its own facade.
+- **Overlap is honest, and blendable.** Two machines on the same stone add up
+  and read as a hotspot, which is what tells you where to blend. Four per-edge
+  soft-edge widths ramp the picture down; the ramp is linear because this pass
+  adds light the way projectors do, so a complementary pair sums to exactly one.
+- **The beam is visible in haze.** The same frustum and occlusion test walked
+  along the view ray instead of stopping at the surface, so the shaft and the
+  picture cannot disagree -- an occluder that shadows the facade cuts the shaft
+  above it too. It reads the shared haze volume the beams and LED glows use, so
+  it churns with the same air, and it pays extinction: thicker haze scatters
+  more towards the eye *and* swallows the beam sooner.
+- **Lumens mean something.** Illuminance is lumens over the area the lens makes
+  at that distance, so the rating, the throw ratio and the placement decide the
+  picture between them. Narrowing the lens now brightens it, which it did not
+  before. The widget reads the number back as lux at twenty metres.
+
+### Displays
+
+- **Parametric panels.** Width, height, depth, bezel, pixel count and emitter
+  size, with a pixel-grid shader that dissolves to the plain bitmap as the panel
+  gets small on screen.
+- **Curved, convex or concave, on a radius.** The casing and the screen are both
+  built from one surface function, so the frame, the recess walls, the sides and
+  the picture all follow the same arc. The width is arc length, not chord:
+  bending a panel does not cost it pixels, and two panels on one radius butt
+  together continuing the same circle.
+- **A casing with a hole in it.** The screen used to be a plane floated a
+  millimetre in front of a plain box -- two parallel faces covering the same
+  pixels. Depth resolution falls off with the square of the distance, so past
+  about fifteen metres they landed in the same bucket and the casing punched
+  through the picture in hard bands. The front is now four strips around an
+  opening with the screen in a shallow recess: nothing overlaps anything.
+
+### Video
+
+- **A decode pass.** NDI's UYVY is unpacked once per arrived frame into an RGBA
+  target with a full mip chain and anisotropic filtering, rather than being
+  sampled as packed bytes by every surface that wants video.
+- **Slices are pixel-exact.** A connector's rectangle is written in the pixels
+  of the frame it was authored against, and the frame is stored beside it. A
+  tenth of a percent of a 4K frame is nearly four pixels, so a percentage could
+  not name an edge. Held as a fraction underneath, so a sender that switches
+  from 4K to 1080p still scales.
+- **The slicing editor shows what the device receives**, including what rotate
+  and flip do to it, and connectors are named HDMI 1 after the socket a
+  projector's source select actually cycles.
+
+### The MadMapper export
+
+- **A group is part of a definition's identity.** Two of the same model in
+  different groups export as two definitions, named for what they belong to, so
+  each can be driven by its own controller. A structure counts as a group --
+  it is the tighter of the two.
+- **Group-scoped definitions are filed under Beam Temp.** MadMapper's library
+  outlives the project, and a definition scoped to one flank of a rig is not a
+  product its manufacturer makes. Together under one obviously temporary name
+  they can be found and thrown away as a set.
+- **A structure names its own group in the layout.** A fixture that comes apart
+  carried its own name as the outermost group, which is right when it belongs to
+  nothing and wrong the moment it does. A moving head always comes apart, so a
+  truss of nine exported as nine groups with the structure's name nowhere.
+- **A failed export says so.** Windows refuses a write while another program
+  holds the file open -- which is exactly what MadMapper does with a layout it
+  is reading. The write is retried, and a real failure raises an error naming
+  the file instead of returning quietly. A remembered path writes with no
+  dialog, so a silent failure was indistinguishable from a success.
+
+### Lighting
+
+- **House lights off is dark, not absent.** The environment intensity carried a
+  correction meant for three's RoomEnvironment -- a bright photographic studio
+  that has to come down an order of magnitude -- and applied it to every
+  environment, including the dark venue, which is already dim by design. House
+  off with no haze measured a floor at 1 of 255 and everything else at 0. The
+  correction is now per environment, and the venue's own light was evened out so
+  a vertical surface is not five times darker than the ground.
+- **Antialiasing is back on.** MSAA had been left at zero and the viewport was
+  rendering at 0.8 and being stretched by 1.25 -- a non-integer resample of an
+  unfiltered image, which is a regular hatch on anything finely detailed. Both
+  restored, at 3.27 to 4.72 ms on a 500-mover show.
+
+### Fixes
+
+- A projector or display with no DMX channels no longer errors when patched, and
+  a saved show containing one loads.
+- The projector's frustum aid and its light disagreed on lens shift in opposite
+  directions; the wireframe now follows the light.
+- The depth atlas read its tiles with one size for both axes, on an atlas three
+  across and two down -- so every lookup was stretched vertically and surfaces
+  well inside the frustum were reported as blocked.
+- Selecting a fixture no longer casts its gizmo into the projector's shadows.
+  Hiding an object before a render does not hold if it manages its own
+  visibility from updateMatrixWorld, which three's TransformControls does.
+- The panel pixel grid was drawn on the connector's texture coordinate rather
+  than the panel's own surface, so a narrow slice of a 60-pixel wall came out as
+  eight stretched columns.
+
 ## 0.1.0-alpha.7
 
 Beam listens to the other wire. sACN arrives beside Art-Net, sources have names

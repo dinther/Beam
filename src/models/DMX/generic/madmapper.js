@@ -97,6 +97,22 @@ function fieldSafe(name) {
 export const MAX_FIXTURE_CHANNELS = 65535;
 
 /**
+ * Where a definition goes when it exists only because of a group.
+ *
+ * MadMapper files definitions under a manufacturer, and its library outlives
+ * the project that filled it. A definition scoped to `right flank` is not a
+ * product 5star-systems makes -- it is scratch, true of one rig on one night --
+ * and filing it under the real manufacturer buries the genuine profiles among
+ * a growing pile of one-offs that will never be right again.
+ *
+ * So they go somewhere obviously temporary, together, where they can be found
+ * and thrown away as a set.
+ *
+ * @constant {String}
+ */
+export const SCRATCH_MANUFACTURER = 'Beam Temp';
+
+/**
  * How a grid must be cut up to fit inside `MAX_FIXTURE_CHANNELS`.
  *
  * The cut follows the scan's own line axis -- rows for a row-wired bar,
@@ -604,10 +620,56 @@ export function buildMadMapperFixture(profile, options = {}) {
  * @returns {String}
  */
 function productName(entry, parts) {
+  let named;
   if (((entry.profile || {}).asls || {}).bar) {
-    return parts.length > 1 ? `${entry.base} band` : entry.base;
+    named = parts.length > 1 ? `${entry.base} band` : entry.base;
+  } else {
+    named = entry.modeName ? `${entry.base} (${entry.modeName})` : entry.base;
   }
-  return entry.modeName ? `${entry.base} (${entry.modeName})` : entry.base;
+  // A grouped fixture is its own kind of thing here -- see `showDefinitions`.
+  return entry.groupName ? `${named} [${entry.groupName}]` : named;
+}
+
+/**
+ * What a fixture belongs to, if anything.
+ *
+ * A **structure counts as a group here**, which is the same call the layout
+ * already makes: it takes groups and structures together because both hold
+ * members and both name their own mappings. A structure is the tighter of the
+ * two -- a locked set, arranged deliberately -- so if anything wants its own
+ * definition it does. Leaving it out meant a structure's fixtures exported as
+ * the plain shared model and could not be addressed apart, which is exactly
+ * what a group is for.
+ *
+ * Membership is exclusive on both sides: a fixture leaves its old group or
+ * structure when it joins another. So this is a single owner, not a set to
+ * reconcile.
+ *
+ * @param {Object} fixture
+ * @returns {Object|null} `{ kind, id, name }`
+ */
+function ownerOf(fixture) {
+  if (fixture.group) return { kind: 'g', id: fixture.group.id, name: fixture.group.name };
+  if (fixture.structure) {
+    return { kind: 's', id: fixture.structure.id, name: fixture.structure.name };
+  }
+  return null;
+}
+
+/**
+ * How a fixture's definition is identified, its owner included.
+ *
+ * The kind is part of the key because a group and a structure may share an id
+ * and are not the same thing.
+ *
+ * @param {Object} fixture
+ * @returns {String}
+ */
+function definitionKey(fixture) {
+  const modeName = fixture.modeName || (fixture.mode || {}).name || '';
+  const owner = ownerOf(fixture);
+  const suffix = owner ? `#${owner.kind}${owner.id}` : '';
+  return `${fixture.manufacturer}/${fixture.model}/${modeName}${suffix}`;
 }
 
 /**
@@ -618,6 +680,13 @@ function productName(entry, parts) {
  * mode's name joins the product name, but only when the show actually uses
  * more than one -- there is no sense making every name uglier for a case that
  * usually does not arise.
+ *
+ * **So is a scene group, and so is a structure.** Two of the same model in
+ * different groups export as two definitions, named for what they belong to, so
+ * each can be driven by its own controller on the other side. Sharing one
+ * definition made them one kind of thing to MadMapper, with no way to address
+ * them apart. Unowned fixtures are untouched: they key on model and mode as
+ * they always did, so a show with neither exports what it always did.
  *
  * The names this returns are the ones a layout must use in its `__FD__`
  * fields. Both exports read them from here so they cannot drift apart.
@@ -635,7 +704,7 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
     const mode = fixture.mode || {};
     const modeName = fixture.modeName || mode.name || '';
     const model = `${fixture.manufacturer}/${fixture.model}`;
-    const key = `${model}/${modeName}`;
+    const key = definitionKey(fixture);
 
     if (!used.has(key)) {
       used.set(key, {
@@ -644,7 +713,12 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
         modeName,
         mode,
         profile: fixture.OFLData,
-        group: manufacturerName(fixture.manufacturer),
+        // Owned definitions are filed as scratch -- see SCRATCH_MANUFACTURER.
+        group: ownerOf(fixture) ? SCRATCH_MANUFACTURER : manufacturerName(fixture.manufacturer),
+        // The scene group or structure this belongs to, which is a different
+        // thing from `group` above -- that one is the manufacturer, which is
+        // what MadMapper calls a group.
+        groupName: (ownerOf(fixture) || {}).name || '',
         base: fixture.OFLData.name || fixture.model,
         universeAligned: !!fixture.universeAligned,
         fixtures: [],
@@ -694,8 +768,7 @@ export function showDefinitions(fixtures, manufacturerName = (slug) => slug) {
    * @returns {String} `group - product`
    */
   const nameOf = (fixture, partIndex = 0) => {
-    const modeName = fixture.modeName || (fixture.mode || {}).name || '';
-    const found = byKey.get(`${fixture.manufacturer}/${fixture.model}/${modeName}/${partIndex}`);
+    const found = byKey.get(`${definitionKey(fixture)}/${partIndex}`);
     return found ? `${found.group} - ${found.product}` : `${fixture.manufacturer} - ${fixture.model}`;
   };
 

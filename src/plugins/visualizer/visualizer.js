@@ -48,7 +48,12 @@ import Perf from './perf_overlay';
 import Preferences from './preferences';
 import createLEDDebugPanel from './led_debug_panel';
 import VideoFeed from './video_feed';
-import createVideoMaterial from './video_material';
+import Display from './display';
+import Projector from './projector';
+import VideoRouter from './video_router';
+import VideoDecode from './video_decode';
+import ProjectorDepth from './projector_depth';
+import ProjectorEffect from './projector_pass';
 import {
   EffectComposer,
   RenderPass,
@@ -67,6 +72,9 @@ import {
  * wrapped in a reactive Proxy break rendering.
  */
 let finalComposer = null;
+
+/** The projection pass, module-scoped for the same reason the composer is. */
+let projectorEffect = null;
 
 /**
  * Bloom pass, kept accessible so the fog controls can drive it.
@@ -94,12 +102,18 @@ let ambientHazeEffect = null;
  * steps in a single pixel on a beam's edge; four leaves none.
  *
  * The cost is real where beams fill the frame: 7.7 ms without, 14.2 ms with.
- * It is nothing where they do not (2.2 vs 2.3 ms). Zero restores the aliased
- * behaviour if this ever needs proving again.
+ * It is nothing where they do not (2.2 vs 2.3 ms). On the 500-mover show it is
+ * 3.27 ms against 4.72 ms, together with the pixel ratio below.
+ *
+ * This sat at zero for a while, which is what made every edge in the scene
+ * step: with nothing multisampling the composer's target and no AA pass in the
+ * chain, a silhouette is a hard staircase. Measured on the floor's diagonal,
+ * the edge's sub-pixel position wandered 0.332 px RMS off a straight line at
+ * zero and 0.178 px at four.
  *
  * @constant {Number}
  */
-const MSAA_SAMPLES = 0;
+const MSAA_SAMPLES = 4;
 
 /**
  * Scene reference helpers.
@@ -293,6 +307,9 @@ class Visualizer {
     // Loaded before anything is built, so the scene comes up already dressed
     // rather than flickering through defaults.
     await Preferences.load();
+    // After the preferences are in, so the name is known, and unawaited so a
+    // sender that has gone off the network cannot hold up the whole visualizer.
+    this.restoreVideoSource();
     await ModelInstancer.init(`${import.meta.env.VITE_STATIC_URL}/visualizer/models/model_list.json`);
     this.prepareCamera();
     this.prepareRenderer();
@@ -999,6 +1016,22 @@ class Visualizer {
       // Once per drawn frame, not once per frame received: a 60 fps sender
       // into a busy renderer would otherwise pay for uploads nobody sees.
       VideoFeed.updateAll();
+      // Unpacked straight after the upload, into a texture that can actually be
+      // filtered -- see `video_decode.js`. Before the screens are told about it,
+      // because that is what they will be drawing from.
+      VideoDecode.decodeAll(this.renderer, VideoFeed.all());
+      Display.syncAll();
+      // Each projector's own view of the scene, drawn before the frame is, so
+      // the pass can ask whether a surface is actually visible from the lens.
+      // Nothing to do at all when no projector is throwing anything.
+      if (projectorEffect) {
+        const projections = Projector.collect();
+        if (projections.length) {
+          ProjectorDepth.render(this.renderer, SceneManager, projections);
+        }
+        const feed = VideoRouter.feed();
+        projectorEffect.setProjections(projections, feed ? feed.displayTexture : null);
+      }
     });
 
     // Read from Preferences rather than from Controls: this runs unawaited
@@ -1110,67 +1143,29 @@ class Visualizer {
     // needing the scene rebuilt; only its visibility follows the flag.
     this.debug = Preferences.get('debug');
 
-    if (this.debug) this.attachVideoTest();
   }
 
   /**
-   * Puts the first NDI source on a plane in the room.
+   * Reconnects to the video sender chosen last time, if it is still there.
    *
-   * A harness, not a feature: it exists to prove that a frame gets from the
-   * network to a texture, and it should be replaced by real video connectors
-   * -- a source sliced into named regions that devices are patched to -- as
-   * soon as anything actually consumes one. Behind the debug flag because it
-   * opens a network receiver, which is not something to do behind a user's
-   * back.
+   * Silent when it is not: a machine that had a sender and now does not is the
+   * ordinary case for a laptop away from the rig, and it is not an error worth
+   * interrupting anyone over. Devices show their unbound state until a source
+   * is picked.
    *
    * @public
+   * @async
    */
-  async attachVideoTest() {
-    if (!VideoFeed.available()) return;
-    let sources = [];
+  async restoreVideoSource() {
+    const wanted = Preferences.get('videoSource');
+    if (!wanted || !VideoFeed.available()) return;
     try {
-      sources = await VideoFeed.sources();
+      const sources = await VideoFeed.sources();
+      if (!sources.some((source) => source.name === wanted)) return;
+      await VideoRouter.select(wanted);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[video] could not list NDI sources', err);
-      return;
+      // Discovery failing is not worth a dialog; the picker will say so.
     }
-    // eslint-disable-next-line no-console
-    console.log(`[video] NDI sources: ${sources.map((s) => s.name).join(', ') || '(none)'}`);
-    if (!sources.length) return;
-
-    const feed = await VideoFeed.open(sources[0].name);
-    if (!feed) return;
-
-    // Built on the first frame, not before: until one lands nothing knows the
-    // aspect ratio -- guessing 16:9 is how a 4:3 feed ends up stretched and
-    // nobody notices for a week -- nor how its pixels are packed, which
-    // decides which material can draw it.
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1));
-    mesh.visible = false;
-    // Standing upright, facing the default view, clear of the rig.
-    mesh.rotation.x = Math.PI / 2;
-    mesh.position.set(0, 6, 4);
-    SceneManager.add(mesh);
-
-    const size = () => {
-      if (!feed.texture) return;
-      mesh.material = createVideoMaterial(feed);
-      const width = 8;
-      mesh.scale.set(width, (width * feed.height) / feed.width, 1);
-      mesh.visible = true;
-      // eslint-disable-next-line no-console
-      console.log(`[video] ${feed.name} -> ${feed.width}x${feed.height} ${feed.format}`);
-    };
-
-    // Polled rather than pushed: the feed has no event of its own yet, and one
-    // exists only to serve this harness.
-    const waiting = setInterval(() => {
-      if (feed.frameCount > 0) {
-        clearInterval(waiting);
-        size();
-      }
-    }, 100);
   }
 
   /**
@@ -1197,7 +1192,15 @@ class Visualizer {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = true;
     this.renderer.physicallyCorrectLights = true;
-    this.renderer.setPixelRatio(0.8); // Forcing pixel ratio to 1 to avoid unnecessary computations
+    // One device pixel per drawing-buffer pixel. This ran at 0.8 for a while --
+    // the comment on it claimed to be forcing 1 -- which renders the viewport
+    // at 64% of the pixels and lets the compositor stretch it back by 1.25.
+    // That stretch is not free: a non-integer resample of detail that already
+    // reaches the buffer's Nyquist limit beats against the output grid, and on
+    // anything finely detailed (a video wall especially) the beat reads as a
+    // regular hatch -- moire that no shader or texture filter can answer,
+    // because it happens after both.
+    this.renderer.setPixelRatio(1);
     // Tone mapping moves into the composer. Left on the renderer it is applied
     // per material, clamping emitters to white before bloom can tell that they
     // are brighter than white.
@@ -1208,6 +1211,9 @@ class Visualizer {
     // Needs the renderer, so it cannot run any earlier than this.
     installAmbient(this.renderer, SceneManager);
     Perf.init(this.renderer);
+    // Reported beside the timings: it is the number you read off while
+    // moving around to work out how far away something is.
+    Perf.watchCamera(this.camera);
   }
 
   /**
@@ -1258,9 +1264,14 @@ class Visualizer {
     // depth buffer, which is why it cannot be a plain material on geometry.
     ambientHazeEffect = new AmbientHazeEffect(this.camera);
 
+    // Before the haze, because a projected image is light arriving at a surface
+    // and the air in front of it should veil it like anything else. Before
+    // bloom for the same reason a lamp is: a bright projection on stone glares.
+    projectorEffect = new ProjectorEffect(this.camera);
+
     const effects = bloomEffect
-      ? [ambientHazeEffect, bloomEffect, toneMapping]
-      : [ambientHazeEffect, toneMapping];
+      ? [projectorEffect, ambientHazeEffect, bloomEffect, toneMapping]
+      : [projectorEffect, ambientHazeEffect, toneMapping];
     finalComposer.addPass(new EffectPass(this.camera, ...effects));
 
     // A depth-reading effect -- the ambient haze, here -- makes the composer

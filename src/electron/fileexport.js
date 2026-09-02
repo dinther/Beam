@@ -71,6 +71,40 @@ const lastPaths = new Map();
  * @returns {Promise<String|null>} the path written, or null when cancelled or
  *   the write failed
  */
+/**
+ * Writes a file, waiting out whatever is holding it.
+ *
+ * Windows refuses a write while another program has the file open, and the
+ * programs these exports are *for* are exactly the ones that hold them open --
+ * MadMapper reading a layout, or an editor the user opened to look at it. The
+ * write fails with EBUSY or EPERM, and a moment later it succeeds, which is
+ * why an export could look like it did nothing and then work on the third try.
+ *
+ * A few quick attempts covers a reader that is passing through. Anything
+ * holding it longer is a real problem and is reported rather than swallowed.
+ *
+ * @param {String} target
+ * @param {String} contents
+ */
+function writeWaiting(target, contents) {
+  const RETRIES = 6;
+  const PAUSE_MS = 120;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.writeFileSync(target, contents, 'utf8');
+      return;
+    } catch (err) {
+      const busy = err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES';
+      if (!busy || attempt >= RETRIES) throw err;
+      // Synchronous on purpose: this runs in the main process between a save
+      // dialog and its answer, with nothing else to get on with, and the
+      // alternative is threading an async retry through a path whose whole job
+      // is to have finished by the time it returns.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, PAUSE_MS);
+    }
+  }
+}
+
 async function save({
   contents, defaultName, startIn, filters, title, companion, remember,
 }) {
@@ -79,8 +113,9 @@ async function save({
   const folder = folders[startIn] || folders.documents;
   const known = remember ? lastPaths.get(remember) : null;
 
+  // Declared out here so the failure report below can name the file.
+  let target = null;
   try {
-    let target = null;
     if (known && fs.existsSync(known)) {
       // Chosen earlier this session and still there. Writing straight to it is
       // the whole point; a file the user deleted or moved is treated as a
@@ -100,18 +135,34 @@ async function save({
     }
 
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, contents, 'utf8');
+    writeWaiting(target, contents);
 
     if (companion && typeof companion.contents === 'string' && companion.extension) {
       const base = path.basename(target, path.extname(target));
       const beside = path.join(path.dirname(target), `${base}.${companion.extension}`);
-      fs.writeFileSync(beside, companion.contents, 'utf8');
+      writeWaiting(beside, companion.contents);
     }
 
     if (remember) lastPaths.set(remember, target);
     return target;
   } catch (err) {
+    // Said out loud, not logged and forgotten.
+    //
+    // A remembered path writes with no dialog, so a silent failure looked
+    // exactly like a success: no prompt, no message, and a file on disk still
+    // holding whatever it held before. There is no way to tell that from an
+    // export that worked, and the stale file reads as the export being wrong
+    // rather than absent.
     console.error('[fileexport] could not save:', err.message);
+    dialog.showErrorBox(
+      'Could not write the export',
+      `${target || 'The file'} could not be written.
+
+${err.message}
+
+`
+      + 'If it is open in MadMapper or an editor, close it and export again.',
+    );
     return null;
   }
 }

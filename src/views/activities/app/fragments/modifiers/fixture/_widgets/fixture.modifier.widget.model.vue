@@ -46,6 +46,27 @@
         </uk-flex>
       </template>
 
+      <!-- What the model *is*, above the map of what it answers to. This is
+           the profile-scoped widget, and a resolution, a pitch and a throw are
+           properties of the model rather than of this placement -- so they
+           belong here beside the channel map rather than in Fixture Settings
+           with the things you set per unit. It also fills the space a device
+           with few channels, or none, otherwise leaves empty. -->
+      <div
+        v-if="deviceFacts.length"
+        class="device_facts"
+      >
+        <dl>
+          <template
+            v-for="fact in deviceFacts"
+            :key="fact.label"
+          >
+            <dt>{{ fact.label }}</dt>
+            <dd>{{ fact.value }}</dd>
+          </template>
+        </dl>
+      </div>
+
       <uk-flex
         :gap="8"
         class="channel_map_header"
@@ -174,6 +195,10 @@
 </template>
 
 <script>
+import { pixelFill, pixelPitch, displayCurve } from '@/models/DMX/generic/display';
+import {
+  throwRange, throwAngles, imageSizeAt, illuminanceAt,
+} from '@/models/DMX/generic/projector';
 import { DEFAULT_PAN_SPEED, DEFAULT_TILT_SPEED } from '@/models/DMX/fixture.model';
 
 /** How long the copy button confirms for, in ms. */
@@ -206,6 +231,21 @@ export default {
     };
   },
   computed: {
+    /**
+     * What this model is, for a projector or a display.
+     *
+     * Read off the profile, so it speaks for every one of them in the show --
+     * which is this widget's whole remit. A bar already has `barSummary` doing
+     * the same job a few lines below; this is that idea for the video devices.
+     *
+     * @type {Array}
+     */
+    deviceFacts() {
+      const asls = (this.fixture && this.fixture.OFLData && this.fixture.OFLData.asls) || {};
+      if (asls.display) return this.displayFacts(asls.display);
+      if (asls.projector) return this.projectorFacts(asls.projector);
+      return [];
+    },
     /**
      * Widget title, naming the model rather than the fixture: everything in
      * here is a property of the profile, not of the selected instance.
@@ -382,6 +422,71 @@ export default {
   },
   methods: {
     /**
+     * A display's specification, in the order someone reads one.
+     *
+     * @public
+     * @param {Object} p the profile's `asls.display`
+     * @returns {Array}
+     */
+    displayFacts(p) {
+      const wide = Math.round(p.pixelsWide);
+      const high = Math.round(p.pixelsHigh);
+      const fill = pixelFill(p);
+      const pitch = pixelPitch(p);
+      const diagonal = Math.sqrt((p.width * 1000) ** 2 + (p.height * 1000) ** 2) / 25.4;
+      const lit = fill.x >= 0.999 && fill.y >= 0.999
+        ? 'pixels meet'
+        : `${Math.round(fill.x * 100)}% x ${Math.round(fill.y * 100)}% of each cell`;
+      const facts = [
+        { label: 'Takes', value: `${wide} x ${high} video` },
+        { label: 'Panel', value: `${(p.width * 1000).toFixed(0)} x ${(p.height * 1000).toFixed(0)} mm · ${diagonal.toFixed(0)}"` },
+        { label: 'Pitch', value: `${pitch.toFixed(2)} mm · ${(p.pixelSize * 1000).toFixed(1)} mm pixel · ${lit}` },
+        { label: 'Brightness', value: `${p.nits} nits` },
+      ];
+      // Only when it is bent. The arc and the chord are both worth saying: the
+      // arc is the width in pixels, the chord is the room it actually takes up,
+      // and they are the two numbers you need to butt panels together.
+      const curve = displayCurve(p, p.width + (Number(p.bezel) || 0) * 2);
+      if (curve.radius) {
+        const chord = 2 * curve.radius * Math.sin(curve.angle / 2);
+        facts.push({
+          label: 'Curve',
+          value: `${(curve.radius * 1000).toFixed(0)} mm ${curve.sign > 0 ? 'convex' : 'concave'}`
+            + ` · ${((curve.angle * 180) / Math.PI).toFixed(1)}° arc · spans ${(chord * 1000).toFixed(0)} mm`,
+        });
+      }
+      return facts;
+    },
+    /**
+     * A projector's specification.
+     *
+     * @public
+     * @param {Object} p the profile's `asls.projector`
+     * @returns {Array}
+     */
+    projectorFacts(p) {
+      const { min, max } = throwRange(p);
+      const wide = throwAngles(min, p);
+      const narrow = throwAngles(max, p);
+      const at5 = imageSizeAt(5, min, p);
+      const zoom = min === max ? `${min} : 1 prime` : `${min} - ${max} : 1`;
+      return [
+        { label: 'Throws', value: `${p.pixelsWide} x ${p.pixelsHigh} video` },
+        { label: 'Lens', value: `${zoom} · ${narrow.horizontal.toFixed(1)}° to ${wide.horizontal.toFixed(1)}°` },
+        { label: 'At 5 m', value: `up to ${at5.width.toFixed(2)} x ${at5.height.toFixed(2)} m` },
+        // Lumens on their own say nothing about how a projection will read: the
+        // same machine is brilliant on a small image and washed out on a big
+        // one. Lux is what lands on the wall, so the rating and the throw are
+        // said together. Twenty metres because that is where a machine mapping
+        // a building tends to stand -- and it scales with the square, so half
+        // the distance is four times this.
+        {
+          label: 'Output',
+          value: `${p.lumens} lm · ${p.contrast}:1 · ${illuminanceAt(20, min, p).toFixed(0)} lux at 20 m`,
+        },
+      ];
+    },
+    /**
      * Ticks or clears one override. Ticking freezes whatever is in effect now,
      * so checking the box never moves the fixture on its own.
      *
@@ -475,6 +580,25 @@ export default {
 </script>
 
 <style scoped>
+/* Laid out like `bar_summary` below, because it answers the same kind of
+   question about a different kind of fixture. */
+.device_facts dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 4px;
+}
+.device_facts dt {
+  font-family: Roboto-Medium, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-light-alt);
+}
+.device_facts dd {
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-lighter);
+  margin: 0;
+}
 .fixture_model_body {
   padding: 8px;
   min-width: 340px;

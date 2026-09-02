@@ -15,6 +15,21 @@ const STORE_NAME = 'preferences';
 const SAVE_DELAY = 400;
 
 const DEFAULTS = {
+  /**
+   * The NDI sender the scene draws its video from, by name.
+   *
+   * A **setting, not show data**, and the distinction is the whole reason it is
+   * here: a connector's rectangle describes the design and travels in the
+   * `.beam`, while "DEV1 (MadMapper - Video-Output-1)" is a fact about one
+   * machine. Opening a show on another computer is the normal case.
+   *
+   * Restored on startup, so a project full of video panels comes up connected
+   * instead of black until someone opens Preferences > Video. Reconnecting to a
+   * sender the user themselves chose here is not opening a receiver behind
+   * their back -- it is honouring the setting, the same way Art-Net input
+   * being enabled is honoured.
+   */
+  videoSource: '',
   globalFoggingState: 1,
   globalFoggingDensity: 100,
   /** Width of one haze feature, in metres. Size, not amount. */

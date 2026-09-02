@@ -384,6 +384,14 @@ class PatchMap {
     // everything in the map is raw.
     const fixture = toRaw(handle);
     const chCount = fixture.channels.length;
+    // A fixture may legitimately have no channels at all: most projectors have
+    // no DMX socket, and one is still worth placing because it shows where the
+    // image lands. It claims no address space, so patching it is a **no-op
+    // rather than an error** -- there is nothing to collide with and nothing to
+    // record. Without this, `Show.patchFixtures` throws part way through
+    // loading any show that contains one, which is a far worse failure than
+    // the dialog's, and it takes the rest of the rig with it.
+    if (chCount <= 0) return;
     const pixelSize = fixture.alignmentPixelSize;
     if (!this.canPatch(fixture.address, chCount, fixture, pixelSize)) {
       throw new Error('Cannot patch fixture on this interval');

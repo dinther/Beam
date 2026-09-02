@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import VideoDecode from './video_decode';
 
 /**
  * @file A live video source, as a texture.
@@ -84,6 +85,22 @@ class VideoFeed {
    * @returns {Uint8Array|null}
    */
   get pixels() { return this._texture ? this._texture.image.data : null; }
+
+  /**
+   * The texture the **scene** should draw this feed from.
+   *
+   * Not `texture`: that one is the bytes as they arrived, which for UYVY cannot
+   * be filtered or mipped at all. This is the unpacked RGBA copy, with a mip
+   * chain, so a screen far enough away averages the pixels it covers instead of
+   * picking one of them. Null until the first frame has been decoded.
+   *
+   * The slicing popup still uses `texture`, because a texture belongs to the
+   * context that uploaded it and the popup renders in one of its own.
+   *
+   * @readonly
+   * @type {Object|null}
+   */
+  get displayTexture() { return VideoDecode.textureFor(this); }
 
   /** Texture width, which is half the picture's when the format is UYVY. */
   get texels() { return this._texture ? this._texture.image.width : 0; }
@@ -193,6 +210,7 @@ class VideoFeed {
     if (this._holders > 0) return;
     feeds.delete(this._handle);
     if (available()) window.ndi.close(this._handle);
+    VideoDecode.release(this);
     if (this._texture) {
       this._texture.dispose();
       this._texture = null;

@@ -924,13 +924,16 @@ export function buildMadMapperLayout({
     const byIsland = group.grouping === ISLAND_GROUPING.ISLAND;
     mappingsOf(group, projection).forEach((mapping) => {
       if (!byIsland) {
-        islands.push({ members, mapping, name: group.name });
+        islands.push({
+          members, mapping, name: group.name, fromGroup: true,
+        });
         return;
       }
       islandParts(members).forEach(({ part, members: theirs }) => {
         islands.push({
           members: theirs,
           mapping,
+          fromGroup: true,
           // Named for the structure as well as the type: two structures both
           // holding movers would otherwise both want a group called `Pan
           // Tilt`, and MadMapper will not hold two groups of one name
@@ -981,14 +984,20 @@ export function buildMadMapperLayout({
         islandPart: island.part || null,
         slot: inARow ? place : null,
       })
-        // One rule for everything: the outermost group is the thing itself --
-        // a structure, or a fixture that came apart -- and the mapping is a
-        // group inside it. So a structure mapped two ways is one `Fusion`
-        // holding a `Front` and a `Top`, rather than two groups that both
-        // claim to be Fusion.
+        // The outermost group is the biggest thing this fixture belongs to,
+        // and the mapping is a group inside it. So a structure mapped two ways
+        // is one `Fusion` holding a `Front` and a `Top`, rather than two groups
+        // both claiming to be Fusion.
+        //
+        // `owner` names a fixture that came apart, which is the outermost thing
+        // only when it belongs to nothing else. Preferring it unconditionally
+        // meant a structure full of moving heads -- and a moving head always
+        // comes apart, into light and movement -- exported as one group per
+        // head with the structure's name nowhere in the file. Nine Spicas in a
+        // truss came out as nine groups called `Spica 250M 2`, `3`, `4`.
         .map((entry) => ({
           ...entry,
-          group: entry.owner || island.name,
+          group: (island.fromGroup ? island.name : entry.owner) || island.name,
           inner: manyMappings ? prefix : null,
         })),
     ));

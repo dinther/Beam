@@ -60,6 +60,23 @@ import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 const AMBIENT_AT_FULL_HOUSE = 0.09;
 
 /**
+ * The same, for an environment that is not the built-in studio.
+ *
+ * The 0.09 above is not a taste setting, it is a correction: `RoomEnvironment`
+ * is a photographic studio full of bright white panels and has to come down an
+ * order of magnitude before it reads as a venue. Nothing else here needs that.
+ * The dark venue is already dim by construction, and a photograph of a real
+ * room is at real levels -- applying the studio's correction to either dims it
+ * twice, and with the house down the second dimming takes it to nothing.
+ *
+ * What that looked like: house off with no haze left the floor at 1 of 255 and
+ * everything else at 0. Not dark -- absent.
+ *
+ * @constant {Number}
+ */
+const AMBIENT_AT_FULL_HOUSE_IMAGE = 0.5;
+
+/**
  * Roughness the environment is prefiltered at.
  *
  * Blurs the studio's panel edges into something that reads as bounce rather
@@ -77,6 +94,17 @@ export const BUILT_IN_ROOM = 'room';
 
 /** No environment at all: bounce off, punctual lights only. */
 export const NO_ENVIRONMENT = 'none';
+
+/**
+ * Which correction an environment needs.
+ *
+ * @param {String} spec
+ * @returns {Number}
+ */
+function ceilingFor(spec) {
+  return (!spec || spec === BUILT_IN_ROOM)
+    ? AMBIENT_AT_FULL_HOUSE : AMBIENT_AT_FULL_HOUSE_IMAGE;
+}
 
 /** A dark room, built rather than photographed. */
 export const DARK_VENUE = 'venue';
@@ -104,9 +132,23 @@ export const DARK_VENUE = 'venue';
  * @constant {Object}
  */
 const VENUE = {
-  floor: { colour: 0xffe8cc, level: 1.7 },
-  ceiling: { colour: 0xaec4e0, level: 0.55 },
-  walls: { colour: 0x9fb0c4, level: 0.30 },
+  // Brought down from 1.7. It was the brightest thing in the box, which reads
+  // as an up-lit stage -- but an up-facing surface never sees it, so the one
+  // thing it could not light was the floor of the actual scene. A grey floor
+  // came out in single digits while the walls above it were fine.
+  floor: { colour: 0xffe8cc, level: 1.05 },
+  // Raised from 0.55 and 0.30. At those the box was almost all floor: a
+  // vertical surface sees mostly walls, got a fifth of what the ground got, and
+  // with the house down came out at zero -- a building went completely missing
+  // while the floor under it was still faintly there. A dark venue is dark, but
+  // it is a room with a roof and drapes that catch something, not a void with a
+  // lit floor. Keeping the floor dominant preserves the up-light look; bringing
+  // the other two within reach of it is what puts the silhouette back.
+  // The ceiling is what lights the ground, so it leads now. Nearly even all
+  // round: a blacked-out room has no strong direction to its residual light,
+  // and shaping it only decides which surfaces disappear.
+  ceiling: { colour: 0xaec4e0, level: 1.35 },
+  walls: { colour: 0x9fb0c4, level: 0.85 },
 };
 
 const state = {
@@ -202,7 +244,11 @@ function generator() {
 /** Pushes the current fill onto the scene. */
 function apply() {
   if (!state.scene) return;
-  state.scene.environmentIntensity = state.ceiling * state.house;
+  // The ceiling is per environment: see `ceilingFor`. A user who has moved the
+  // debug slider keeps their value, so this only supplies the default.
+  const spec = state.houseOn ? state.specs.on : state.specs.off;
+  const ceiling = state.ceilingSet ? state.ceiling : ceilingFor(spec);
+  state.scene.environmentIntensity = ceiling * state.house;
 }
 
 /**
@@ -383,6 +429,7 @@ export function setHouseBrightness(value) {
  * @param {Number} value
  */
 export function setAmbientCeiling(value) {
+  state.ceilingSet = true;
   state.ceiling = Math.min(Math.max(Number(value) || 0, 0), 2);
   apply();
 }

@@ -7,6 +7,14 @@ import BarChannels from './bar_channels';
 import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.model';
 import MovingHead from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
+import Projector from '../../plugins/visualizer/projector';
+import ProjectorSettings from './projector_settings';
+import { isProjectorProfile } from './generic/projector';
+import Display from '../../plugins/visualizer/display';
+import VideoRouter from '../../plugins/visualizer/video_router';
+import DisplaySettings from './display_settings';
+import { isDisplayProfile } from './generic/display';
+import { GENERIC_KINDS } from './generic/kinds';
 import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS } from './scene_item';
@@ -241,6 +249,30 @@ class Fixture extends withTransform(Proxify) {
        * see MovingHead's own accessor for why it is not given away freely.
        */
       this._castsShadow = !!data.castsShadow;
+      /**
+       * What this device is set to, or null for a fixture that is neither a
+       * projector nor a display.
+       *
+       * On the placement rather than the profile: the profile says what the
+       * model can do, this says where inside that it is set. Built before the
+       * channels are, because `setChannel` routes into it.
+       *
+       * `deviceKind` rather than an `instanceof`, because the panel and the
+       * renderer both ask which kind this is and a string travels.
+       */
+      this.device = null;
+      this.deviceKind = null;
+      // Read from `device`, falling back to the key projectors were written
+      // under before displays existed. Two lines, against silently losing every
+      // projector's zoom and source on the first load after this change.
+      const deviceData = data.device || data.projector;
+      if (isProjectorProfile(this.OFLData)) {
+        this.device = new ProjectorSettings(this.OFLData.asls.projector, deviceData);
+        this.deviceKind = GENERIC_KINDS.PROJECTOR;
+      } else if (isDisplayProfile(this.OFLData)) {
+        this.device = new DisplaySettings(this.OFLData.asls.display, deviceData);
+        this.deviceKind = GENERIC_KINDS.DISPLAY;
+      }
       /** Transform relative to that group or structure, held by the owner. */
       this.localTransform = null;
       this._rotation = {
@@ -337,6 +369,9 @@ class Fixture extends withTransform(Proxify) {
       groupId: this.group ? this.group.id : undefined,
       structureId: this.structure ? this.structure.id : undefined,
       castsShadow: this._castsShadow,
+      // Only the parked values, never what DMX happens to be saying -- the
+      // same line the app already draws between an address and the wire.
+      device: this.device ? this.device.showData : undefined,
     };
   }
 
@@ -893,6 +928,20 @@ class Fixture extends withTransform(Proxify) {
       return;
     }
 
+    // A projector's channels are routed by position rather than through the
+    // capability fan-out below. Its attributes have no OFL vocabulary -- lens
+    // shift is the clearest case, where `BeamPosition` would write `pan` *and*
+    // `tilt` for a single axis and two shift channels would overwrite each
+    // other. The order is the profile's own, so it survives a model gaining a
+    // channel where a hard-coded offset would not.
+    if (this.device) {
+      const clamped = Math.ceil(Math.min(Math.max(value, 0), 255));
+      if (this.channels[id]) this.channels[id].value = clamped;
+      this.device.writeChannel(id, clamped);
+      if (this._3DModel && this._3DModel.refresh) this._3DModel.refresh();
+      return;
+    }
+
     const channel = this.channels[id]; // Getting channel instance from ID
     if (channel.fineChannels.length > 0) { // Channel has fine capabilities ?
       this.setChannel(channel.fineChannels[0].id - 1, (value % 1) * 255); // Setting fine channel values recursively
@@ -1043,6 +1092,38 @@ class Fixture extends withTransform(Proxify) {
    * @todo implement every fixture type
    */
   prepare3DModelInstance() {
+    // Asked of the geometry, for the same reason the bar below is: a projector's
+    // category is 'Other', which says nothing at all, and a projector with no
+    // DMX has no channels to recognise it by either.
+    if (this.OFLData.asls && this.OFLData.asls.projector) {
+      // Never proxied, for the same reason as the bar: three.js cannot be
+      // handed an Object3D reached through a reactive proxy.
+      this._3DModel = markRaw(new Projector({
+        params: this.OFLData.asls.projector,
+        // Read rather than copied: the panel edits the settings object in
+        // place and the renderer has to see the new value on its next refresh.
+        settingsAt: () => this.device,
+        // What this machine is throwing, resolved the same way a display's is.
+        connectorAt: () => VideoRouter.connector(this.device && this.device.value('source')),
+      }));
+      this._3DModel.fixtureHandle = this;
+      this._3DModel.position = this._position;
+      this._3DModel.rotation = this._rotation;
+      return;
+    }
+    if (this.OFLData.asls && this.OFLData.asls.display) {
+      this._3DModel = markRaw(new Display({
+        params: this.OFLData.asls.display,
+        settingsAt: () => this.device,
+        // The connector this display is showing, resolved through the router
+        // so nothing in the model layer has to reach for the show.
+        connectorAt: () => VideoRouter.connector(this.device && this.device.value('source')),
+      }));
+      this._3DModel.fixtureHandle = this;
+      this._3DModel.position = this._position;
+      this._3DModel.rotation = this._rotation;
+      return;
+    }
     // A generated profile carries the geometry OFL cannot express. Its presence
     // is what identifies the fixture, rather than a category string, because
     // 'Matrix' says nothing about where the emitters actually are.
@@ -1315,6 +1396,17 @@ class Fixture extends withTransform(Proxify) {
       LedBar.deleteInstance(model);
     } else if (instance.category === FIXTURE_TYPES.MOVING_HEAD) {
       MovingHead.deleteInstance(model);
+    } else if (model && model.constructor
+      && typeof model.constructor.deleteInstance === 'function') {
+      // Asked of the renderer itself, so a new kind needs nothing added here.
+      // Projectors and displays were both missed when this was a list of two,
+      // and a renderer that is never disposed keeps its meshes in the scene and
+      // its instance in the pick list for the rest of the session.
+      //
+      // The two branches above cannot migrate to this: a bar is matched by
+      // `instanceof` and a head by its *category*, so neither is chosen by what
+      // its renderer is.
+      model.constructor.deleteInstance(model);
     }
     instance = null;
   }

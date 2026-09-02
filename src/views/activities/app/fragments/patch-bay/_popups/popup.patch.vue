@@ -469,7 +469,27 @@ export default {
      * @type {Boolean}
      */
     addressable() {
-      return this.activeKind === 'fixtures';
+      if (this.activeKind !== 'fixtures') return false;
+      // A loaded profile may declare no channels at all -- most projectors have
+      // no DMX socket -- and something that occupies nothing is not an
+      // addressing problem. Asked only once loaded, because the default fixture
+      // carries an empty mode rather than none, and hiding the fields before a
+      // profile is picked would be a different change.
+      if (this.fixture.loaded && !this.modeChannelCount) return false;
+      return true;
+    },
+    /**
+     * How many channels the selected mode occupies.
+     *
+     * Nought before a profile is loaded, and nought for a model that declares
+     * no channels -- which is a real answer, not a missing one.
+     *
+     * @type {Number}
+     */
+    modeChannelCount() {
+      if (!this.fixture || !this.fixture.loaded) return 0;
+      const mode = this.fixture.modes[this.fixture.mode];
+      return mode && mode.channels ? mode.channels.length : 0;
     },
     /**
      * What to call this fixture in MadMapper.
@@ -1129,6 +1149,15 @@ export default {
      */
     checkPatch() {
       const chCount = this.fixture.modes[this.fixture.mode].channels.length;
+      // Nothing to place, so nothing can be in the way. `canPatch` answers
+      // false for a run of nought, which is the right answer to the question it
+      // was asked and the wrong one to ask -- it read as "those channels are
+      // already taken" for a projector that wants no channels at all.
+      if (chCount <= 0) {
+        this.patchError = false;
+        this.chStop = 0;
+        return true;
+      }
       if (this.$show.patch.canPatchMany(
         this.patchAddress,
         chCount,

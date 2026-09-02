@@ -9,6 +9,8 @@ import Selection from '@/models/DMX/selection';
 import SceneManager from './scene_manager';
 import MovingHead from './moving_head';
 import LedBar from './led_bar';
+import Projector from './projector';
+import Display from './display';
 import SceneObjects from './scene_objects';
 import GroupHandle from './group_handle';
 
@@ -46,7 +48,7 @@ import GroupHandle from './group_handle';
  *
  * @constant {Array}
  */
-const SCENE_RENDERERS = [MovingHead, LedBar, SceneObjects, GroupHandle];
+const SCENE_RENDERERS = [MovingHead, LedBar, Projector, Display, SceneObjects, GroupHandle];
 
 function selectionKey(item) {
   if (!item) return '';
@@ -493,6 +495,13 @@ class Controls {
     const helper = this.handle.getHelper();
 
     helper.traverse((child) => {
+      // The gizmo is an overlay, not scenery. Anything that renders it into a
+      // shadow map or into a projector's depth atlas has it blocking light and
+      // printing its own arrows across whatever is behind it -- which is
+      // nonsense for a handle that is not part of the show. Set on every child
+      // rather than the helper, because it is the meshes that get gathered.
+      child.castShadow = false;
+      child.receiveShadow = false;
       if (child.material) {
         // X axis
         if (child.name.includes('X')) {
@@ -961,8 +970,15 @@ class Controls {
       .filter(Boolean);
     const hits = raycaster.intersectObjects(targets, false);
     const hit = hits.find((h) => h.instanceId !== undefined
-      || (h.object && h.object.userData.ledBar));
+      || (h.object && (h.object.userData.ledBar || h.object.userData.pickOwner)));
     if (!hit) return null;
+    // `pickOwner` is the general form: any renderer whose pick target is a
+    // plain mesh can say who owns it without this method learning its name.
+    // The two special cases below predate it and could migrate to it; the
+    // instanced renderers cannot, since one mesh stands for every instance.
+    if (hit.object && hit.object.userData.pickOwner) {
+      return hit.object.userData.pickOwner.fixtureHandle || null;
+    }
     if (hit.object && hit.object.userData.ledBar) {
       return hit.object.userData.ledBar.fixtureHandle || null;
     }
