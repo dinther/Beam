@@ -65,6 +65,7 @@ import Controls from '@/plugins/visualizer/controls';
 import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
+import { fixtureIcon } from '@/models/DMX/generic/kinds';
 import PatchPopup from './_popups/popup.patch.vue';
 
 export default {
@@ -245,7 +246,7 @@ export default {
     describeFixture(fixture) {
       return {
         name: fixture.name,
-        icon: fixture.isBar ? 'ledbar' : 'movinghead',
+        icon: fixtureIcon(fixture),
         id: rowId(SCENE_ITEM_KINDS.FIXTURE, fixture.id),
         kind: fixture.kind,
         uid: fixture.uid,

@@ -23,7 +23,27 @@ import * as THREE from 'three';
  * ends rather than obviously wrong, which is the kind of error that survives a
  * long time. If a source ever looks flat, this is the first suspect.
  */
+/**
+ * sRGB's transfer function, inverted: encoded video to linear light.
+ *
+ * Written out rather than taken from three's chunks, because this is the one
+ * step that decides whether the picture is right and it should be readable
+ * here. Video carries BT.709, whose curve is near enough sRGB's for a
+ * visualiser -- and it is exactly what three applies to the other path, so
+ * using the same one is what keeps the two agreeing.
+ */
+export const VIDEO_TO_LINEAR = /* glsl */`
+  vec3 videoToLinear(vec3 encoded) {
+    return mix(
+      pow(encoded * 0.9478672986 + vec3(0.0521327014), vec3(2.4)),
+      encoded * 0.0773993808,
+      vec3(lessThanEqual(encoded, vec3(0.04045)))
+    );
+  }
+`;
+
 const UYVY_FRAGMENT = /* glsl */`
+  ${VIDEO_TO_LINEAR}
   uniform sampler2D packed;
   uniform vec2 pictureSize;
   // How much of the picture comes out: a dimmer and a blanked screen are the
@@ -50,12 +70,24 @@ const UYVY_FRAGMENT = /* glsl */`
     float v = texel.b - 0.5;
 
     y = (y - 0.0625) * 1.164383;
-    gl_FragColor = vec4(
-      (y + 1.792741 * v) * gain,
-      (y - 0.213249 * u - 0.532909 * v) * gain,
-      (y + 2.112402 * u) * gain,
-      1.0
+    vec3 encoded = vec3(
+      y + 1.792741 * v,
+      y - 0.213249 * u - 0.532909 * v,
+      y + 2.112402 * u
     );
+
+    // **Decoded, before anything else touches it.** The matrix above produces
+    // R'G'B' -- gamma-encoded, as broadcast video is -- and the include below
+    // encodes to sRGB for the display. Handing it encoded values means
+    // encoding twice, which lifts the midtones and flattens the contrast: the
+    // picture comes out washed out, and the more so the darker the source.
+    //
+    // The plain (non-UYVY) path never had this, because a texture marked
+    // sRGB is decoded by the sampler. This is the same decode, done by hand
+    // because packed bytes cannot be colour-managed on the way in.
+    //
+    // Gain is applied after, in linear, which is where a gain belongs.
+    gl_FragColor = vec4(videoToLinear(encoded) * gain, 1.0);
     #include <colorspace_fragment>
   }
 `;

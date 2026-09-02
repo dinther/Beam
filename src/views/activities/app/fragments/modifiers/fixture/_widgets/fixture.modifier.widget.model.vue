@@ -11,7 +11,12 @@
       class="fixture_model_body"
     >
       <p class="scope_note">
-        Applies to every <b>{{ fixture.manufacturer }} {{ fixture.model }}</b> in the show.
+        <!-- Non-breaking spaces, because the ordinary ones either side of the
+             bold were being eaten somewhere between here and the screen: it
+             rendered as "every<b>Beatline Projector 2</b>in". An entity is a
+             character rather than whitespace, so nothing can condense it. -->
+        Applies to every&nbsp;<b>{{ fixture.manufacturer }} {{ fixture.model }}</b
+        >&nbsp;in the show.
       </p>
 
       <template v-if="hasHead">
@@ -200,6 +205,7 @@ import {
   throwRange, throwAngles, imageSizeAt, illuminanceAt,
 } from '@/models/DMX/generic/projector';
 import { DEFAULT_PAN_SPEED, DEFAULT_TILT_SPEED } from '@/models/DMX/fixture.model';
+import { fixtureIcon } from '@/models/DMX/generic/kinds';
 
 /** How long the copy button confirms for, in ms. */
 const COPY_FEEDBACK_MS = 1500;
@@ -261,7 +267,7 @@ export default {
       const count = this.fixture.channels ? ` (${this.fixture.channels.length} ch)` : '';
       return {
         title: `${this.fixture.model}${mode}${count}`,
-        icon: this.fixture.isBar ? 'ledbar' : 'movinghead',
+        icon: fixtureIcon(this.fixture),
       };
     },
     /**
@@ -448,11 +454,15 @@ export default {
       // and they are the two numbers you need to butt panels together.
       const curve = displayCurve(p, p.width + (Number(p.bezel) || 0) * 2);
       if (curve.radius) {
+        // The angle leads because it is what was asked for; the radius and the
+        // chord follow because they are what it works out to. The chord is the
+        // room it actually takes up, which is the number for butting panels
+        // together -- the width is arc length and stays what it was.
         const chord = 2 * curve.radius * Math.sin(curve.angle / 2);
         facts.push({
           label: 'Curve',
-          value: `${(curve.radius * 1000).toFixed(0)} mm ${curve.sign > 0 ? 'convex' : 'concave'}`
-            + ` · ${((curve.angle * 180) / Math.PI).toFixed(1)}° arc · spans ${(chord * 1000).toFixed(0)} mm`,
+          value: `${((curve.angle * 180) / Math.PI).toFixed(1)}° ${curve.sign > 0 ? 'convex' : 'concave'}`
+            + ` · r ${(curve.radius * 1000).toFixed(0)} mm · spans ${(chord * 1000).toFixed(0)} mm`,
         });
       }
       return facts;

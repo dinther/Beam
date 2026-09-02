@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { VIDEO_TO_LINEAR } from './video_material';
 
 /**
  * @file Turns each video feed into an ordinary, filterable texture, once a frame.
@@ -23,12 +24,12 @@ import * as THREE from 'three';
  * target with its own tiny scene, so nothing here interacts with tone mapping,
  * bloom or the depth buffer -- it is a format conversion, not a pass.
  *
- * The colour transfer is deliberately left exactly where it was: the shader
- * writes the same gamma-encoded R'G'B' the old material did, the target is
- * marked as carrying no colour space, and the *consumer* still applies
- * `colorspace_fragment`. Mip averaging in gamma space is not strictly correct
- * -- linear would be -- but it is what everything else does, and reproducing
- * the existing look was worth more here than a change nobody asked for.
+ * **The colour transfer happens here.** The YUV matrix produces R'G'B' --
+ * gamma-encoded, as broadcast video is -- and this decodes it to linear before
+ * anything downstream sees it. That was not always so: it used to hand on
+ * encoded values that the consumer encoded a second time, and every screen came
+ * out washed out for it. Mips now average in linear, which is also the correct
+ * place to average light.
  */
 
 /**
@@ -38,6 +39,7 @@ import * as THREE from 'three';
  * per fragment of every screen rather than once per pixel of the source.
  */
 const UNPACK_FRAGMENT = /* glsl */`
+  ${VIDEO_TO_LINEAR}
   uniform sampler2D packed;
   uniform vec2 pictureSize;
   uniform bool unpackUYVY;
@@ -45,6 +47,7 @@ const UNPACK_FRAGMENT = /* glsl */`
 
   void main() {
     if (!unpackUYVY) {
+      // Already colour-managed by the sampler on the way in.
       gl_FragColor = vec4(texture2D(packed, vUv).rgb, 1.0);
       return;
     }
@@ -67,12 +70,14 @@ const UNPACK_FRAGMENT = /* glsl */`
     float v = texel.b - 0.5;
 
     y = (y - 0.0625) * 1.164383;
-    gl_FragColor = vec4(
+    // Decoded to linear here, and stored encoded by the target below. See the
+    // note on the target's colour space: this is what stops the picture being
+    // gamma-encoded twice on its way to the screen.
+    gl_FragColor = vec4(videoToLinear(vec3(
       y + 1.792741 * v,
       y - 0.213249 * u - 0.532909 * v,
-      y + 2.112402 * u,
-      1.0
-    );
+      y + 2.112402 * u
+    )), 1.0);
   }
 `;
 
@@ -142,10 +147,20 @@ function targetFor(feed) {
       generateMipmaps: true,
       depthBuffer: false,
       stencilBuffer: false,
-      // The consumer still applies `colorspace_fragment`, exactly as it did
-      // when it unpacked the bytes itself. Marking this as sRGB would convert
-      // twice and wash every screen out.
-      colorSpace: THREE.NoColorSpace,
+      // **sRGB, and the shader writes linear.** Two things fall out of that.
+      //
+      // The GPU encodes on write and decodes on sample, so what a consumer gets
+      // is linear light -- which is what its own `colorspace_fragment` expects
+      // to be handed, and what the projector pass needs before it adds video to
+      // scene light. Before this the shader wrote gamma-encoded R'G'B' and the
+      // consumer encoded it again, which lifts the midtones and flattens the
+      // contrast: every screen came out washed out.
+      //
+      // And the *storage* stays gamma-encoded, which is the reason to do it
+      // this way rather than writing linear into a plain byte target. Eight
+      // bits of linear light bands visibly in the darks; that is what a
+      // transfer curve is for.
+      colorSpace: THREE.SRGBColorSpace,
       anisotropy: maxAnisotropy,
     });
     targets.set(feed, target);

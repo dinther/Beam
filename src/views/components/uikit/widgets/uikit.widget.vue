@@ -156,11 +156,16 @@ export default {
 .body {
   display: flex;
   flex-direction: row;
-  /* Centred while it fits, aligned to the start once it does not. Plain
-     `center` puts the overflow half above the container, and no scrollbar can
-     reach above its own origin -- so tall content loses its top for good
-     rather than becoming scrollable. `safe` is exactly this fallback. */
-  align-items: safe center;
+  /* Top, not centred. A widget's content reads from the top like anything
+     else, and centring it floated short content in the middle of a tall panel
+     with a gap above it -- Paul has asked for this three times, each time
+     fixed in whichever widget he was looking at while the shared default here
+     went on centring the rest.
+
+     It also removes the reason `safe` was needed: centring put overflow half
+     above the container, where no scrollbar can reach, so tall content lost its
+     top for good. Aligned to the start there is nothing above to lose. */
+  align-items: flex-start;
   height: 100%;
   width: 100%;
   /* Scrolls rather than clips. A widget taller than the space it is given used

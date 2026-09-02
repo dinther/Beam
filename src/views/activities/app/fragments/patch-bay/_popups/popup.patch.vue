@@ -744,7 +744,7 @@ export default {
           try {
             const position_tmp = {};
             const rotation_tmp = {};
-            const chCount = this.fixture.modes[this.fixture.mode].channels.length;
+            const chCount = this.modeChannelCount;
             // Left as the profile's own name means the user did not name it,
             // so number it instead. Named fixtures are left exactly as typed.
             const profileName = this.fixture.OFLData.name;
@@ -1132,6 +1132,13 @@ export default {
         OFLData: data,
         modes: data.modes,
         modeNames: data.modes.map((mode) => mode.name),
+        // Back to the first, because a mode index means nothing across
+        // profiles. Left alone it carried over: pick 8-bit on a Spica, which is
+        // mode 1, then load a display, which has only a Default -- and every
+        // `modes[mode]` in here is reading undefined. It surfaced as a crash on
+        // insert, and looked like the newly defined profile was at fault when
+        // the culprit was whatever had been selected before it.
+        mode: 0,
         name: data.name,
         model: fixture,
         manufacturer: manufacturer.name,
@@ -1148,7 +1155,9 @@ export default {
      * @public
      */
     checkPatch() {
-      const chCount = this.fixture.modes[this.fixture.mode].channels.length;
+      // The guarded reader, not the raw index: a mode that does not exist is a
+      // fixture with nothing to patch, not a crash.
+      const chCount = this.modeChannelCount;
       // Nothing to place, so nothing can be in the way. `canPatch` answers
       // false for a run of nought, which is the right answer to the question it
       // was asked and the wrong one to ask -- it read as "those channels are
@@ -1201,7 +1210,10 @@ export default {
       // an empty mode rather than none, so there is nothing to measure before
       // a profile is loaded either.
       if (!this.addressable || !this.fixture.loaded) return;
-      const chCount = this.fixture.modes[this.fixture.mode].channels.length;
+      // The guarded reader. `loadFixture` calls this the moment a profile
+      // lands, so a mode index that does not exist reaches it before anything
+      // else has a chance to notice.
+      const chCount = this.modeChannelCount;
       const address = this.$show.patch.findFreeAddress(
         chCount,
         this.amount,

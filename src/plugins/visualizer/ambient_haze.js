@@ -93,8 +93,19 @@ const AMBIENT_HAZE_FIELD_DEPTH = 0.86;
 /** Colour of the lit air. Neutral, so fixtures own the hue. */
 const AMBIENT_HAZE_TINT = 0xaab2bd;
 
-/** How much of the effect is mixed in at full house lights. Paul's, by eye. */
-const AMBIENT_HAZE_STRENGTH = 1.14;
+/**
+ * How much of the effect is mixed in at full house lights. Paul's, by eye.
+ *
+ * Lowered from 1.14 on 2026-09-02. Room air is what fills the space *between*
+ * fixtures, and at the old value it was doing enough of the lighting that a
+ * beam had less to add: the air read before the fixtures did. A quarter leaves
+ * the room legible and gives the rig the contrast back.
+ *
+ * The `room air` slider on the debug panel opens here.
+ *
+ * @constant {Number}
+ */
+const AMBIENT_HAZE_STRENGTH = 0.25;
 
 const FRAGMENT = /* glsl */`
   uniform mat4 projInverse;

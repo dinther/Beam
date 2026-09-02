@@ -31,10 +31,29 @@ const DEFAULTS = {
    */
   videoSource: '',
   globalFoggingState: 1,
-  globalFoggingDensity: 100,
+  /**
+   * Haze intensity, as a percentage.
+   *
+   * Halved from 100 on 2026-09-02. Full is a genuinely thick room -- the sort
+   * that swallows a beam within a few metres -- and it is a poor thing to meet
+   * first: everything looks soft and nothing looks like it is throwing light.
+   * Fifty reads as hazed without deciding the whole scene.
+   *
+   * Only affects a fresh install; a stored setting wins.
+   */
+  globalFoggingDensity: 50,
   /** Width of one haze feature, in metres. Size, not amount. */
   globalFoggingScale: 4,
-  globalFoggingTurbulences: 50,
+  /**
+   * How fast the haze field churns, as a percentage.
+   *
+   * Raised from 50 on 2026-09-02. Still air reads as a texture painted on the
+   * scene rather than as something the beams are moving through, and the
+   * churn is most of what sells it as air at all.
+   *
+   * Only affects a fresh install; a stored setting wins.
+   */
+  globalFoggingTurbulences: 70,
   /**
    * Global brightness with the house lights up. The scene keeps two, because
    * looking at a rig and looking at a show want different rooms, and the one

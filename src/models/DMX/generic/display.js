@@ -31,6 +31,9 @@
  *
  * @constant {Object}
  */
+/** Radians to degrees. The curve is authored in degrees and built in radians. */
+const DEG = 180 / Math.PI;
+
 export const DISPLAY_CHANNELS = {
   DIMMER: 'dimmer',
   SHUTTER: 'shutter',
@@ -104,19 +107,27 @@ export const DEFAULT_DISPLAY_PARAMS = {
    */
   pixelSize: 0.0006,
   /**
-   * Curve radius in metres: 0 flat, positive convex, negative concave.
+   * How far the panel bends, in degrees: 0 flat, positive convex, negative
+   * concave.
    *
-   * Signed rather than a radius plus a direction, because it is one property of
-   * one surface and reads as one number -- and because the sign is the same
-   * convention a lens has. Convex bulges towards the room, which is the outside
-   * of a pillar or a round tower; concave wraps around it, which is a stage
-   * backdrop or a cove.
+   * **An angle, not a radius.** Both describe the same arc -- the width is
+   * fixed, so `radius = width / angle` -- but only one of them is a number
+   * anybody has in mind. You know you want a quarter turn around a pillar or a
+   * gentle ten degrees of bow; working out which radius that is for this
+   * particular panel is arithmetic in the way of the idea. It also survives
+   * resizing sensibly: a 90-degree panel made wider is still a quarter turn,
+   * where a fixed radius would quietly become a half.
+   *
+   * Signed, because the direction is one property of one surface and the sign
+   * is the convention a lens already uses. Convex bulges towards the room --
+   * the outside of a pillar or a tower; concave wraps around it -- a backdrop
+   * or a cove.
    *
    * The width is the arc *along* the screen, so bending a panel does not
-   * stretch it -- a 4 m wall bent onto a 3 m radius is still 4 m of pixels, it
+   * stretch it: a 4 m wall bent through 90 degrees is still 4 m of pixels, it
    * simply spans less room.
    */
-  curveRadius: 0,
+  curveAngle: 0,
   /**
    * Which channels this model actually has.
    *
@@ -193,11 +204,12 @@ export function pixelFill(params) {
 /**
  * The curve a display is bent on, resolved and made safe to build from.
  *
- * The arc is capped at half a turn: past that a panel starts closing on itself
- * and the far edges face away from anyone looking at it, which is not a display
- * any more. A radius too small for the width is opened out to that limit rather
- * than refused, so dragging the field towards zero sweeps smoothly to the
- * tightest curve instead of collapsing.
+ * Given in degrees and returned as a radius and an arc in radians, which is
+ * what the geometry wants. The width is arc length, so the two are the same
+ * fact said twice: `radius = width / angle`.
+ *
+ * Capped at half a turn: past that a panel starts closing on itself and the far
+ * edges face away from anyone looking at it, which is not a display any more.
  *
  * @public
  * @param {Object} params display parameters
@@ -206,11 +218,21 @@ export function pixelFill(params) {
  */
 export function displayCurve(params, outerWidth) {
   const width = Number(outerWidth) || Number(params.width) || DEFAULT_DISPLAY_PARAMS.width;
-  const signed = Number(params.curveRadius) || 0;
-  if (!signed) return { radius: 0, sign: 0, angle: 0 };
-  const sign = signed > 0 ? 1 : -1;
-  const radius = Math.max(Math.abs(signed), width / Math.PI);
-  return { radius, sign, angle: width / radius };
+
+  let degrees = Number(params.curveAngle) || 0;
+  // A panel authored before this was an angle. The radius it was bent on and
+  // the width it was bent at give the angle back exactly, so an old show opens
+  // curved the way it was saved rather than flat.
+  if (!degrees && Number(params.curveRadius)) {
+    const legacy = Number(params.curveRadius);
+    degrees = ((width / Math.abs(legacy)) * DEG) * (legacy > 0 ? 1 : -1);
+  }
+  if (!degrees) return { radius: 0, sign: 0, angle: 0 };
+
+  // Capped at half a turn: past that the far edges face away from anyone
+  // looking at it, which is not a display any more.
+  const angle = Math.min(Math.abs(degrees) / DEG, Math.PI);
+  return { radius: width / angle, sign: degrees > 0 ? 1 : -1, angle };
 }
 
 /**

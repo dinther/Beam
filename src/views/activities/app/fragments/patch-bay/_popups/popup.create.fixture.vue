@@ -426,17 +426,19 @@
             :max="1000"
           />
         </uk-flex>
-        <!-- Signed, because it is one property of one surface: positive bulges
-             towards the room like the outside of a pillar, negative wraps
-             around it like a backdrop, zero is flat. The width is the arc, so
-             bending a panel spans less room without losing any pixels. -->
+        <!-- An angle, not a radius: the width is fixed, so the two say the
+             same thing, but only one of them is a number anybody has in mind.
+             Signed, because the direction is one property of one surface --
+             positive bulges towards the room like the outside of a pillar,
+             negative wraps around it like a backdrop, zero is flat. -->
         <uk-flex :gap="8">
           <uk-num-input
-            v-model="screenCurve"
+            v-model="screenCurveAngle"
             class="wide_field"
-            label="Curve radius (+ convex, − concave, 0 flat)"
-            :min="-200000"
-            :max="200000"
+            label="Curve ° (+ convex, − concave, 0 flat)"
+            :precision="1"
+            :min="-180"
+            :max="180"
           />
         </uk-flex>
 
@@ -623,7 +625,7 @@ export default {
       screenPixelsWide: DEFAULT_DISPLAY_PARAMS.pixelsWide,
       screenPixelsHigh: DEFAULT_DISPLAY_PARAMS.pixelsHigh,
       pixelSize: DEFAULT_DISPLAY_PARAMS.pixelSize * MM,
-      screenCurve: DEFAULT_DISPLAY_PARAMS.curveRadius * MM,
+      screenCurveAngle: DEFAULT_DISPLAY_PARAMS.curveAngle,
       nits: DEFAULT_DISPLAY_PARAMS.nits,
       displayChannelsOn: Object.fromEntries(DISPLAY_CHANNEL_ORDER.map(
         (key) => [key, DEFAULT_DISPLAY_PARAMS.channels.includes(key)],
@@ -671,7 +673,7 @@ export default {
         pixelsWide: this.screenPixelsWide,
         pixelsHigh: this.screenPixelsHigh,
         pixelSize: this.pixelSize / MM,
-        curveRadius: this.screenCurve / MM,
+        curveAngle: this.screenCurveAngle,
         nits: this.nits,
         channels: this.displayChannelKeys,
       };
