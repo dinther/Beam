@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import Preferences from './preferences';
 
 /**
  * @file Scene-wide rendering environment.
@@ -10,14 +11,29 @@ import { EventEmitter } from 'events';
  * and anything created afterwards missed the value entirely.
  *
  * Renderers subscribe and read; nothing keeps its own copy.
+ *
+ * **It is also where these values come from.** They used to have three sets of
+ * defaults -- one here, one in `visualizer.js`, one in `preferences.js` -- that
+ * disagreed with each other (turbulence 0, 100 and 70 respectively), and which
+ * one you got depended on the order things happened to be built in. The room
+ * now reads its own defaults from `Preferences.DEFAULTS`, adopts the stored
+ * settings through `adopt`, and writes every change back itself, so there is
+ * one answer to "where does this number come from" and it is this file.
+ *
+ * Percentages live at the edges. A preference file and a slider both talk in
+ * 0..100 because that is what a person reads; everything in here is 0..1, and
+ * `STORED` is the only place the two meet.
  */
 
 /**
  * How wide a haze feature is, in metres, before anything says otherwise.
  *
+ * Taken from the preference rather than written again here: a second copy of a
+ * default is a second answer to the same question.
+ *
  * @constant {Number}
  */
-const DEFAULT_HAZE_SCALE = 4;
+const DEFAULT_HAZE_SCALE = Preferences.DEFAULTS.globalFoggingScale;
 
 /**
  * Smallest and largest haze feature, in metres.
@@ -28,20 +44,97 @@ const DEFAULT_HAZE_SCALE = 4;
 const MIN_HAZE_SCALE = 2;
 const MAX_HAZE_SCALE = 15;
 
+/**
+ * Each stored value: which preference holds it, and how it converts.
+ *
+ * `from` reads a preference into the room's own units, `to` writes it back.
+ * Nothing else in the codebase should divide or multiply one of these by a
+ * hundred -- if it does, that is the bug this table exists to prevent.
+ *
+ * @constant {Object}
+ */
+const STORED = {
+  hazeEnabled: {
+    key: 'globalFoggingState',
+    from: (value) => value !== 0 && value !== false,
+    to: (value) => (value ? 1 : 0),
+  },
+  hazeDensity: {
+    key: 'globalFoggingDensity',
+    from: (value) => Number(value) / 100,
+    to: (value) => value * 100,
+  },
+  hazeTurbulence: {
+    key: 'globalFoggingTurbulences',
+    from: (value) => Number(value) / 100,
+    to: (value) => value * 100,
+  },
+  hazeScale: {
+    key: 'globalFoggingScale',
+    from: (value) => Number(value),
+    to: (value) => value,
+  },
+};
+
+/**
+ * A stored setting in the room's units, falling back to its default.
+ *
+ * @param {String} field
+ * @param {Object} [source] a preference set; the defaults when absent
+ * @returns {*}
+ */
+function stored(field, source) {
+  const { key, from } = STORED[field];
+  const raw = source && source[key] !== undefined ? source[key] : Preferences.DEFAULTS[key];
+  return from(raw);
+}
+
 class SceneEnvironment extends EventEmitter {
   constructor() {
     super();
-    this._hazeEnabled = false;
-    this._hazeDensity = 0;
-    this._hazeTurbulence = 0;
-    this._hazeScale = DEFAULT_HAZE_SCALE;
+    // Built at the defaults rather than at zero. A panel or a renderer that
+    // reads the room before the stored settings arrive now gets the value it
+    // would have had anyway, instead of a blank scene it then reports back.
+    this._hazeEnabled = stored('hazeEnabled');
+    this._hazeDensity = stored('hazeDensity');
+    this._hazeTurbulence = stored('hazeTurbulence');
+    this._hazeScale = stored('hazeScale');
     this._houseLights = false;
+  }
+
+  /**
+   * Takes the stored settings, or the defaults where a setting is missing.
+   *
+   * Called once the preference file is in hand. Assigning through the setters
+   * is deliberate: they clamp, they announce, and the write-back they do is a
+   * no-op for a value that already matches what is on disk.
+   *
+   * @public
+   * @param {Object} [source] a preference set; the defaults when absent
+   */
+  adopt(source) {
+    this.hazeEnabled = stored('hazeEnabled', source);
+    this.hazeDensity = stored('hazeDensity', source);
+    this.hazeTurbulence = stored('hazeTurbulence', source);
+    this.hazeScale = stored('hazeScale', source);
+  }
+
+  /**
+   * Records one value and tells everyone, in that order.
+   *
+   * @private
+   * @param {String} field
+   * @param {*} value already in the room's own units
+   */
+  publish(field, value) {
+    this[`_${field}`] = value;
+    Preferences.set(STORED[field].key, STORED[field].to(value));
+    this.emit('changed', this);
   }
 
   /** @type {Boolean} */
   set hazeEnabled(enabled) {
-    this._hazeEnabled = !!enabled;
-    this.emit('changed', this);
+    this.publish('hazeEnabled', !!enabled);
   }
 
   get hazeEnabled() {
@@ -50,8 +143,7 @@ class SceneEnvironment extends EventEmitter {
 
   /** @type {Number} 0..1 */
   set hazeDensity(density) {
-    this._hazeDensity = Math.min(Math.max(Number(density) || 0, 0), 1);
-    this.emit('changed', this);
+    this.publish('hazeDensity', Math.min(Math.max(Number(density) || 0, 0), 1));
   }
 
   get hazeDensity() {
@@ -60,8 +152,7 @@ class SceneEnvironment extends EventEmitter {
 
   /** @type {Number} 0..1, how much the haze churns */
   set hazeTurbulence(turbulence) {
-    this._hazeTurbulence = Math.min(Math.max(Number(turbulence) || 0, 0), 1);
-    this.emit('changed', this);
+    this.publish('hazeTurbulence', Math.min(Math.max(Number(turbulence) || 0, 0), 1));
   }
 
   get hazeTurbulence() {
@@ -80,10 +171,9 @@ class SceneEnvironment extends EventEmitter {
    */
   set hazeScale(scale) {
     const metres = Number(scale);
-    this._hazeScale = Number.isFinite(metres)
+    this.publish('hazeScale', Number.isFinite(metres)
       ? Math.min(Math.max(metres, MIN_HAZE_SCALE), MAX_HAZE_SCALE)
-      : DEFAULT_HAZE_SCALE;
-    this.emit('changed', this);
+      : DEFAULT_HAZE_SCALE);
   }
 
   get hazeScale() {

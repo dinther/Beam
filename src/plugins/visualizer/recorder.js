@@ -38,6 +38,38 @@ const CODECS = [
 ];
 
 /**
+ * The same list for a take that carries sound.
+ *
+ * A mime type naming only a video codec does not promise the muxer will accept
+ * an audio track, so the audio codec is named too. AAC (`mp4a.40.2`) is the
+ * pairing that plays everywhere H.264 does. Probed in Electron 41.7.1
+ * (Chromium 146): `avc1.640028,mp4a.40.2`, `avc1.42E01E,mp4a.40.2` and
+ * `avc1.640028,opus` are all supported; `mp4a.67` is not.
+ *
+ * @constant {Array<String>}
+ */
+const CODECS_WITH_AUDIO = [
+  'video/mp4;codecs=avc1.640028,mp4a.40.2',
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4;codecs=avc1.640028,opus',
+  'video/mp4',
+  'video/webm;codecs=h264,opus',
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm',
+];
+
+/**
+ * Bits per second for the sound.
+ *
+ * 192k stereo AAC is transparent enough for a room recording and costs about
+ * 1.4 MB a minute, which is noise beside the video.
+ *
+ * @constant {Number}
+ */
+const AUDIO_BITRATE = 192000;
+
+/**
  * Quality as bits per pixel per frame.
  *
  * Expressed this way rather than as a bitrate because a bitrate that suits
@@ -73,11 +105,48 @@ const CHUNK_MS = 500;
 /**
  * The best container and codec this build actually supports.
  *
+ * @param {Boolean} [withAudio] whether the take carries an audio track
  * @returns {String|null} a mime type, or null when none can be recorded
  */
-function pickMimeType() {
+function pickMimeType(withAudio = false) {
   if (typeof MediaRecorder === 'undefined') return null;
-  return CODECS.find((type) => MediaRecorder.isTypeSupported(type)) || null;
+  const list = withAudio ? CODECS_WITH_AUDIO : CODECS;
+  return list.find((type) => MediaRecorder.isTypeSupported(type)) || null;
+}
+
+/**
+ * The desktop audio mix, as a single track.
+ *
+ * `getDisplayMedia` is the only route to system audio, and it will not hand
+ * back audio without also starting a screen capture -- so the video track it
+ * returns is stopped immediately and thrown away. Main has to answer the
+ * request with `audio: 'loopback'` for any of this to arrive; see
+ * `setupDesktopAudio` in `main.js`.
+ *
+ * The constraints are not decoration. Left to itself the loopback device comes
+ * up as MONO with echo cancellation, noise suppression and automatic gain all
+ * enabled -- sensible for a voice call and ruinous for music, which pumps under
+ * AGC and smears under noise suppression. Measured: asking for these turns all
+ * three off and gives stereo.
+ *
+ * @returns {Promise<MediaStreamTrack|null>} the audio track, or null
+ */
+async function captureDesktopAudio() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return null;
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: {
+      autoGainControl: false,
+      echoCancellation: false,
+      noiseSuppression: false,
+      channelCount: 2,
+      sampleRate: 48000,
+    },
+  });
+  stream.getVideoTracks().forEach((track) => track.stop());
+  const [audio] = stream.getAudioTracks();
+  if (!audio) return null;
+  return audio;
 }
 
 /**
@@ -108,15 +177,19 @@ class Recording {
    * @param {String} options.quality key into `QUALITY`
    * @param {String} options.name project name the file is called after
    * @param {String|null} options.documentPath the show's path, when saved
+   * @param {Boolean} [options.audio] record the desktop audio mix as well
    */
   constructor({
-    canvas, fps, quality, name, documentPath,
+    canvas, fps, quality, name, documentPath, audio,
   }) {
     this.canvas = canvas;
     this.fps = fps;
     this.quality = quality;
     this.name = name;
     this.documentPath = documentPath || null;
+    this.wantsAudio = !!audio;
+    /** The desktop audio track, when one was captured. */
+    this.audioTrack = null;
 
     this.id = null;
     this.path = null;
@@ -149,9 +222,28 @@ class Recording {
    * @returns {Promise<Object>} `{ ok, path }` or `{ ok: false, error }`
    */
   async start() {
-    const mimeType = pickMimeType();
-    if (!mimeType) return { ok: false, error: 'This build cannot record video' };
     if (!window.videoRecorder) return { ok: false, error: 'Recording is unavailable' };
+
+    // Ask for the sound BEFORE opening the file, so a refused capture does not
+    // leave an empty take on disk. A failure here is not fatal: the take still
+    // has a picture, and silently recording video is better than recording
+    // nothing because the audio device was busy.
+    if (this.wantsAudio) {
+      try {
+        this.audioTrack = await captureDesktopAudio();
+        if (!this.audioTrack) this.audioNote = 'No desktop audio device was available';
+      } catch (err) {
+        this.audioNote = `Desktop audio was not captured: ${err.message}`;
+        console.warn(`[recorder] ${this.audioNote}`);
+      }
+    }
+    const withAudio = !!this.audioTrack;
+
+    const mimeType = pickMimeType(withAudio);
+    if (!mimeType) {
+      if (this.audioTrack) this.audioTrack.stop();
+      return { ok: false, error: 'This build cannot record video' };
+    }
 
     const opened = await window.videoRecorder.begin({
       name: this.name,
@@ -166,13 +258,19 @@ class Recording {
     const { width, height } = this.canvas;
     try {
       this.stream = this.canvas.captureStream(this.fps);
+      // One stream carries both, so the muxer interleaves them and the file
+      // needs no post-processing to be in sync.
+      if (this.audioTrack) this.stream.addTrack(this.audioTrack);
       this.recorder = new MediaRecorder(this.stream, {
         mimeType,
         videoBitsPerSecond: bitrateFor(width, height, this.fps, this.quality),
+        ...(withAudio ? { audioBitsPerSecond: AUDIO_BITRATE } : {}),
       });
     } catch (err) {
       // The file is open and nothing will be written to it, so it goes rather
       // than being left as an empty take.
+      if (this.audioTrack) this.audioTrack.stop();
+      this.audioTrack = null;
       await window.videoRecorder.abort(this.id);
       this.id = null;
       return { ok: false, error: `Could not start the encoder: ${err.message}` };
@@ -187,8 +285,11 @@ class Recording {
     this.recorder.start(CHUNK_MS);
     this.startedAt = Date.now();
     this.mimeType = mimeType;
-    console.log(`[recorder] ${width}x${height} @ ${this.fps} fps, ${mimeType} -> ${this.path}`);
-    return { ok: true, path: this.path };
+    console.log(`[recorder] ${width}x${height} @ ${this.fps} fps, ${mimeType}`
+      + `${withAudio ? ' + desktop audio' : ''} -> ${this.path}`);
+    return {
+      ok: true, path: this.path, audio: withAudio, note: this.audioNote || null,
+    };
   }
 
   /**
@@ -243,7 +344,9 @@ class Recording {
     // queue by now; awaiting the queue awaits it too.
     await this.queue;
 
+    // The audio track was added to this stream, so this stops it too.
     this.stream.getTracks().forEach((track) => track.stop());
+    this.audioTrack = null;
     const { id } = this;
     this.id = null;
     this.recorder = null;
@@ -262,5 +365,5 @@ class Recording {
 }
 
 export default {
-  Recording, QUALITY, FRAME_RATES, pickMimeType, bitrateFor,
+  Recording, QUALITY, FRAME_RATES, pickMimeType, bitrateFor, captureDesktopAudio,
 };

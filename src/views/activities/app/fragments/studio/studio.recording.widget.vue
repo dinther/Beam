@@ -63,6 +63,12 @@
         />
       </uk-flex>
 
+      <uk-checkbox
+        v-model="recordAudio"
+        label="Record desktop audio"
+        :disabled="recording"
+      />
+
       <p class="studio_recording_note">
         {{ encodingHint }}
       </p>
@@ -175,6 +181,10 @@ export default {
     rateIndex: {
       get() { return Math.max(0, this.rates.indexOf(Studio.state.fps)); },
       set(index) { Studio.state.fps = this.rates[index] || 30; },
+    },
+    recordAudio: {
+      get() { return Studio.state.recordAudio; },
+      set(value) { Studio.state.recordAudio = !!value; },
     },
     qualityIndex: {
       get() { return Math.max(0, this.qualities.indexOf(Studio.state.quality)); },
@@ -299,6 +309,7 @@ export default {
         canvas: toRaw(this.visualizer).domElement,
         fps: Studio.state.fps,
         quality: Studio.state.quality,
+        audio: Studio.state.recordAudio,
         name: this.$show.documentTitle,
       });
       const started = await take.start();
@@ -308,6 +319,11 @@ export default {
         this.message = { text: started.error, error: true };
         return;
       }
+
+      // Audio can fail on its own without failing the take -- the picture is
+      // still worth having -- so say so rather than leaving a silent file to be
+      // discovered later.
+      if (started.note) this.message = { text: started.note, error: false };
 
       this.take = take;
       Studio.state.recording = true;

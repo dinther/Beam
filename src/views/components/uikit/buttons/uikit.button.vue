@@ -1,8 +1,8 @@
 <template>
   <button
     class="uikit_button"
-    :style="{background: toggled && color ? color : 'var(--secondary-dark)' }"
-    :class="{ disabled, toggled, toggleable, square, icon_only: iconOnly }"
+    :style="{ background }"
+    :class="{ disabled, toggled, toggleable, square, flat, icon_only: iconOnly }"
     :title="title || label"
     @click.stop="handleClick"
   >
@@ -52,6 +52,15 @@ export default {
      * Whether alternate "square" styling should be applied
      */
     square: Boolean,
+    /**
+     * Draws the button with no background at all -- just its glyph.
+     *
+     * For an icon that expresses a STATE rather than offering an action, where
+     * the usual pill reads as a second control sitting beside the real ones.
+     * The colour then comes from whatever `color` the caller sets, since the
+     * icons are drawn with `fill="currentColor"`.
+     */
+    flat: Boolean,
     /**
      * Draws the button as a square holding only its icon. The label still has
      * to be given: it becomes the tooltip, which is the only thing telling a
@@ -153,6 +162,31 @@ export default {
 }
 .uikit_button.square{
   border-radius: 0;
+}
+/* Matches the specificity of the background rule above and comes after it, so
+   it wins without an arms race. A plain `.uikit_button.flat` loses: `:not()`
+   counts towards specificity, so that rule scores four classes and this would
+   score two. */
+.uikit_button.flat:not(.disabled):not(.toggleable) {
+  background: transparent !important;
+  border-radius: 0;
+  /* `icon_only` sizes a button 30 x 30 for a toolbar. Flat is a glyph in a
+     row, so it takes only the space the glyph needs -- stated here rather than
+     by the caller because `icon_only` outranks anything a parent stylesheet
+     can say at equal specificity. */
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  opacity: 1;
+}
+/* Smaller than the toolbar's 18px but not so small that the difference between
+   two similar glyphs stops reading. `!important` to match the rule it
+   overrides. */
+.uikit_button.flat.icon_only .uikit_button_icon {
+  width: 16px !important;
+  height: 16px !important;
 }
 .uikit_button.icon_only {
   width: 30px;

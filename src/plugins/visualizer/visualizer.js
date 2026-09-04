@@ -38,6 +38,29 @@ const LED_FIXTURE_LED_CAPACITY = 0;
 
 /** How far a press may travel and still count as a click on the gizmo. */
 const VIEW_CUBE_CLICK_SLOP_PX = 4;
+
+/**
+ * How far a look-around drag turns the view: a screen height is a full turn.
+ *
+ * The same rate `OrbitControls` rotates at, so the two drags feel like one
+ * hand rather than two devices.
+ */
+const LOOK_TURN_PER_HEIGHT = Math.PI * 2;
+
+/** Stops just short of the poles, where the view would flip over on itself. */
+const LOOK_MIN_POLAR = Math.PI * 0.02;
+const LOOK_MAX_POLAR = Math.PI * 0.98;
+
+/** `PointerEvent.button` values the modified drags are hung off. */
+const MIDDLE_BUTTON = 1;
+const RIGHT_BUTTON = 2;
+
+/** What a shift-drag is doing: turning the view, or lifting the whole rig. */
+const DRAG_LOOK = 'look';
+const DRAG_LIFT = 'lift';
+
+/** Scratch for the look vector, so a drag allocates nothing per move. */
+const lookVector = new THREE.Vector3();
 import SceneEnv from './scene_env';
 import { hazeCycle, setHazeCycle } from './haze_noise';
 import {
@@ -46,6 +69,7 @@ import {
 import AmbientHazeEffect from './ambient_haze';
 import Perf from './perf_overlay';
 import Preferences from './preferences';
+import Tuning from './tuning';
 import createLEDDebugPanel from './led_debug_panel';
 import VideoFeed from './video_feed';
 import Display from './display';
@@ -85,6 +109,14 @@ let projectorEffect = null;
  * screen-space glare a fair stand-in for scattering, at no geometry cost.
  */
 let bloomEffect = null;
+
+/**
+ * Whether the debug panel has taken the bloom over.
+ *
+ * Bloom normally follows haze density. Once a value is set by hand that has to
+ * stop, or the next change of haze would undo it.
+ */
+let bloomManual = false;
 
 /**
  * Ambient haze pass, kept accessible so the debug panel and the house lights
@@ -178,7 +210,7 @@ function applyHelperVisibility() {
  * than deleted, since the two are complementary and bloom may earn its place
  * back for the lens-glare part.
  */
-const USE_BLOOM = false;
+const USE_BLOOM = true;
 
 /**
  * Background shown while the house lights are up.
@@ -216,9 +248,21 @@ const HOUSE_LIGHTS_BACKGROUND = '#3c3c3c';
 const BLOOM_BY_FOG = {
   // Haze off is not glow off: a bright emitter still glares in any lens or eye.
   // Density adds the extra spread the air contributes on top of that floor.
-  intensity: { min: 1.8, max: 5.0 },
+  //
+  // The FLOOR is the number that matters and it was set too high. At no haze at
+  // all the old values ran intensity 1.8 against pmndrs' own default of 1.0,
+  // with a luminance threshold of 0.30 -- so anything past a third brightness
+  // bloomed before any air was involved, and the whole image washed. Paul:
+  // "bloom might be a bit much". Now the floor is glare on genuinely bright
+  // things only, and haze opens it up exactly as it did.
+  //
+  // Deliberately NOT a preference. Bloom already answers to haze density, which
+  // is a scene control the user sets; a second control over the same quantity
+  // is how the LED glows ended up with a private turbulence scale that the haze
+  // slider could not reach.
+  intensity: { min: 0.70, max: 5.0 },
   radius: { min: 0.40, max: 1.0 },
-  threshold: { min: 0.30, max: 0.05 },
+  threshold: { min: 0.45, max: 0.05 },
 };
 
 /**
@@ -245,16 +289,15 @@ THREE.Vector3.prototype.round = function vector3RoundPolyfill(digits) {
  * @default
  */
 const DEFAULT_PREFERENCES = {
-  FOGGING_STATE: true,
-  // Full haze. This was 18 when it doubled as the noise scale; as an amount
-  // that would be a beam at a fifth of its brightness.
-  FOGGING_DENSITY: 100,
-  /** Width of one haze feature, in metres. Size, not amount. */
-  FOGGING_SCALE: 4.9,
-  GLOBAL_FOGGING_TURBULENCES: 100,
   GLOBAL_BRIGHTNESS: 100,
   BRIGHTNESS_HOUSE_OFF: 30,
 };
+
+// The haze defaults used to live here too, and disagreed with the ones in
+// `preferences.js` -- turbulence was 100 in this table, 70 in that one, and 0
+// in `SceneEnv`'s constructor. Which of the three you got depended on the order
+// the scene happened to be built in. There is now one set, in `preferences.js`,
+// and `SceneEnv` reads it.
 
 /**
  * @class
@@ -307,6 +350,13 @@ class Visualizer {
     // Loaded before anything is built, so the scene comes up already dressed
     // rather than flickering through defaults.
     await Preferences.load();
+    // Straight onto the room, before a renderer or a debug panel can read it.
+    // The panel used to be built in `main()` and take its numbers from a
+    // `SceneEnv` nothing had filled in yet, so it displayed zeros for the rest
+    // of the session while the scene ran on the stored values -- the panel and
+    // the room disagreeing is what "I don't know what value comes from where"
+    // looked like from the outside.
+    SceneEnv.adopt(Preferences.all());
     // After the preferences are in, so the name is known, and unawaited so a
     // sender that has gone off the network cannot hold up the whole visualizer.
     this.restoreVideoSource();
@@ -353,10 +403,9 @@ class Visualizer {
       DEFAULT_PREFERENCES.BRIGHTNESS_HOUSE_OFF,
     );
     this.applyBrightness();
-    this.globalFoggingDensity = source.globalFoggingDensity;
-    this.globalFoggingScale = source.globalFoggingScale;
-    this.globalFoggingState = source.globalFoggingState;
-    this.globalFoggingTurbulences = source.globalFoggingTurbulences;
+    // One call, and the conversion from stored percentages lives in the room
+    // rather than being repeated in four setters here.
+    SceneEnv.adopt(source);
     this.snapEnabled = source.snapEnabled !== false;
     this.snapSpacing = source.snapSpacing;
     this.showGrid = source.showGrid;
@@ -524,12 +573,7 @@ class Visualizer {
   // eslint-disable-next-line class-methods-use-this
   set globalFoggingState(value) {
     SceneEnv.hazeEnabled = value === undefined || value === null
-      ? DEFAULT_PREFERENCES.FOGGING_STATE
-      : !!value;
-    MovingHead.fogState = SceneEnv.hazeEnabled;
-    Preferences.set('globalFoggingState', SceneEnv.hazeEnabled ? 1 : 0);
-    this.applyFogToBloom();
-    this.applyHaze();
+      ? Preferences.DEFAULTS.globalFoggingState : !!value;
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -542,13 +586,11 @@ class Visualizer {
    *
    * @type {Number}
    */
+  // eslint-disable-next-line class-methods-use-this
   set globalFoggingDensity(value) {
-    SceneEnv.hazeDensity = Number.isFinite(value)
-      ? Math.min(Math.max(value, 0), 100) / 100
-      : DEFAULT_PREFERENCES.FOGGING_DENSITY / 100;
-    this.applyHaze();
-    Preferences.set('globalFoggingDensity', SceneEnv.hazeDensity * 100);
-    this.applyFogToBloom();
+    SceneEnv.hazeDensity = (Number.isFinite(value)
+      ? Math.min(Math.max(value, 0), 100)
+      : Preferences.DEFAULTS.globalFoggingDensity) / 100;
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -566,10 +608,10 @@ class Visualizer {
    *
    * @type {Number} metres
    */
+  // eslint-disable-next-line class-methods-use-this
   set globalFoggingScale(value) {
-    SceneEnv.hazeScale = Number.isFinite(value) ? value : DEFAULT_PREFERENCES.FOGGING_SCALE;
-    MovingHead.fogScale = SceneEnv.hazeScale;
-    Preferences.set('globalFoggingScale', SceneEnv.hazeScale);
+    SceneEnv.hazeScale = Number.isFinite(value)
+      ? value : Preferences.DEFAULTS.globalFoggingScale;
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -584,13 +626,9 @@ class Visualizer {
    */
   // eslint-disable-next-line class-methods-use-this
   set globalFoggingTurbulences(value) {
-    const normalised = Number.isFinite(value)
-      ? Math.min(Math.max(value, 0), 100) / 100
-      : DEFAULT_PREFERENCES.GLOBAL_FOGGING_TURBULENCES / 100;
-    SceneEnv.hazeTurbulence = normalised;
-    // The beam shader scales this differently; keep its own convention.
-    MovingHead.fogTurbulence = normalised * 2;
-    Preferences.set('globalFoggingTurbulences', normalised * 100);
+    SceneEnv.hazeTurbulence = (Number.isFinite(value)
+      ? Math.min(Math.max(value, 0), 100)
+      : Preferences.DEFAULTS.globalFoggingTurbulences) / 100;
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -737,7 +775,6 @@ class Visualizer {
     // haze goes with it. SceneEnv folds this into `hazeAmount`, which every
     // renderer that scatters light already reads.
     SceneEnv.houseLights = this._houseLights;
-    this.applyHaze();
     this.applyBackground();
     Preferences.set('houseLights', this._houseLights);
     this.applyBrightness();
@@ -759,13 +796,6 @@ class Visualizer {
    * @public
    */
   // eslint-disable-next-line class-methods-use-this
-  applyHaze() {
-    try {
-      MovingHead.fogDensity = SceneEnv.hazeAmount;
-    } catch (err) {
-      // No beams yet; `main()` pushes the value once instancing is prepared.
-    }
-  }
 
   /**
    * Puts whichever brightness is in force onto the light.
@@ -1002,10 +1032,11 @@ class Visualizer {
 
     MovingHead.prepareInstanciation(this.camera, SceneManager);
 
-    // Safe only now: MovingHead's fog getters read through the beam mesh,
-    // which does not exist until instancing has been prepared.
+    // The beams have their uniforms from `SceneEnv` as they are built, so
+    // there is nothing to push at them here. The bloom is this side's business
+    // and follows the room from now on.
     this.applyFogToBloom();
-    this.applyHaze();
+    SceneEnv.on('changed', () => this.applyFogToBloom());
 
     AnimationManager.add((t) => {
       MovingHead.update(t);
@@ -1214,6 +1245,14 @@ class Visualizer {
     // Reported beside the timings: it is the number you read off while
     // moving around to work out how far away something is.
     Perf.watchCamera(this.camera);
+
+    // Anything the debug panel was left holding, put back. Here rather than
+    // beside `Preferences.load()` because half of these targets -- the bloom,
+    // the ambient haze -- are made by `prepareComposer` and `installAmbient`
+    // immediately above, and applying to a target that does not exist yet
+    // would silently restore nothing.
+    const restored = Tuning.applyStored(this);
+    if (restored) console.log(`[tuning] restored ${restored} stored values`);
   }
 
   /**
@@ -1325,6 +1364,9 @@ class Visualizer {
     const density = SceneEnv.hazeAmount;
 
     if (!bloomEffect) return;
+    // Hands off once the debug panel has set a value by hand, or every slider
+    // would be overwritten the next time the haze moved.
+    if (bloomManual) return;
     const lerp = (range) => range.min + (range.max - range.min) * density;
 
     bloomEffect.intensity = lerp(BLOOM_BY_FOG.intensity);
@@ -1397,15 +1439,151 @@ class Visualizer {
   }
 
   /**
+   * The two drags shift adds: turn the view, and lift the whole rig.
+   *
+   * Shift and right-drag turns the view without moving the camera; shift and
+   * middle-drag translates it vertically. Both are held by hand because the
+   * controls cannot express either one -- see below.
+   *
+   * **Why this is not a pan.** An `OrbitControls` pan translates the camera and
+   * its target together, so the view direction it leaves behind is the one it
+   * started with -- a pan can cross a room but it cannot raise your eyes. And
+   * the camera always looks at the target, so the only way to look up at a
+   * truss from standing height is to put the target above the camera. That is
+   * this: the look-at point swings around the camera on the sphere it already
+   * sits on, which is an orbit with the two ends swapped.
+   *
+   * **Why the press is taken on `window`, in the capture phase.** Because
+   * `OrbitControls` reads a modifier as a *mode swap*, not as a passthrough:
+   * shift on a pan-mapped button starts a rotate, and shift on a rotate-mapped
+   * one starts a pan (`OrbitControls.js`, `_onMouseDown`). Any modifier gesture
+   * laid over its own bindings therefore comes out as the other binding. The
+   * event is caught before it reaches the canvas and stopped there, so the
+   * controls never see the press and have nothing to swap. They stay enabled
+   * throughout, which is what keeps them suppressing the context menu the
+   * right button would otherwise raise on release.
+   *
+   * The target is left wherever the look ends, so the next ordinary right-drag
+   * orbits about the thing you just turned to face.
+   *
+   * @public
+   */
+  prepareLookAround() {
+    this.lookingFrom = null;
+
+    window.addEventListener('pointerdown', (event) => {
+      if (!event.shiftKey || event.target !== this.domElement) return;
+      const mode = (event.button === RIGHT_BUTTON && DRAG_LOOK)
+        || (event.button === MIDDLE_BUTTON && DRAG_LIFT);
+      if (!mode) return;
+      this.lookingFrom = { x: event.clientX, y: event.clientY, mode };
+      event.stopPropagation();
+      event.preventDefault();
+    }, true);
+
+    window.addEventListener('pointermove', (event) => {
+      if (!this.lookingFrom) return;
+      const height = this.domElement.clientHeight || 1;
+      const dx = ((event.clientX - this.lookingFrom.x) / height) * LOOK_TURN_PER_HEIGHT;
+      const dy = ((event.clientY - this.lookingFrom.y) / height) * LOOK_TURN_PER_HEIGHT;
+      const pixels = event.clientY - this.lookingFrom.y;
+      this.lookingFrom.x = event.clientX;
+      this.lookingFrom.y = event.clientY;
+      if (this.lookingFrom.mode === DRAG_LOOK) this.lookAround(dx, dy);
+      else this.liftView(pixels);
+      event.stopPropagation();
+    }, true);
+
+    window.addEventListener('pointerup', () => {
+      this.lookingFrom = null;
+    }, true);
+  }
+
+  /**
+   * Swings the look-at point around a camera that stays where it is.
+   *
+   * Signs follow the orbit drag rather than a game's mouse-look: dragging down
+   * looks down, dragging right turns the way an orbit drag right turns.
+   *
+   * @public
+   * @param {Number} dx radians of yaw
+   * @param {Number} dy radians of pitch
+   */
+  lookAround(dx, dy) {
+    lookVector.copy(this.controls.target).sub(this.camera.position);
+    const radius = lookVector.length();
+    // A target sitting on the camera has no direction to turn.
+    if (radius < 1e-6) return;
+
+    // Azimuth about world up, which is +Z here, and polar measured from it: a
+    // small polar angle is a target overhead, which is the view looking up.
+    const theta = Math.atan2(lookVector.y, lookVector.x) - dx;
+    const polar = Math.acos(THREE.MathUtils.clamp(lookVector.z / radius, -1, 1)) + dy;
+    const phi = THREE.MathUtils.clamp(polar, LOOK_MIN_POLAR, LOOK_MAX_POLAR);
+
+    const flat = Math.sin(phi) * radius;
+    this.controls.target.set(
+      this.camera.position.x + flat * Math.cos(theta),
+      this.camera.position.y + flat * Math.sin(theta),
+      this.camera.position.z + Math.cos(phi) * radius,
+    );
+    this.controls.update();
+  }
+
+  /**
+   * Lifts the camera and its target together, straight up the world.
+   *
+   * The vertical half of what `screenSpacePanning` used to give for free: a
+   * plain middle-drag now walks the floor, which is right for crossing a room
+   * and useless for rising above it. This is the other half, put back on its
+   * own gesture rather than traded against the first.
+   *
+   * The rate is the one `OrbitControls` pans at -- the world distance a pixel
+   * covers at the target's depth -- so a lift and a walk move ground under the
+   * pointer at the same speed. Dragging down raises the camera, which is the
+   * same grab-the-world direction the pan has always had.
+   *
+   * @public
+   * @param {Number} pixels vertical drag since the last move
+   */
+  liftView(pixels) {
+    const height = this.domElement.clientHeight || 1;
+    const distance = this.camera.position.distanceTo(this.controls.target);
+    const perPixel = (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)
+      * distance) / height;
+    const lift = pixels * perPixel;
+    this.camera.position.z += lift;
+    this.controls.target.z += lift;
+    this.controls.update();
+  }
+
+  /**
    * Prepares Visualizer's camera controls
    *
    * @public
    */
   prepareControls() {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.screenSpacePannning = false;
+    // `screenSpacePannning` -- three n's -- was setting a property that does not
+    // exist, so the real one kept its default of true and a vertical pan slid
+    // the camera up the screen rather than across the floor. False is what was
+    // meant: pan along the ground, which is how you cross a room.
+    this.controls.screenSpacePanning = false;
+    // Zoom towards whatever is under the pointer instead of towards the orbit
+    // target. This is the single thing that makes the camera feel aimed rather
+    // than fought: with a fixed pivot you slide *past* the fixture you are
+    // closing on, because the point you are converging towards is somewhere
+    // behind it. Off by default in three, and it is why moving about grated.
+    this.controls.zoomToCursor = true;
+    // Weight. Without damping every drag stops dead on mouse-up, which reads as
+    // twitchy on a large scene; the update loop that makes it work is already
+    // running below.
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 0.2;
-    this.controls.maxDistance = 100;
+    // A hundred metres is inside a big room, let alone a building being mapped
+    // -- the camera hit the stop while the venue was still growing.
+    this.controls.maxDistance = 400;
     this.controls.target.set(0, 0, 4.1);
     // Was PI / 2.1, which pinned the orbit just above horizontal. Fixtures
     // aimed downward can only be seen from underneath, so the camera has to be
@@ -1419,6 +1597,8 @@ class Visualizer {
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.ROTATE,
     };
+
+    this.prepareLookAround();
     this.controls.autoRotate = this.autoRotate;
     this.controls.autoRotateSpeed = 2.5
     AnimationManager.add(() => {
@@ -1491,6 +1671,76 @@ class Visualizer {
     // `update` is what re-derives the camera's orientation from the target, so
     // without it the camera moves but goes on facing wherever it faced before.
     if (this.controls) this.controls.update();
+  }
+
+  /**
+   * The live bloom settings, for the debug panel.
+   *
+   * Null when bloom is not in the chain, which is how the panel knows whether
+   * to offer the folder at all.
+   *
+   * @public
+   * @returns {Object|null} `{ intensity, threshold, radius, manual }`
+   */
+  // eslint-disable-next-line class-methods-use-this
+  get bloom() {
+    if (!bloomEffect) return null;
+    return {
+      intensity: bloomEffect.intensity,
+      threshold: bloomEffect.luminanceMaterial.threshold,
+      radius: bloomEffect.mipmapBlurPass.radius,
+      manual: bloomManual,
+    };
+  }
+
+  /**
+   * Sets one bloom value by hand and stops the haze follower touching it.
+   *
+   * @public
+   * @param {String} key `intensity`, `threshold` or `radius`
+   * @param {Number} value
+   */
+  // eslint-disable-next-line class-methods-use-this
+  setBloom(key, value) {
+    if (!bloomEffect) return;
+    bloomManual = true;
+    if (key === 'intensity') bloomEffect.intensity = value;
+    else if (key === 'threshold') bloomEffect.luminanceMaterial.threshold = value;
+    else if (key === 'radius') bloomEffect.mipmapBlurPass.radius = value;
+  }
+
+  /** Gives the bloom back to the haze follower. @public */
+  // eslint-disable-next-line class-methods-use-this
+  releaseBloom() {
+    bloomManual = false;
+  }
+
+  /**
+   * Flies to a viewpoint instead of jumping to it.
+   *
+   * The counterpart of the `viewpoint` setter: same destination, taken over
+   * time. `Controls.flyTo` does the work, so this and the view buttons share
+   * one animator -- see the note there.
+   *
+   * @public
+   * @param {Object} viewpoint `{ position, target }`
+   * @param {Object} [options] `{ seconds, easing, fov, onDone }`
+   */
+  flyToViewpoint(viewpoint, options = {}) {
+    if (!viewpoint || !this.camera) return;
+    const { position, target } = viewpoint;
+    if (!position || !target) return;
+    Controls.flyTo(position, target, {
+      ms: Math.max(0, (options.seconds ?? 1) * 1000),
+      easing: options.easing || 'inOut',
+      fov: options.fov,
+      onDone: options.onDone,
+    });
+  }
+
+  /** @returns {Boolean} whether a camera move is in progress */
+  get flying() {
+    return !!Controls.flying;
   }
 
   /**

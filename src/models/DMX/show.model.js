@@ -22,6 +22,8 @@ import {
 import { buildProjectorProfile } from './generic/projector';
 import { buildDisplayProfile } from './generic/display';
 import VideoRouter from '../../plugins/visualizer/video_router';
+import SceneObjects from '../../plugins/visualizer/scene_objects';
+import Studio from './studio';
 import { GENERIC_KINDS } from './generic/kinds';
 import { normaliseMatrixProfile } from './ofl_matrix';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
@@ -214,6 +216,22 @@ class Show extends EventEmitter {
     return this.isSaved;
   }
 
+  /**
+   * Marks the show changed.
+   *
+   * Most edits are noticed on their own: show data goes through a proxy that
+   * reports every write. Studio's cameras do not -- they live in their own
+   * reactive store so two fragments can share them -- and they are show data
+   * now, so whatever changes them says so here. Without this you can place a
+   * view, close, and be asked nothing on the way out.
+   *
+   * @public
+   */
+  touch() {
+    this.isSaved = false;
+    this.emit('saveState', this.isSaved);
+  }
+
   get isSaved() {
     return this._isSaved;
   }
@@ -239,6 +257,9 @@ class Show extends EventEmitter {
   }
 
   get showData() {
+    // Read only when the show is being written out, which is the moment the
+    // editor camera has to hold the view actually on screen.
+    this.captureEditorView();
     return {
       version: SHOWFILE_VERSION,
       diffInput: PatchSingleton.diffInput,
@@ -253,7 +274,34 @@ class Show extends EventEmitter {
       // The rectangles, and deliberately not which sender fills them: that is
       // a fact about one machine, and this file opens on others.
       videoConnectors: this.videoConnectors.map((connector) => connector.showData),
+      // Views, not cameras: five numbers each, applied to the one camera the
+      // visualizer has. They belong to the show because they are about this
+      // scene -- a locked view onto a rig is how you see that a material
+      // changed, and it has to survive being closed to be worth anything.
+      //
+      // Caught up by `captureEditorView` at the top of this getter. Nothing
+      // writes the editor camera while you are working -- the 10 Hz sync only
+      // runs in studio mode -- so without that, a project would remember
+      // whatever the view was when studio was last left rather than the one
+      // being saved.
+      cameras: Studio.showData,
     };
+  }
+
+  /**
+   * Copies the live viewport into the editor camera.
+   *
+   * Only outside studio mode, where the viewport IS the editor camera. In
+   * studio mode it belongs to whichever camera is live and the sync already
+   * owns it -- and a locked camera must not be written over at all.
+   *
+   * @public
+   */
+  captureEditorView() {
+    if (Studio.state.active) return;
+    if (!this.visualizerHandle) return;
+    if (Studio.isCameraLocked(Studio.SCENE_CAMERA_ID)) return;
+    Studio.captureInto(Studio.SCENE_CAMERA_ID, this.visualizerHandle.viewpoint);
   }
 
   /**
@@ -372,6 +420,12 @@ class Show extends EventEmitter {
     this.structures = [];
     this.objects.forEach((object) => object.dispose());
     this.objects = [];
+    // And the geometry they were drawn from. Disposing an object removes its
+    // placement -- its row in an instanced buffer -- but the build itself is
+    // cached in `SceneObjects` under the object's render key, and a cache that
+    // outlives the show it was filled for is a cache that answers the next
+    // show's questions with the last one's shapes.
+    SceneObjects.clear();
     // Nothing to dispose: a connector holds no scene node and no GPU
     // resource, only numbers.
     this.videoConnectors = [];
@@ -622,6 +676,16 @@ class Show extends EventEmitter {
     this.videoConnectors = (showData.videoConnectors || [])
       .map((data) => new VideoConnector(data));
 
+    // Cameras belong to the show, so the one arriving replaces the one that
+    // was open. A file written before this carries none, which empties the
+    // list rather than leaving the last show's views behind it.
+    //
+    // When the file carries an editor view, the viewport goes to it: reopening
+    // a project should look the way it did when it was closed. Applied further
+    // down rather than here -- `frameDefault` runs at the end of this method
+    // and would fly straight over the top of it.
+    const storedView = Studio.loadCameras(showData.cameras);
+
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
     if (showData.diffInput !== undefined) {
@@ -634,11 +698,17 @@ class Show extends EventEmitter {
     this.ready = true;
     this.isSaved = true;
 
-    // Opening view chosen from the show that just loaded. Every fixture has
-    // its renderer by now, and bounds come from those rather than from drawn
-    // matrices, so there is nothing to wait a frame for.
-    if (this.visualizerHandle && this.visualizerHandle.frameDefault) {
-      this.visualizerHandle.frameDefault();
+    // The opening view. A show that carries its own editor view gets that one:
+    // it is where the project was left, and it is the only camera whose framing
+    // has nowhere else to live. `frameDefault` is the fallback for a show that
+    // carries none -- and it has to be an either/or, because it flies rather
+    // than jumps, so running both would animate away from the restored view.
+    if (this.visualizerHandle) {
+      if (storedView) {
+        this.visualizerHandle.viewpoint = Studio.viewpointOf(Studio.SCENE_CAMERA_ID);
+      } else if (this.visualizerHandle.frameDefault) {
+        this.visualizerHandle.frameDefault();
+      }
     }
   }
 
@@ -1165,9 +1235,17 @@ class Show extends EventEmitter {
     this.objects.push(...made);
     if (!made.length) return made;
     await this.preloadObjectLibrary();
-    made.forEach((object) => {
-      object.attach(this.objectLibrary[foldModelKey(object.model)] || null);
-    });
+    // Awaited, all of them. These used to be fired off inside a `forEach` and
+    // left to land: the load reported itself finished while geometry was still
+    // arriving, so a clear that happened in between removed placements that did
+    // not exist yet and their meshes were added to a scene nothing was tracking
+    // them in. It also made the check below meaningless -- `unresolved` is set
+    // inside `attach`, so reading it in the same tick asked every object a
+    // question none of them had answered, and a genuinely missing model went
+    // unreported.
+    await Promise.all(made.map(
+      (object) => object.attach(this.objectLibrary[foldModelKey(object.model)] || null),
+    ));
     const missing = made.filter((object) => object.unresolved);
     if (missing.length) {
       // Named, because "an object is missing" is not actionable and the file

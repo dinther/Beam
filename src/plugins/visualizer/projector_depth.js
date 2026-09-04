@@ -176,6 +176,11 @@ export default {
     scene.updateMatrixWorld();
     const wasAutoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
+    // Everything from here to the restore runs inside `try`, because leaving
+    // this flag off is not a glitch that clears on the next frame: the scene's
+    // transforms stop being recomputed *for good*, and every object that takes
+    // its place from a parent freezes where it stood. One throw in a tile
+    // render would do it, and the symptom would look nothing like this file.
 
     // Everything drawable that is not a shadow-casting mesh stands down.
     //
@@ -202,37 +207,46 @@ export default {
     renderer.getClearColor(previousColour);
     const wasAutoClear = renderer.autoClear;
 
-    scene.overrideMaterial = DEPTH_MATERIAL;
-    renderer.autoClear = false;
-    renderer.setRenderTarget(target);
-    renderer.setScissorTest(false);
-    renderer.setClearColor(FAR_COLOUR, 1);
-    renderer.clear(true, true, false);
-    renderer.setScissorTest(true);
+    try {
+      scene.overrideMaterial = DEPTH_MATERIAL;
+      renderer.autoClear = false;
+      renderer.setRenderTarget(target);
+      renderer.setScissorTest(false);
+      renderer.setClearColor(FAR_COLOUR, 1);
+      renderer.clear(true, true, false);
+      renderer.setScissorTest(true);
 
-    projections.slice(0, MAX_PROJECTIONS).forEach((projection, slot) => {
-      const column = slot % COLUMNS;
-      const row = Math.floor(slot / COLUMNS);
-      const x = column * TILE;
-      const y = row * TILE;
-      renderer.setViewport(x, y, TILE, TILE);
-      renderer.setScissor(x, y, TILE, TILE);
-      renderer.render(scene, projection.camera);
-    });
+      projections.slice(0, MAX_PROJECTIONS).forEach((projection, slot) => {
+        const column = slot % COLUMNS;
+        const row = Math.floor(slot / COLUMNS);
+        const x = column * TILE;
+        const y = row * TILE;
+        renderer.setViewport(x, y, TILE, TILE);
+        renderer.setScissor(x, y, TILE, TILE);
+        renderer.render(scene, projection.camera);
+      });
 
-    renderer.setScissorTest(false);
-    renderer.setRenderTarget(wasTarget);
-    renderer.setClearColor(previousColour, wasAlpha);
-    renderer.autoClear = wasAutoClear;
-    scene.overrideMaterial = wasOverride;
-    // The viewport is left where the tiles put it otherwise, and the next
-    // full-screen render comes out a sixth of the size.
-    const size = renderer.getSize(new THREE.Vector2());
-    renderer.setViewport(0, 0, size.x, size.y);
-
-    hidden.forEach((object) => { object.visible = true; });
-    hidden.length = 0;
-    scene.matrixWorldAutoUpdate = wasAutoUpdate;
+      renderer.setScissorTest(false);
+      renderer.setRenderTarget(wasTarget);
+      renderer.setClearColor(previousColour, wasAlpha);
+      renderer.autoClear = wasAutoClear;
+      scene.overrideMaterial = wasOverride;
+      // The viewport is left where the tiles put it otherwise, and the next
+      // full-screen render comes out a sixth of the size.
+      const size = renderer.getSize(new THREE.Vector2());
+      renderer.setViewport(0, 0, size.x, size.y);
+    } finally {
+      // Restored whatever happened above. The scene is shared, and every one of
+      // these left set is a fault somewhere else entirely.
+      renderer.setScissorTest(false);
+      renderer.setRenderTarget(wasTarget);
+      renderer.setClearColor(previousColour, wasAlpha);
+      renderer.autoClear = wasAutoClear;
+      scene.overrideMaterial = wasOverride;
+      scene.matrixWorldAutoUpdate = wasAutoUpdate;
+      hidden.forEach((object) => { object.visible = true; });
+      hidden.length = 0;
+    }
   },
 
   /** @public Releases the atlas. */

@@ -286,6 +286,23 @@ const DEFAULT_ZOOM_OUT_ENDPOS = new THREE.Vector3(4.6, 4.6, 1.5);
  *
  * @constant {Number}
  */
+/**
+ * Easing curves for camera moves.
+ *
+ * `out` is what the view buttons have always used -- it starts at full speed
+ * and slows into place. `inOut` is smootherstep, whose first AND second
+ * derivatives are zero at both ends, so a move begins and finishes with no
+ * visible kick. That matters far more for a studio transition than for a view
+ * button, because the shot is being filmed.
+ *
+ * @constant {Object}
+ */
+const EASINGS = {
+  out: (t) => Math.sin((t * Math.PI) / 2),
+  inOut: (t) => t * t * t * (t * (t * 6 - 15) + 10),
+  linear: (t) => t,
+};
+
 const FRAME_FILL = 0.5;
 
 /**
@@ -1189,20 +1206,32 @@ class Controls {
    * Moves the camera to a position and target over the focus duration.
    *
    * Pulled out of setFocus so the view buttons and zoom-extents animate the
-   * same way rather than each inventing their own.
+   * same way rather than each inventing their own -- and now the studio's
+   * camera transitions too, for the same reason. A second camera animator
+   * would be two paths doing one job, and they would drift apart.
    *
    * @public
    * @param {Object} endPos where the camera should end up
    * @param {Object} endTarget what it should be looking at
+   * @param {Object} [options]
+   * @param {Number} [options.ms] duration, defaulting to the focus duration
+   * @param {String} [options.easing] key into `EASINGS`
+   * @param {Number} [options.fov] field of view to arrive at, degrees
+   * @param {Function} [options.onDone] called once, on arrival
    */
-  flyTo(endPos, endTarget) {
+  flyTo(endPos, endTarget, options = {}) {
     if (!this.cameraHandle) return;
     cancelAnimationFrame(this.rafID);
     this.cameraHandle.updateMatrixWorld();
     const startPos = new THREE.Vector3();
     startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
     const startTPos = this.controlHandle.target.clone();
+    const startFov = this.cameraHandle.fov;
     const startTime = performance.now();
+
+    const ms = options.ms > 0 ? options.ms : this.focusTransitionDuration;
+    const ease = EASINGS[options.easing] || EASINGS.out;
+    const endFov = Number.isFinite(options.fov) ? options.fov : null;
 
     const dX = endPos.x - startPos.x;
     const dY = endPos.y - startPos.y;
@@ -1211,24 +1240,48 @@ class Controls {
     const dTY = endTarget.y - startTPos.y;
     const dTZ = endTarget.z - startTPos.z;
 
+    this.flying = true;
+
     const animationFunction = () => {
+      // Clamped, and the last frame runs AT 1 rather than stopping short of it.
+      // The old loop exited on the first frame past the duration without ever
+      // applying the end value, so the camera settled a little way from where
+      // it was sent -- invisible for a view button, but the studio writes the
+      // live view back into the camera it flew to, so every trip would have
+      // nudged that camera a bit further from where it was placed.
       const time = performance.now() - startTime;
-      const progress = Math.sin(((time / this.focusTransitionDuration) * Math.PI) / 2);
-      if (time < this.focusTransitionDuration && progress <= 1.0) {
-        this.cameraHandle.position.set(
-          startPos.x + dX * progress,
-          startPos.y + dY * progress,
-          startPos.z + dZ * progress,
-        );
-        this.controlHandle.target.set(
-          startTPos.x + dTX * progress,
-          startTPos.y + dTY * progress,
-          startTPos.z + dTZ * progress,
-        );
+      const t = Math.min(1, time / ms);
+      const progress = ease(t);
+
+      this.cameraHandle.position.set(
+        startPos.x + dX * progress,
+        startPos.y + dY * progress,
+        startPos.z + dZ * progress,
+      );
+      this.controlHandle.target.set(
+        startTPos.x + dTX * progress,
+        startTPos.y + dTY * progress,
+        startTPos.z + dTZ * progress,
+      );
+      if (endFov !== null) {
+        this.cameraHandle.fov = startFov + (endFov - startFov) * progress;
+        this.cameraHandle.updateProjectionMatrix();
+      }
+
+      if (t < 1) {
         this.rafID = requestAnimationFrame(animationFunction);
+      } else {
+        this.flying = false;
+        if (typeof options.onDone === 'function') options.onDone();
       }
     };
     this.rafID = requestAnimationFrame(animationFunction);
+  }
+
+  /** Abandons a fly in progress, leaving the camera wherever it had reached. */
+  cancelFly() {
+    cancelAnimationFrame(this.rafID);
+    this.flying = false;
   }
 
   /**

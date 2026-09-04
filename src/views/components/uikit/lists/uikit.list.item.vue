@@ -47,6 +47,27 @@
       :label="value.action.label"
       @click="value.action.callback"
     />
+    <!-- Several actions on one row. `action` stays for the single-button case
+         it already serves.
+         No `.stop` here, for two reasons. `uk-button` emits its own `click`
+         carrying a boolean rather than the DOM event, so the modifier would
+         call `stopPropagation` on `false` and throw. And it is not needed: the
+         button's own root already stops the native click, so the row's handler
+         never sees it. -->
+    <uk-button
+      v-for="(entry, actionIndex) in (value.actions || [])"
+      :key="actionIndex"
+      :class="['uikit_list_item_action', {
+        bare: !entry.label,
+        active: entry.active,
+      }]"
+      :icon="entry.icon"
+      :label="entry.label"
+      :flat="!entry.label"
+      :icon-only="!entry.label"
+      :disabled="entry.disabled"
+      @click="entry.callback"
+    />
     <uk-icon
       v-if="value.unfold"
       class="uikit_list_item_icon_small unfold_arrow"
@@ -266,6 +287,46 @@ export default {
   /* margin-right: 8px; */
   border: 1px solid;
 }
+.uikit_list_item_action {
+  /* Small enough that three of them sit on a row without crowding the name. */
+  padding: 1px 6px;
+  font-size: 10px;
+  min-width: 0;
+  opacity: 0.75;
+}
+
+/* An icon on its own is a state, not a button. The background is the button's
+   own `flat` variant; what is left here is size and colour, because its
+   `icon_only` rule sizes it for a toolbar. */
+.uikit_list_item_action.bare {
+  /* Size is the button's own `flat` rule; only the colour is decided here. */
+  padding: 0;
+  margin-left: 4px;
+}
+
+/* Set on the glyph itself rather than relying on `currentColor` inheriting: an
+   icon is a separate component, and `fill` as an SVG attribute is a
+   presentation hint that any stylesheet outranks. Addressing `fill` directly
+   is the one thing that cannot be quietly overridden.
+   Off is 39% white against a full white on -- `--secondary-lighter` was tried
+   first and is #FFFFFFC7, which is 78%, so the two states differed by almost
+   nothing and the state was unreadable. */
+.uikit_list_item_action.bare :deep(svg) {
+  fill: var(--secondary-light-alt);
+}
+
+.uikit_list_item_action.bare.active :deep(svg) {
+  fill: #fff;
+}
+
+.uikit_list_item_action.bare:hover :deep(svg) {
+  fill: var(--secondary-lighter);
+}
+
+.uikit_list_item_action:hover {
+  opacity: 1;
+}
+
 .uikit_list_item_more {
   /* width: 62px; */
   color: var(--secondary-light-alt);

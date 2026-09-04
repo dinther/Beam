@@ -4,10 +4,12 @@ import {
   app,
   BrowserWindow,
   MessageChannelMain,
+  desktopCapturer,
   net,
   protocol,
   ipcMain,
   Menu,
+  session,
 } from 'electron';
 import {
   electronApp,
@@ -387,6 +389,41 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+/**
+ * Let the renderer capture desktop audio for a video recording.
+ *
+ * `getDisplayMedia` reaches the main process through this handler and gets
+ * nothing at all without one -- Electron has no default. `audio: 'loopback'`
+ * is what makes Windows hand over the system audio mix, which is the point:
+ * a recording of the visualizer is worth much more with the track on it.
+ *
+ * A screen source has to be named even though only the audio is wanted -- the
+ * API will not return audio alone. The renderer stops the video track the
+ * moment the stream arrives, so nothing is captured from the screen; see
+ * `captureDesktopAudio` in `recorder.js`.
+ *
+ * Verified in Electron 41.7.1: the track arrives labelled "System audio" with
+ * `deviceId: loopback`, and the constraints the renderer asks for are honoured
+ * (stereo, no AGC, no echo cancellation, no noise suppression). Without those
+ * it defaults to mono voice processing, which pumps and smears music.
+ */
+function setupDesktopAudio() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] })
+      .then((sources) => {
+        if (!sources.length) {
+          callback({});
+          return;
+        }
+        callback({ video: sources[0], audio: 'loopback' });
+      })
+      .catch((err) => {
+        console.error(`[audio] could not enumerate screens: ${err.message}`);
+        callback({});
+      });
+  }, { useSystemPicker: false });
+}
+
 app.whenReady().then(() => {
   pendingDocument = documentFromArgv(process.argv);
 
@@ -408,6 +445,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window);
   });
 
+  setupDesktopAudio();
   createWindow();
   setupArtnet();
   setupJsonStore();

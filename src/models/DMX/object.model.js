@@ -283,11 +283,19 @@ class SceneObject extends withTransform(Object) {
    * they start out identical. One key each, and editing one leaves the rest
    * alone.
    *
+   * **The `uid` and not the id.** The id comes out of the showfile, and the
+   * migration mints one for the floor it seeds from a counter that only moves
+   * forward within a session -- so two shows hand out the same ids and a cache
+   * that outlives a load answers the second show with the first show's
+   * geometry. What that looked like: open a project and the stage is a floor,
+   * the screen is a floor, and the floor is a floor. The uid is stamped per
+   * object per run and never reused, which is what a cache key has to be.
+   *
    * @readonly
    * @type {String}
    */
   get renderKey() {
-    return this.primitive ? `inline:${this._id}` : this.model;
+    return this.primitive ? `inline:${this.uid}` : this.model;
   }
 
   /**

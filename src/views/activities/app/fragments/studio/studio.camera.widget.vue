@@ -83,14 +83,14 @@ export default {
     return { LIMITS: Studio.LIMITS };
   },
   computed: {
-    /** @returns {Object} the live camera; never null */
+    /** @returns {Object} the camera being edited; never null */
     camera() {
-      return Studio.activeCamera;
+      return Studio.selectedCamera;
     },
     name: {
       /** @returns {String} */
       get() { return this.camera.name; },
-      set(value) { Studio.setActiveName(value); },
+      set(value) { Studio.setSelectedName(value); },
     },
     x: {
       /** @returns {Number} */
@@ -110,7 +110,7 @@ export default {
     fov: {
       /** @returns {Number} */
       get() { return this.camera.fov; },
-      set(value) { Studio.setActiveFov(value); },
+      set(value) { Studio.setSelectedFov(value); },
     },
     /** @returns {String} */
     hint() {
@@ -131,7 +131,11 @@ export default {
      * @param {Number} value metres
      */
     moveTo(axis, value) {
-      Studio.setActivePosition(axis, value);
+      Studio.setSelectedPosition(axis, value);
+      // Only push the view when the camera being edited is the one on screen.
+      // Typing a position for a camera you are not looking through must move
+      // that camera, not the viewport.
+      if (!Studio.editingLive) return;
       const handle = this.$show.visualizerHandle;
       if (handle) handle.viewpoint = Studio.viewpointOf(Studio.state.activeCameraId);
     },

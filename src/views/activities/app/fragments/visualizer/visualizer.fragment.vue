@@ -306,7 +306,9 @@ export default {
         this.startCameraSync();
       } else {
         this.stopCameraSync();
-        Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
+        if (!Studio.isCameraLocked(Studio.state.activeCameraId)) {
+          Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
+        }
         handle.endRecordingFrame();
         this.applyCamera(Studio.SCENE_CAMERA_ID);
       }
@@ -323,7 +325,26 @@ export default {
     activeCameraId(value, previous) {
       if (!this.studioActive) return;
       const handle = this.$show.visualizerHandle;
-      if (handle && previous) Studio.captureInto(previous, handle.viewpoint);
+      // Where the camera being left ended up, saved BEFORE anything moves.
+      if (handle && previous && !Studio.isCameraLocked(previous)) {
+        Studio.captureInto(previous, handle.viewpoint);
+      }
+
+      const { seconds } = Studio.state.transition;
+      // Asked for per change, by the button that was pressed, rather than read
+      // from a mode. A fly only makes sense between two cameras -- arriving in
+      // studio mode has nothing to travel from, so that still snaps.
+      const wantsFly = Studio.state.flyRequested;
+      Studio.state.flyRequested = false;
+      if (wantsFly && handle && previous) {
+        const camera = Studio.state.cameras.find((c) => c.id === value);
+        handle.flyToViewpoint(Studio.viewpointOf(value), {
+          seconds,
+          easing: 'inOut',
+          fov: camera ? camera.fov : undefined,
+        });
+        return;
+      }
       this.applyCamera(value);
     },
     /**
@@ -557,7 +578,18 @@ export default {
       this.stopCameraSync();
       this.cameraSyncHandle = setInterval(() => {
         const handle = this.$show.visualizerHandle;
-        if (handle) Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
+        if (!handle) return;
+        // Not while flying. The sync writes the live view into whichever camera
+        // is active, and during a move the live view is somewhere between two
+        // cameras -- left running it would overwrite the destination with the
+        // trip, so every fly would drag that camera towards the one before it.
+        if (handle.flying) return;
+        // A locked camera keeps the framing it was locked at. The view still
+        // moves -- orbiting is not disabled -- it simply stops being written
+        // back, which is the difference between looking around and redoing the
+        // shot.
+        if (Studio.isCameraLocked(Studio.state.activeCameraId)) return;
+        Studio.captureInto(Studio.state.activeCameraId, handle.viewpoint);
       }, CAMERA_SYNC_MS);
     },
     /**

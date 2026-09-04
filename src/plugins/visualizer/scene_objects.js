@@ -235,6 +235,13 @@ function primitiveGeometry(primitive) {
 }
 
 /**
+ * Environment response for a created primitive.
+ *
+ * @constant {Number}
+ */
+const PRIMITIVE_ENV_RESPONSE = 2.0;
+
+/**
  * Builds a created object, with no file involved.
  *
  * @param {Object} descriptor a library entry of kind 'primitive'
@@ -249,6 +256,18 @@ function buildPrimitive(descriptor) {
     color: new THREE.Color(descriptor.primitive.color || '#b0b4b8'),
     roughness: 0.75,
     metalness: 0,
+    // How much of the room this surface takes. Raised because created objects
+    // barely answered the house lights: `ceilingFor` runs an image environment
+    // at 0.5, and a metalness-0 / roughness-0.75 surface takes diffuse
+    // irradiance only -- a small flat lift with no highlight anywhere, which
+    // reads as no response at all. At 2.0 the halving is undone and a cube
+    // brightens with the room the way the floor does.
+    //
+    // This rather than roughness or metalness: it is the one parameter that
+    // means *response to the environment* and nothing else. Metalness would
+    // take the diffuse away and with it the colour the user chose; roughness
+    // would restyle every primitive already placed in every saved show.
+    envMapIntensity: PRIMITIVE_ENV_RESPONSE,
     // Single sided, planes included. A plane was two sided until 2026-08-29,
     // on the reasoning that having no thickness it would be seen from
     // underneath as often as not -- but that is exactly what makes it useless

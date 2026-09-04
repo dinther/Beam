@@ -271,6 +271,20 @@ function grownAttribute(attribute) {
  * @param {THREE.InstancedMesh} mesh
  * @returns {THREE.InstancedMesh}
  */
+/**
+ * What the beam shader multiplies the room's turbulence by.
+ *
+ * The cone samples the haze field over a shorter distance than the room does,
+ * so the same churn reads as half as much inside a beam. Doubling it here is
+ * the beam's own convention and the only place it is applied -- it used to be
+ * done by whoever happened to be pushing the value in, which meant the number
+ * in the panel and the number in the shader were two different quantities
+ * wearing one name.
+ *
+ * @constant {Number}
+ */
+const BEAM_TURBULENCE_SCALE = 2;
+
 function grownMesh(mesh) {
   const grown = new THREE.InstancedMesh(mesh.geometry, mesh.material, capacity);
   grown.instanceMatrix.array.set(mesh.instanceMatrix.array);
@@ -1423,13 +1437,17 @@ class MovingHead {
           type: 'f',
           value: 0.0,
         },
+        // Born at the room's current values, not at 1.0. These used to be
+        // invented here and corrected later by whoever remembered to push
+        // them, which is how a beam could be drawn through haze the room did
+        // not have. `syncEnvironment` keeps them level from here on.
         fogState: {
           type: 'b',
-          value: true,
+          value: SceneEnv.hazeEnabled,
         },
         fogFactor: {
           type: 'f',
-          value: 1.0,
+          value: SceneEnv.hazeAmount,
         },
         fogScale: {
           type: 'f',
@@ -1437,7 +1455,7 @@ class MovingHead {
         },
         fogTurbulence: {
           type: 'f',
-          value: 1.0,
+          value: SceneEnv.hazeTurbulence * BEAM_TURBULENCE_SCALE,
         },
         glowFactor: {
           type: 'f',
@@ -1656,38 +1674,6 @@ class MovingHead {
     return position_buffer_attribute;
   }
 
-  static set fogState(value) {
-    beamMesh.material.uniforms.fogState.value = value;
-  }
-
-  static get fogState() {
-    return beamMesh.material.uniforms.fogState.value;
-  }
-
-  static set fogDensity(value) {
-    beamMesh.material.uniforms.fogFactor.value = value;
-  }
-
-  static get fogDensity() {
-    return beamMesh.material.uniforms.fogFactor.value;
-  }
-
-  static set fogScale(value) {
-    beamMesh.material.uniforms.fogScale.value = value;
-  }
-
-  static get fogScale() {
-    return beamMesh.material.uniforms.fogScale.value;
-  }
-
-  static set fogTurbulence(value) {
-    beamMesh.material.uniforms.fogTurbulence.value = value;
-  }
-
-  static get fogTurbulence() {
-    return beamMesh.material.uniforms.fogTurbulence.value;
-  }
-
   static get instancedMesh() {
     boundingBoxMesh.computeBoundingSphere();
     return boundingBoxMesh;
@@ -1735,5 +1721,28 @@ class MovingHead {
     return instances[id];
   }
 }
+
+/**
+ * Copies the room's haze onto the beam material.
+ *
+ * The beams pull rather than being pushed, which is what `LedField` and
+ * `LedPanel` already do. Before this, four static setters on `MovingHead` were
+ * written from `Visualizer`, and one of them -- `applyHaze` -- had to swallow
+ * an exception because the beam mesh does not exist until the scene is built.
+ * A value set before then was simply lost.
+ *
+ * Silent before there is a mesh: the uniforms are born from `SceneEnv` when it
+ * is built, so there is nothing to catch up on.
+ */
+function syncEnvironment() {
+  if (!beamMesh || !beamMesh.material || !beamMesh.material.uniforms) return;
+  const { uniforms } = beamMesh.material;
+  uniforms.fogState.value = SceneEnv.hazeEnabled;
+  uniforms.fogFactor.value = SceneEnv.hazeAmount;
+  uniforms.fogScale.value = SceneEnv.hazeScale;
+  uniforms.fogTurbulence.value = SceneEnv.hazeTurbulence * BEAM_TURBULENCE_SCALE;
+}
+
+SceneEnv.on('changed', syncEnvironment);
 
 export default MovingHead;
