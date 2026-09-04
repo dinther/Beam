@@ -72,14 +72,12 @@ export default {
         id: camera.id,
         name: camera.name,
         actions: [
-          // cut and fly are not offered for the camera already live: there is
-          // nowhere to travel from and nothing to cut to. The padlock is, since
-          // locking the camera you are looking through is the common case --
-          // frame the shot, lock it, then keep looking around.
-          ...(camera.id === Studio.state.activeCameraId ? [] : [
-            { label: 'cut', callback: () => Studio.cutToCamera(camera.id) },
-            { label: 'fly', callback: () => Studio.flyToCamera(camera.id) },
-          ]),
+          // Offered on every row including the live one. Cutting to the camera
+          // you are already on is how you get back to it after looking around,
+          // and a row that loses its buttons when it goes live moves the two
+          // beside it -- live, the button has to be where it was last time.
+          { label: 'cut', callback: () => Studio.cutToCamera(camera.id) },
+          { label: 'fly', callback: () => Studio.flyToCamera(camera.id) },
           {
             icon: camera.locked ? 'lock' : 'lock_open',
             active: camera.locked,
@@ -87,10 +85,6 @@ export default {
           },
         ],
       }));
-    },
-    /** @returns {String} */
-    activeCameraId() {
-      return Studio.state.activeCameraId;
     },
     /** @returns {String} which camera the details widget is editing */
     selectedCameraId() {

@@ -114,6 +114,20 @@ export default {
       }
     },
   },
+  computed: {
+    /**
+     * The button's own background.
+     *
+     * `flat` has none. The stylesheet clears it too, but this keeps the inline
+     * style honest rather than setting a colour that is then overridden.
+     *
+     * @returns {String}
+     */
+    background() {
+      if (this.flat) return 'transparent';
+      return this.toggled && this.color ? this.color : 'var(--secondary-dark)';
+    },
+  },
   methods: {
     /**
      * Handle button click.
