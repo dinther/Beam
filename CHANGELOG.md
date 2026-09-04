@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.1.0-alpha.9
+
+Cameras became something to run a show from. Each one carries its own cut and
+fly, selecting a camera no longer moves the viewport, a padlock keeps a framing
+you have set, and a project reopens looking the way you left it. The recorder
+captures the room's audio with the picture. And the version in the About box is
+finally the version of the build.
+
+### Studio cameras
+
+- **Cut and fly, per camera.** Both sit on the camera's own row, so how you
+  arrive is chosen at the moment you go. A mode set beforehand is a second
+  action, and by the time it matters you cannot see what it is set to.
+- **Fly eases in and out.** Smootherstep: zero velocity *and* zero acceleration
+  at both ends, so a move neither kicks off nor jolts to a stop. The curve the
+  view buttons had eased out only, starting at full speed.
+- **It reuses the animator the view buttons already had** rather than growing a
+  second one to drift apart from the first. Two faults had to be fixed for it to
+  be usable. The ten-times-a-second sync writes the live view into whichever
+  camera is active, so mid-flight it would have overwritten the destination with
+  the journey. And the old loop stopped on the first frame past its duration
+  without applying the end value, settling a little short of where it was sent --
+  invisible on a view button, and with the sync running, enough to nudge a camera
+  further from its framing on every single trip.
+- **Selecting a camera no longer goes to it.** What the viewport shows and what
+  the details panel edits are now two different things, because live you have to
+  adjust a camera you are about to cut to without putting it on screen first.
+  Typing a position only moves the view when the camera you are editing is the
+  one you are looking through.
+- **A padlock per camera.** A locked camera stops following the view: orbit all
+  you like while it is live and it keeps the framing it was locked at, so cutting
+  away and back returns to it. Three separate paths had to respect that, not just
+  the obvious one -- the periodic sync, the capture taken when cutting away, and
+  the capture taken when leaving studio mode.
+- **A project opens where you left it.** The editor camera is saved with the show
+  and assumed on load. Unlike a placed camera it has nowhere else to live, so
+  closing a project used to lose it. Two things stood in the way: the opening
+  view was chosen after the restore and flew straight over the top of it, and
+  nothing wrote the editor camera while you work, since the sync only runs in
+  studio mode.
+
+### Recording
+
+- **Desktop audio, with the picture.** The system audio mix is captured
+  alongside the canvas and muxed into the same file, so a take of a show carries
+  the track it was run to and needs nothing afterwards.
+- **The constraints are not decoration.** Left to itself the loopback device
+  arrives mono with echo cancellation, noise suppression and automatic gain all
+  enabled -- sensible for a voice call, ruinous for music, which pumps under AGC
+  and smears under noise suppression. Asked explicitly, it gives clean stereo.
+- **Audio failing does not fail the take.** You get the picture and a note
+  saying why there is no sound, rather than a silent file discovered later.
+
+### Look and light
+
+- **Bloom is on**, at a floor a good deal lower than it was carrying. At no haze
+  it ran nearly twice the reference intensity with a gate low enough that
+  anything past a third brightness bloomed before any air was involved. It stays
+  tied to haze density rather than becoming a setting: it already answers to a
+  control in the scene, and a second control over one quantity is how the LED
+  glows once ended up with a private turbulence scale the slider could not reach.
+- **Created cubes and planes answer the house lights.** They took diffuse light
+  from the room only, which is a flat lift with no highlight anywhere -- and
+  reads as no response at all.
+- **The debug panel remembers.** Every control is stored and put back at startup.
+  The constants in the source stay the single source of truth and only departures
+  are kept, so a value changed in a later version still reaches anyone who has
+  opened the panel.
+
+### The version in the About box
+
+- **It reads the version of the build now.** It came from the nearest git tag
+  while the installer was named from `package.json`, and the two drifted apart
+  for three releases -- because `gh release create` makes a tag on GitHub and
+  never in the working copy, so the newest local tag sat twenty-eight commits
+  behind. The file on disk said alpha.8 and the splash inside it said alpha.5,
+  silently. Both read `package.json` now, so they agree by construction.
+
+
 ## 0.1.0-alpha.8
 
 Beam projects. A generic projector throws a real picture onto the scene --

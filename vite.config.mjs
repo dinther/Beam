@@ -35,23 +35,43 @@ async function readCommand(command) {
 }
 
 async function prepareVersioningEnv() {
-  // The nearest tag, but only if it looks like a version. Without the match,
-  // `git describe` takes the nearest tag of *any* shape -- and a repository
-  // picks up tags that are not releases: a restore point before a refactor, a
-  // bookmark, whatever somebody needed a name for. One of those sat between
-  // HEAD and the last release and the splash duly reported the build as
-  // "pre-scene-item-refactor".
+  // **package.json decides the version, not the nearest git tag.**
+  //
+  // It used to be the tag, and the two drifted apart for three releases. The
+  // release path creates the tag with `gh release create`, which makes it on
+  // GitHub -- nothing brings it back to the working copy unless someone
+  // remembers `git fetch --tags`. So the newest local version tag sat at
+  // alpha.5 while package.json said alpha.8, and the About box reported a
+  // build three releases old.
+  //
+  // Worse, electron-builder names the installer from `${version}` in
+  // package.json. So the file on disk said alpha.8 and the splash inside it
+  // said alpha.5 -- one fact with two sources, disagreeing silently. Reading
+  // both from package.json makes them agree by construction, and it is also
+  // the first thing a release bumps, so it cannot lag.
+  process.env.VITE_APP_VERSION = pkg.version || '';
+
+  // The nearest version-shaped tag, still read -- not to name the build, but to
+  // date it and to notice when it disagrees.
+  //
+  // Only tags that look like a version. Without the match, `git describe` takes
+  // the nearest tag of *any* shape, and a repository picks up tags that are not
+  // releases: a restore point before a refactor, a bookmark, whatever somebody
+  // needed a name for. One of those sat between HEAD and the last release and
+  // the splash duly reported the build as "pre-scene-item-refactor".
   //
   // The glob is in double quotes deliberately. This runs through `exec`, which
   // is cmd.exe on Windows, and cmd.exe does not treat a single quote as a quote
   // at all -- git would be handed the quotes as part of the pattern and match
   // nothing. Double quotes are honoured by both cmd.exe and sh.
-  //
-  // package.json is the fallback, and it is also what electron-builder names
-  // the installer after, so a checkout with no version tag at all still has the
-  // splash and the file on disk agreeing.
   const described = await readCommand('git describe --tags --abbrev=0 --match "[0-9]*"');
-  process.env.VITE_APP_VERSION = described || pkg.version || '';
+  if (described && described !== pkg.version) {
+    // Not fatal: building from an untagged checkout is normal, and the tag for
+    // a release is often made after the build. Said out loud because the one
+    // time it matters -- a tag that has moved past package.json -- means a
+    // release was cut without bumping it.
+    console.log(`[version] package.json ${pkg.version}, nearest tag ${described}`);
+  }
 
   // Dated from the tag when there is one, otherwise from the last commit --
   // which is the honest answer for a build made from an untagged checkout.
