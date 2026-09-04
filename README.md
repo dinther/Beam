@@ -28,7 +28,7 @@ It is **not** a photo-realistic renderer, and it is not trying to be. There is n
 
 It is also **not a lighting desk**. Beam does not want to replace the thing you already program with. It listens.
 
-Beam is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, whose patching, scene, effect and chase engines it still carries. See [Acknowledgements](#acknowledgements).
+Beam is a fork of **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel. See [Acknowledgements](#acknowledgements).
 
 ---
 
