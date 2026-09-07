@@ -20,6 +20,16 @@
 
 ---
 
+```
+A word about AI coding. I am a software developer with over 40 years experience.
+I was writing flight simulation software for the TI-99/4a back in the eighties.
+Yes, I am using AI extensively. It is working under my guidance and expertise like
+any junior coder who worked for me in the past.
+
+Don't judge a hole by the shovel that was used. AI is just a tool.
+Slop comes from sloppy people.
+```
+
 ## What is Beatline Beam?
 
 Beam is a **sandbox for building and previewing lighting rigs in three dimensions**. You place fixtures where they will really hang, address them to real DMX universes, and watch them respond live to Art-Net from whatever is driving your show. It is a place to design a rig, prove the patch and rehearse content without a truck, a truss or a venue.
