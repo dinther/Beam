@@ -63,6 +63,20 @@ export const DWELL_DEFAULTS = Object.freeze({
 const DOT_LENGTH = 1e-4;
 
 /**
+ * Points closer than this to the last one kept are dropped, in normalised
+ * field units.
+ *
+ * MadMapper samples each material at its own density: a line came at 0.0025
+ * (about a pixel of its 1024 canvas), a circle at 0.0005 -- 8,000 points for
+ * one ring, which is nothing a beam sheet can show and more than the renderer
+ * holds. Thinning to a pixel keeps every stroke continuous and every colour
+ * change (the kept points still carry theirs) while a frame stays a size the
+ * geometry can take. Brightness is unaffected: dwell is worked from length,
+ * not point count.
+ */
+export const MIN_STEP = 0.002;
+
+/**
  * A path's length in the field, normalised units.
  *
  * @public
@@ -140,11 +154,12 @@ export function dwellWeights(paths, pointRate, options = {}) {
  * @param {Number} options.pointRate the fixture's points per second
  * @param {Boolean} [options.dwell] apply the dwell model (default true)
  * @param {Number} [options.maxPoints] capacity; the run is cut to fit
+ * @param {Number} [options.minStep] thinning distance, `MIN_STEP` by default
  * @param {Object} [options.model] `dwellWeights` overrides
  * @returns {{ count: Number, points: Uint16Array, weights: Float32Array }}
  */
 export function flattenPaths(paths, {
-  pointRate, dwell = true, maxPoints = 4096, model = {},
+  pointRate, dwell = true, maxPoints = 4096, minStep = MIN_STEP, model = {},
 }) {
   const list = Array.isArray(paths) ? paths : [];
   let total = 0;
@@ -153,6 +168,7 @@ export function flattenPaths(paths, {
   const points = new Uint16Array(count * POINT_STRIDE);
   const weights = new Float32Array(count);
   const perPath = dwell ? dwellWeights(list, pointRate, model) : null;
+  const minStep2 = minStep * minStep;
 
   let at = 0;
   const put = (x, y, r, g, b, w) => {
@@ -175,8 +191,19 @@ export function flattenPaths(paths, {
     const w = perPath ? perPath[i] : 1;
     // Blanked travel to this path's start, so the previous stroke ends.
     if (i > 0) put(p.xy[0], p.xy[1], 0, 0, 0, 0);
+    // The first and last points always; between them, one per `minStep`.
+    let lx = NaN;
+    let ly = NaN;
     for (let k = 0; k < p.count; k += 1) {
-      put(p.xy[k * 2], p.xy[k * 2 + 1], p.rgb[k * 3], p.rgb[k * 3 + 1], p.rgb[k * 3 + 2], w);
+      const x = p.xy[k * 2];
+      const y = p.xy[k * 2 + 1];
+      const dx = x - lx;
+      const dy = y - ly;
+      if (k === 0 || k === p.count - 1 || !(dx * dx + dy * dy < minStep2)) {
+        put(x, y, p.rgb[k * 3], p.rgb[k * 3 + 1], p.rgb[k * 3 + 2], w);
+        lx = x;
+        ly = y;
+      }
     }
   });
   return { count: at, points, weights };

@@ -188,6 +188,37 @@ console.log('\n-- flattening: a DAC-shaped run with blanks between paths --');
   const cut = flattenPaths(paths, { pointRate: 30000, dwell: false, maxPoints: 3 });
   check('capacity cuts the run', cut.count, 3);
   check('empty frame', flattenPaths([], { pointRate: 30000 }).count, 0);
+
+  // A circle sampled far denser than a pixel is thinned to one, whole. The
+  // real case: 8,146 points for one ring against a 4,096 cap drew half of it.
+  const n = 8000;
+  const ring = {
+    count: n, xy: new Float32Array(n * 2), rgb: new Uint8Array(n * 3), meta: {},
+  };
+  for (let i = 0; i < n; i += 1) {
+    const a = (i / n) * Math.PI * 2;
+    ring.xy[i * 2] = 0.6 * Math.cos(a);
+    ring.xy[i * 2 + 1] = 0.6 * Math.sin(a);
+    ring.rgb[i * 3] = 255;
+  }
+  const thin = flattenPaths([ring], { pointRate: 30000, maxPoints: 16384 });
+  // Greedy: a point is kept once it is at least `minStep` from the last one
+  // kept, so the real spacing overshoots to the next source point. These sit
+  // 0.00047 apart, so every fifth is kept and 8,000 becomes 1,600 -- not the
+  // 1,885 an exact 0.002 step would give.
+  check('thinned to about a point per pixel', thin.count, 1601);
+  const at = (i, k) => ((thin.points[i * POINT_STRIDE + k] << 16) >> 16) / 32767;
+  let minKept = Infinity;
+  for (let i = 2; i < thin.count - 1; i += 1) {
+    minKept = Math.min(minKept, Math.hypot(at(i, 0) - at(i - 1, 0), at(i, 1) - at(i - 1, 1)));
+  }
+  check('no two kept points closer than the step', minKept >= 0.002, true);
+  // The end of a stroke is never thinned away: a ring has to close.
+  check('the last point is kept', Math.abs(at(thin.count - 1, 0) - 0.6) < 1e-3, true);
+  check('and it closes the ring', Math.abs(at(thin.count - 1, 1)) < 1e-2, true);
+  const coarse = flattenPaths([ring], { pointRate: 30000, minStep: 0 });
+  check('no thinning when asked', coarse.count, 4096);
+  check('and the thinned points carry a weight', thin.weights[0] > 0, true);
 }
 
 console.log('\n-- the dwell model --');

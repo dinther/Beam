@@ -172,7 +172,11 @@ let beamTailValue = 0.7;
  * fewer triangle than this and updated in place every frame rather than
  * reallocated.
  */
-const MAX_POINTS = 4096;
+// Raised from 4096 for Ponk: MadMapper samples a circle at 8,000 points, and
+// a cap that cut the run in half drew exactly half the circle. Frames are
+// thinned to a pixel on the way in (`laser_dwell.js`), so this is headroom
+// for a busy frame of many paths, not for one dense one.
+const MAX_POINTS = 16384;
 
 /** Every DAC protocol, tried in this order when a source is unset. */
 // IDN first: it is the one that runs, so a fixture left on auto finds it
