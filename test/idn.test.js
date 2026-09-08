@@ -291,18 +291,16 @@ async function stream() {
   }
 
   console.log('\n-- which laser a message feeds --');
-  {
-    // A producer that names its service is believed. One that does not --
-    // MadMapper sends service 0 on channel 0 for every output -- gets the
-    // channel's laser, then the first. Telling MadMapper's outputs apart is
-    // not IDN's job any more; they reach Beam over Ponk, by name.
-    dac.setServices([{ id: 1, name: 'Laser Left' }, { id: 2, name: 'Laser Right' }]);
-    check('a named service is that laser', dac.serviceDac(2, 0).name.endsWith('Laser Right'), true);
-    check('unnamed on channel 0: the first', dac.serviceDac(0, 0).name.endsWith('Laser Left'), true);
-    check('unnamed on channel 1: the second', dac.serviceDac(0, 1).name.endsWith('Laser Right'), true);
-    check('a channel past the last: the first', dac.serviceDac(0, 7).name.endsWith('Laser Left'), true);
-    check('no endpoint pairing left', typeof dac.rotateStreams, 'undefined');
-  }
+  // A producer that names its service is believed. One that does not --
+  // MadMapper sends service 0 on channel 0 for every output -- gets the
+  // channel's laser, then the first. Telling MadMapper's outputs apart is
+  // not IDN's job any more; they reach Beam over Ponk, by name.
+  dac.setServices([{ id: 1, name: 'Laser Left' }, { id: 2, name: 'Laser Right' }]);
+  check('a named service is that laser', dac.serviceDac(2, 0).name.endsWith('Laser Right'), true);
+  check('unnamed on channel 0: the first', dac.serviceDac(0, 0).name.endsWith('Laser Left'), true);
+  check('unnamed on channel 1: the second', dac.serviceDac(0, 1).name.endsWith('Laser Right'), true);
+  check('a channel past the last: the first', dac.serviceDac(0, 7).name.endsWith('Laser Left'), true);
+  check('no endpoint pairing left', typeof dac.rotateStreams, 'undefined');
 
   console.log('\n-- data without a dictionary is ignored, not guessed at --');
   const before = svc.playedTotal;
