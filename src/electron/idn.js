@@ -556,8 +556,10 @@ class IdnDac extends LaserDac {
         // request against seventy-three scans -- so to it a unit *is* a
         // destination, and a rig of two lasers has to look like two units or
         // only the first can ever be driven.
-        // Each laser answers from its own port, so the producer learns a
-        // separate endpoint for each and its streams arrive already sorted.
+        // All of them answer from the one socket on the well-known port, and
+        // MadMapper ignores the port a unit replies from in any case -- so the
+        // answers say who is here, and nothing more. Which stream then belongs
+        // to which laser is a separate problem; see `endpoints`.
         this.services.forEach((service, id) => {
           this.reply(CMD.SCAN_RESPONSE, sequence, this.scanResponse(id, service.name), rinfo);
         });

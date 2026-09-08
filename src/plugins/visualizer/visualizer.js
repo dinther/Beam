@@ -1075,6 +1075,9 @@ class Visualizer {
       if (projectorEffect) {
         const projections = Projector.collect();
         if (projections.length) {
+          // Redraws only the tiles that would come out different -- a still
+          // machine in a still room costs nothing. The atlas works that out
+          // itself, per tile; see `DepthAtlas.render`.
           ProjectorDepth.render(this.renderer, SceneManager, projections);
         }
         const feed = VideoRouter.feed();

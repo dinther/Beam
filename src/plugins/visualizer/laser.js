@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import SceneManager from './scene_manager';
 import SceneEnv from './scene_env';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
-import { DepthAtlas, depthAtlasKey } from './projector_depth';
+import { DepthAtlas } from './projector_depth';
 import FIGURE_ATLAS, { LaserFigure, setLineWidth, lineWidth } from './laser_figure';
 import LaserStream, { POINT_STRIDE } from '../laser_stream';
 import { apertureOrigin, scanHalfAngles } from '../../models/DMX/generic/laser';
@@ -54,12 +54,6 @@ const scratchResolution = new THREE.Vector2();
 
 /** Local space to the aperture camera's clip space, for placing the figure. */
 const scratchClip = new THREE.Matrix4();
-
-/**
- * The atlas the last depth pass drew, so an unchanged frame can skip it.
- * Null forces the next pass to draw -- first frame, or a target recreated.
- */
-let lastDepthKey = null;
 
 /**
  * Whether beams are truncated at the first surface via the aperture depth pass.
@@ -1121,28 +1115,22 @@ class Laser {
       laser._depthSlot = i;
       projections.push({ camera: laser._depthCam });
     });
-    // Nothing moved: last frame's atlas is still exactly right.
+    // Nothing moved: last frame's tile is still exactly right.
     //
     // Every laser redraws the whole scene into its own tile, so a sixteen-laser
-    // rig is sixteen full passes a frame -- to reproduce, in a bolted-down rig
-    // in a still room, the identical image each time. The hash covers the scene
-    // and every aperture camera, so this skips only when the result would be
-    // byte-identical. All-or-nothing for now: the pass clears the whole atlas in
-    // one go, so keeping some tiles while redrawing others needs a scissored
-    // clear per tile -- worth doing when one laser moves among fifteen that do
-    // not, and not before.
-    const key = depthAtlasKey(scene, projections.map((p) => p.camera));
-    if (LASER_DEPTH.target && key === lastDepthKey) return;
-    lastDepthKey = key;
+    // rig would be sixteen full passes a frame -- to reproduce, in a bolted-down
+    // rig in a still room, the identical image each time. `DepthAtlas.render`
+    // hashes the scene and each aperture camera and redraws a tile only when the
+    // result would differ, clearing that tile alone, so one laser moving among
+    // fifteen still ones costs one pass rather than sixteen.
 
-    // Hide every laser's own fixture -- body, aperture, aim, beam -- while the
-    // depth is drawn, so a beam is never stopped by the very machine it comes
-    // out of. A laser sits a few centimetres behind its aperture, so its own
-    // chassis fills the bottom of the aperture camera's view and would cut the
-    // beam off at the muzzle. Other scene geometry still occludes.
-    list.forEach((laser) => { laser._dummy.visible = false; });
+    // A laser's own fixture is not hidden for the pass, and does not need to
+    // be: only shadow casters are drawn into the atlas, and nothing on a laser
+    // -- body, aperture, aim, beam -- sets `castShadow`. Hiding them was
+    // guarding against a chassis cutting its own beam off at the muzzle, which
+    // could not happen. If a laser body is ever made to cast, this is where the
+    // fixture has to stand down again.
     LASER_DEPTH.render(renderer, scene, projections);
-    list.forEach((laser) => { laser._dummy.visible = true; });
     const texture = LASER_DEPTH.texture();
     list.forEach((laser) => {
       const u = laser._beamMaterial.uniforms;

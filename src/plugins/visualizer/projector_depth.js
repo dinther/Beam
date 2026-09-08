@@ -136,8 +136,20 @@ const hidden = [];
 const keyFloat = new Float32Array(1);
 const keyInt = new Int32Array(keyFloat.buffer);
 
+/** Bit twiddling is the point of a hash, not an accident. */
+/* eslint-disable no-bitwise */
+const mix = (h, n) => Math.imul(h ^ (n | 0), 16777619);
+const mixFloat = (h, f) => { keyFloat[0] = f; return mix(h, keyInt[0]); };
+const mixMatrix = (h, m) => {
+  let out = h;
+  for (let i = 0; i < 16; i += 1) out = mixFloat(out, m.elements[i]);
+  return out;
+};
+/* eslint-enable no-bitwise */
+
 /**
- * A number that changes whenever a fixture's depth tile would come out different.
+ * A number that changes whenever the scene a tile is drawn from would come out
+ * different. Half of a tile's key; the other half is the camera.
  *
  * A rig is normally bolted to the truss and the room does not move, so the
  * atlas is redrawn sixty times a second to produce a byte-identical image --
@@ -152,41 +164,52 @@ const keyInt = new Int32Array(keyFloat.buffer);
  * forgotten: moves, adds, deletes, scale, a rebuilt geometry and a fixture
  * being re-aimed all land in the hash on their own.
  *
+ * Walked **once per frame**, not once per tile: the scene is the same scene
+ * whichever lens is looking at it, so the traversal is shared and only the
+ * camera part is per tile.
+ *
  * @public
  * @param {Object} scene
- * @param {Array} cameras the fixture cameras the atlas is drawn from
  * @returns {Number}
  */
-export function depthAtlasKey(scene, cameras) {
+export function sceneDepthKey(scene) {
   let h = 2166136261;
-  // Bit twiddling is the point of a hash, not an accident.
-  // eslint-disable-next-line no-bitwise
-  const mix = (n) => { h = Math.imul(h ^ (n | 0), 16777619); };
-  const mixFloat = (f) => { keyFloat[0] = f; mix(keyInt[0]); };
-  const mixMatrix = (m) => { for (let i = 0; i < 16; i += 1) mixFloat(m.elements[i]); };
-
   scene.traverse((object) => {
     if (!object.isMesh || !object.castShadow || !object.visible) return;
-    mix(object.id);
-    mixMatrix(object.matrixWorld);
+    h = mix(h, object.id);
+    h = mixMatrix(h, object.matrixWorld);
     // A mover that pans, or an LED bar rebuilt: the instances move while the
     // mesh's own matrix sits still, so hashing `matrixWorld` alone would call
     // a swinging rig unchanged and leave beams passing through it.
     if (object.isInstancedMesh) {
-      mix(object.count);
-      if (object.instanceMatrix) mix(object.instanceMatrix.version);
+      h = mix(h, object.count);
+      if (object.instanceMatrix) h = mix(h, object.instanceMatrix.version);
     }
     if (!object.geometry) return;
-    mix(object.geometry.id);
+    h = mix(h, object.geometry.id);
     // A panel or structure rebuilt in place keeps its id but bumps this.
     const position = object.geometry.attributes && object.geometry.attributes.position;
-    if (position) mix(position.version);
+    if (position) h = mix(h, position.version);
   });
-
-  // Aiming a fixture changes its tile without touching the scene at all.
-  mix(cameras.length);
-  cameras.forEach((camera) => mixMatrix(camera.matrixWorld));
   return h;
+}
+
+/**
+ * One tile's key: the scene, plus the lens looking at it.
+ *
+ * Aiming a fixture changes its tile without touching the scene at all, and so
+ * does reshaping its frustum: a projector's zoom and shift are DMX-drivable and
+ * rewrite the projection matrix while the lens stays exactly where it is. A
+ * laser's cone is fixed, so its projection matrix simply hashes the same every
+ * frame.
+ *
+ * @public
+ * @param {Number} sceneKey from `sceneDepthKey`
+ * @param {Object} camera the fixture camera this tile is drawn from
+ * @returns {Number}
+ */
+export function tileDepthKey(sceneKey, camera) {
+  return mixMatrix(mixMatrix(sceneKey, camera.matrixWorld), camera.projectionMatrix);
 }
 
 /**
@@ -212,10 +235,14 @@ export class DepthAtlas {
     this.far = far;
     this.maxProjections = columns * rows;
     this.target = null;
+    /** One key per slot, so a still fixture's tile is left where it is. */
+    this.tileKeys = [];
   }
 
   ensureTarget() {
     if (this.target) return this.target;
+    // A fresh target holds nothing, so every tile is owed a draw.
+    this.tileKeys.length = 0;
     this.target = new THREE.WebGLRenderTarget(this.columns * this.tile, this.rows * this.tile, {
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
@@ -257,7 +284,8 @@ export class DepthAtlas {
   }
 
   /**
-   * Draws every fixture's view of the scene.
+   * Draws each fixture's view of the scene, skipping the tiles that would come
+   * out exactly as they already are.
    *
    * Only what casts a shadow occludes, which is the same rule the renderer's
    * own lights follow. Without it a beam cone -- additive, transparent, and
@@ -268,13 +296,46 @@ export class DepthAtlas {
    * @param {Object} renderer THREE.WebGLRenderer
    * @param {Object} scene
    * @param {Array} projections each `{ camera }`, in slot order
+   * @returns {Number} how many tiles were redrawn
    */
   render(renderer, scene, projections) {
-    if (!projections || !projections.length) return;
+    if (!projections || !projections.length) return 0;
     const { tile } = this;
+    // Before the keys are read, not after: a target being created here empties
+    // them, and doing that afterwards threw away the keys just written and made
+    // every frame look like the first one.
     this.ensureTarget();
 
-    // Matrices brought up to date once, and then frozen for the tiles.
+    // Brought up to date before anything is hashed, because the hash has to
+    // describe the scene the pass is about to draw. Hashing first read the
+    // matrices as they stood *last* frame, so a fixture that moved was noticed
+    // one frame late and then noticed again once the update caught up -- every
+    // tile redrawn twice, and a rig that never settled while anything in it had
+    // a dirty matrix.
+    scene.updateMatrixWorld();
+
+    // Which tiles are actually owed a redraw.
+    //
+    // The scene is walked once and each lens mixed in on its own, so one
+    // projector zooming among six costs one tile, not six. This is why the
+    // clear below is scissored to the tile rather than wiping the atlas: a full
+    // clear would make the pass all-or-nothing, since every tile it kept would
+    // have been blanked to the far plane.
+    const slots = [];
+    const sceneKey = sceneDepthKey(scene);
+    const drawn = projections.slice(0, this.maxProjections);
+    drawn.forEach((projection, slot) => {
+      const key = tileDepthKey(sceneKey, projection.camera);
+      if (this.tileKeys[slot] === key) return;
+      this.tileKeys[slot] = key;
+      slots.push(slot);
+    });
+    // A tile no fixture owns any more must not answer for the next one that
+    // lands in it.
+    this.tileKeys.length = drawn.length;
+    if (!slots.length) return 0;
+
+    // The matrices updated above are now frozen for the tiles.
     //
     // Hiding things is not enough on its own. `renderer.render` begins with
     // `scene.updateMatrixWorld()`, and some objects use that hook to manage
@@ -282,7 +343,6 @@ export class DepthAtlas {
     // handles and its picker meshes there, every call. So a hide applied before
     // the render was undone inside it, once per tile, and the gizmo went on
     // printing its rotate rings into the atlas as shadow circles.
-    scene.updateMatrixWorld();
     const wasAutoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
     // Everything from here to the restore runs inside `try`, because leaving
@@ -328,19 +388,21 @@ export class DepthAtlas {
       scene.background = null;
       renderer.autoClear = false;
       renderer.setRenderTarget(this.target);
-      renderer.setScissorTest(false);
       renderer.setClearColor(FAR_COLOUR, 1);
-      renderer.clear(true, true, false);
+      // Clears obey the scissor box, which is the whole point: each tile is
+      // wiped to the far plane immediately before it is redrawn, and the tiles
+      // belonging to fixtures that have not moved are never touched.
       renderer.setScissorTest(true);
 
-      projections.slice(0, this.maxProjections).forEach((projection, slot) => {
+      slots.forEach((slot) => {
         const column = slot % this.columns;
         const row = Math.floor(slot / this.columns);
         const x = column * tile;
         const y = row * tile;
         renderer.setViewport(x, y, tile, tile);
         renderer.setScissor(x, y, tile, tile);
-        renderer.render(scene, projection.camera);
+        renderer.clear(true, true, false);
+        renderer.render(scene, drawn[slot].camera);
       });
 
       renderer.setScissorTest(false);
@@ -366,6 +428,7 @@ export class DepthAtlas {
       hidden.forEach((object) => { object.visible = true; });
       hidden.length = 0;
     }
+    return slots.length;
   }
 
   /** @public Releases the atlas. */
@@ -373,6 +436,7 @@ export class DepthAtlas {
     if (!this.target) return;
     this.target.dispose();
     this.target = null;
+    this.tileKeys.length = 0;
   }
 }
 
