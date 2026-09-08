@@ -14,6 +14,9 @@ import Display from '../../plugins/visualizer/display';
 import VideoRouter from '../../plugins/visualizer/video_router';
 import DisplaySettings from './display_settings';
 import { isDisplayProfile } from './generic/display';
+import Laser from '../../plugins/visualizer/laser';
+import LaserSettings from './laser_settings';
+import { isLaserProfile } from './generic/laser';
 import { GENERIC_KINDS } from './generic/kinds';
 import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
@@ -272,6 +275,9 @@ class Fixture extends withTransform(Proxify) {
       } else if (isDisplayProfile(this.OFLData)) {
         this.device = new DisplaySettings(this.OFLData.asls.display, deviceData);
         this.deviceKind = GENERIC_KINDS.DISPLAY;
+      } else if (isLaserProfile(this.OFLData)) {
+        this.device = new LaserSettings(this.OFLData.asls.laser, deviceData);
+        this.deviceKind = GENERIC_KINDS.LASER;
       }
       /** Transform relative to that group or structure, held by the owner. */
       this.localTransform = null;
@@ -1118,6 +1124,21 @@ class Fixture extends withTransform(Proxify) {
         // The connector this display is showing, resolved through the router
         // so nothing in the model layer has to reach for the show.
         connectorAt: () => VideoRouter.connector(this.device && this.device.value('source')),
+      }));
+      this._3DModel.fixtureHandle = this;
+      this._3DModel.position = this._position;
+      this._3DModel.rotation = this._rotation;
+      return;
+    }
+    if (this.OFLData.asls && this.OFLData.asls.laser) {
+      // The body only, for now: a box with an aperture, drawn like the
+      // projector's chassis so a laser is visible and placeable. The beam it
+      // fires from the point stream is a later step; the renderer reads the
+      // settings in place, the way the projector does, so nothing here changes
+      // when it arrives.
+      this._3DModel = markRaw(new Laser({
+        params: this.OFLData.asls.laser,
+        settingsAt: () => this.device,
       }));
       this._3DModel.fixtureHandle = this;
       this._3DModel.position = this._position;

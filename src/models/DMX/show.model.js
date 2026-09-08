@@ -21,6 +21,7 @@ import {
 } from './generic/led_bar';
 import { buildProjectorProfile } from './generic/projector';
 import { buildDisplayProfile } from './generic/display';
+import { buildLaserProfile } from './generic/laser';
 import VideoRouter from '../../plugins/visualizer/video_router';
 import SceneObjects from '../../plugins/visualizer/scene_objects';
 import Studio from './studio';
@@ -1690,6 +1691,7 @@ class Show extends EventEmitter {
     let profile;
     if (kind === GENERIC_KINDS.PROJECTOR) profile = buildProjectorProfile(params);
     else if (kind === GENERIC_KINDS.DISPLAY) profile = buildDisplayProfile(params);
+    else if (kind === GENERIC_KINDS.LASER) profile = buildLaserProfile(params);
     else profile = buildLedBarProfile(params);
     profile.name = model;
     this.generatedProfiles[key] = profile;

@@ -198,7 +198,10 @@
           >{{ drivenBy('source') }}</span>
         </uk-flex>
 
+        <!-- Projector and display: a plain dimmer and blank. A laser carries a
+             fuller output stage, below, so its dimmer lives there instead. -->
         <uk-flex
+          v-if="!isLaser"
           :gap="8"
           class="row"
         >
@@ -223,6 +226,54 @@
             class="driven"
           >DMX</span>
         </uk-flex>
+
+        <!-- A laser's output stage: what it lays over the DAC's stream, grouped
+             and laid out across so it is not one tall column. A fixed parameter
+             is baked in the profile and dropped from the panel; a driven one is
+             greyed and holds the live DMX value; an adjustable one is yours to
+             set here. -->
+        <template v-if="isLaser">
+          <template
+            v-for="group in laserGroups"
+            :key="group.label"
+          >
+            <span class="section_label">{{ group.label }}</span>
+            <uk-flex
+              :gap="6"
+              class="control_wrap"
+            >
+              <uk-num-input
+                v-for="row in group.rows"
+                v-show="!device.isFixed(row.key)"
+                :key="row.key"
+                :model-value="Math.round(read(row.key) || 0)"
+                :style="{ width: `${row.width}px` }"
+                :label="row.label"
+                :precision="0"
+                :min="row.min"
+                :max="row.max"
+                :disabled="device.isDriven(row.key)"
+                @update:model-value="writeDevice(row.key, $event)"
+              />
+              <uk-checkbox
+                v-if="group.shutter && !device.isFixed('shutter')"
+                :model-value="!!read('shutter')"
+                label="Shutter open"
+                :disabled="device.isDriven('shutter')"
+                @update:model-value="writeDevice('shutter', $event)"
+              />
+              <uk-checkbox
+                v-for="toggle in (group.toggles || [])"
+                v-show="!device.isFixed(toggle.key)"
+                :key="toggle.key"
+                :model-value="!!read(toggle.key)"
+                :label="toggle.label"
+                :disabled="device.isDriven(toggle.key)"
+                @update:model-value="writeDevice(toggle.key, $event)"
+              />
+            </uk-flex>
+          </template>
+        </template>
       </template>
     </uk-flex>
   </uk-widget>
@@ -233,6 +284,20 @@ import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
 import { MAX_SHADOW_CASTERS } from '@/plugins/visualizer/moving_head';
 import { imageSizeAt } from '@/models/DMX/generic/projector';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
+
+/**
+ * A laser's source options, in dropdown order: auto, then each DAC protocol.
+ *
+ * One list rather than a list of values beside a list of labels. They were two,
+ * and adding IDN to the values while the labels stayed as they were is exactly
+ * the drift that produces a protocol which works but cannot be chosen.
+ */
+const LASER_SOURCES = [
+  { value: null, label: '— auto —' },
+  { value: 'etherdream', label: 'Ether Dream' },
+  { value: 'lasercube', label: 'LaserCube' },
+  { value: 'idn', label: 'Beam' },
+];
 
 export default {
   name: 'FixtureModifierWidgetSettings',
@@ -290,6 +355,42 @@ export default {
     isProjector() {
       return !!(this.fixture && this.fixture.deviceKind === GENERIC_KINDS.PROJECTOR);
     },
+    /** A laser carries the output stage below rather than a plain dimmer. */
+    isLaser() {
+      return !!(this.fixture && this.fixture.deviceKind === GENERIC_KINDS.LASER);
+    },
+    /**
+     * The laser's output stage, grouped and laid out several across so the
+     * panel is not a tall single column. A fixed parameter is dropped from the
+     * panel; a driven one is shown greyed, holding the live DMX value.
+     *
+     * @type {Array}
+     */
+    laserGroups() {
+      const pct = (key, label, min = 0, width = 92) => ({
+        key, label, min, max: 100, width,
+      });
+      return [
+        { label: 'Intensity', rows: [pct('dimmer', 'Dimmer %')], shutter: true },
+        {
+          label: 'Colour %',
+          rows: [pct('red', 'Red', 0, 62), pct('green', 'Green', 0, 62), pct('blue', 'Blue', 0, 62)],
+        },
+        {
+          label: 'Geometry %',
+          rows: [
+            pct('xScale', 'X scale'), pct('yScale', 'Y scale'),
+            pct('xPos', 'X pos', -100), pct('yPos', 'Y pos', -100),
+          ],
+          // Mounting flips sit with the geometry because that is what they are:
+          // the field turned over, not the content changed.
+          toggles: [
+            { key: 'mirrorX', label: 'Mirror X' },
+            { key: 'mirrorY', label: 'Mirror Y' },
+          ],
+        },
+      ];
+    },
     /**
      * Everything the projector rows show, read in one place.
      *
@@ -310,6 +411,15 @@ export default {
         dimmer: device.value('dimmer'),
         shutter: device.value('shutter'),
         source: device.value('source'),
+        // The laser output stage. Undefined for any device without these, which
+        // reads as nothing to show -- the rows are gated on the kind anyway.
+        red: device.value('red'),
+        green: device.value('green'),
+        blue: device.value('blue'),
+        xScale: device.value('xScale'),
+        yScale: device.value('yScale'),
+        xPos: device.value('xPos'),
+        yPos: device.value('yPos'),
       };
     },
     /** Every connector in the show, with an unbound entry at the top. */
@@ -317,10 +427,16 @@ export default {
       return (this.$show && this.$show.videoConnectors) || [];
     },
     sourceOptions() {
+      // A laser's source is which DAC stream feeds it, not a video connector.
+      if (this.isLaser) return LASER_SOURCES.map((source) => source.label);
       return ['— none —', ...this.connectors.map((c) => c.name)];
     },
     sourceIndex() {
       const value = this.read('source');
+      if (this.isLaser) {
+        const at = LASER_SOURCES.findIndex((source) => source.value === value);
+        return at < 0 ? 0 : at;
+      }
       if (value === null || value === undefined) return 0;
       // A channel names a connector by position, one-based, which is what makes
       // `Source Select = 1` read as the first one. A hand-set value is an id,
@@ -511,6 +627,12 @@ export default {
      */
     pickSource(index) {
       if (!this.device) return;
+      if (this.isLaser) {
+        // Index 0 is auto (null); the renderer then shows whichever DAC has a
+        // stream. Otherwise the chosen protocol.
+        this.writeDevice('source', (LASER_SOURCES[index] || {}).value || null);
+        return;
+      }
       const connector = index > 0 ? this.connectors[index - 1] : null;
       // Through `writeDevice` rather than writing here: that is the one path
       // that also tells the renderer to redraw, and picking a source without it
@@ -551,6 +673,12 @@ export default {
    marker, and centring floats the short ones half way down beside the tall
    ones. Every widget in this app lines its rows up at the top. */
 .row {
+  align-items: flex-start;
+}
+/* A group of output-stage fields, packed across and wrapping, so a laser's
+   nine parameters do not run down one tall column. */
+.control_wrap {
+  flex-wrap: wrap;
   align-items: flex-start;
 }
 .section_label {

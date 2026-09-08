@@ -394,7 +394,7 @@
            border round it and how deep the box is. The pixel grid is separate
            because a wall's tiles rarely divide its outline evenly, and it is
            the outline the picture has to fill. -->
-      <template v-else>
+      <template v-else-if="isDisplay">
         <span class="create_section">Panel (mm)</span>
         <uk-flex :gap="8">
           <uk-num-input
@@ -508,6 +508,162 @@
           {{ displayChannelSummary }}
         </p>
       </template>
+
+      <!-- A laser is a galvo pair and an aperture. Its picture comes from the
+           DAC point stream, so nothing here describes colour or position -- only
+           the machine: how much light it makes, how wide it can scan, how fine
+           its beam is, and where the aperture sits on the box. -->
+      <template v-else-if="isLaser">
+        <span class="create_section">Scanner</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="power"
+            class="field"
+            label="Power W"
+            :min="0.1"
+            :max="100"
+            :precision="1"
+          />
+          <uk-num-input
+            v-model="scanAngleH"
+            class="field"
+            label="Scan H °"
+            :min="1"
+            :max="120"
+          />
+          <uk-num-input
+            v-model="scanAngleV"
+            class="field"
+            label="Scan V °"
+            :min="1"
+            :max="120"
+          />
+          <uk-num-input
+            v-model="maxPointRate"
+            class="wide_field"
+            label="Points/s"
+            :min="1000"
+            :max="200000"
+          />
+        </uk-flex>
+
+        <span class="create_section">Beam</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="beamDiameter"
+            class="field"
+            label="Diameter mm"
+            :min="0.1"
+            :max="50"
+            :precision="1"
+          />
+          <uk-num-input
+            v-model="divergence"
+            class="field"
+            label="Divergence mrad"
+            :min="0"
+            :max="20"
+            :precision="1"
+          />
+        </uk-flex>
+
+        <span class="create_section">Body (mm)</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="laserWidth"
+            class="field"
+            label="Width"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="laserHeight"
+            class="field"
+            label="Height"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="laserDepth"
+            class="field"
+            label="Depth"
+            :min="1"
+            :max="3000"
+          />
+        </uk-flex>
+
+        <span class="create_section">Aperture (mm from centre of front)</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="apertureX"
+            class="field"
+            label="Across"
+            :min="-1500"
+            :max="1500"
+          />
+          <uk-num-input
+            v-model="apertureY"
+            class="field"
+            label="Up"
+            :min="-1500"
+            :max="1500"
+          />
+          <uk-num-input
+            v-model="apertureDiameter"
+            class="field"
+            label="Diameter"
+            :min="1"
+            :max="1000"
+          />
+        </uk-flex>
+
+        <!-- The picture is never on DMX; these ride an output stage over the
+             stream. Each is Fixed (baked here), Adjustable (set per placement)
+             or DMX (driven, at a relative channel and bit depth). All-Adjustable
+             is a laser you correct by hand, the common case. -->
+        <span class="create_section">Output stage</span>
+        <uk-flex
+          v-for="option in laserControlOptions"
+          :key="option.key"
+          :gap="8"
+          class="control_row"
+        >
+          <span class="control_label">{{ option.label }}</span>
+          <uk-select-input
+            :model-value="laserControls[option.key].modeIndex"
+            style="width: 120px"
+            :options="controlModeLabels"
+            @update:model-value="(v) => setControlMode(option.key, v)"
+          />
+          <template v-if="laserControls[option.key].modeIndex === 2">
+            <uk-num-input
+              v-model="laserControls[option.key].channel"
+              class="field"
+              label="Rel. channel"
+              :min="1"
+              :max="512"
+            />
+            <uk-select-input
+              v-model="laserControls[option.key].bitsIndex"
+              style="width: 100px"
+              label="Depth"
+              :options="controlBitLabels"
+            />
+          </template>
+          <uk-num-input
+            v-else
+            v-model="laserControls[option.key].value"
+            class="field"
+            label="Value"
+            :min="-100"
+            :max="100"
+          />
+        </uk-flex>
+
+        <p class="create_summary">
+          {{ laserSummary }}
+        </p>
+      </template>
     </uk-flex>
   </uk-popup>
 </template>
@@ -526,6 +682,12 @@ import {
   pixelPitch,
   pixelFill,
 } from '@/models/DMX/generic/display';
+import {
+  DEFAULT_LASER_PARAMS,
+  CHANNEL_ORDER as LASER_CHANNEL_ORDER,
+  CHANNEL_LABELS as LASER_CHANNEL_LABELS,
+  imageSizeAt as laserImageSizeAt,
+} from '@/models/DMX/generic/laser';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 
 /** Millimetres per metre: the form talks mm, the model talks metres. */
@@ -540,18 +702,39 @@ const MM = 1000;
 // What the thing is, which decides how other tools are told to draw it: a bar
 // is a line with a thickness, a panel a rectangle. Separate from how many rows
 // it carries -- a four-row batten is still a bar.
-const KINDS = ['LED bar', 'LED panel', 'Projector', 'Display'];
-const KIND_SHAPES = [BAR_SHAPES.BAR, BAR_SHAPES.PANEL, null, null];
+const KINDS = ['LED bar', 'LED panel', 'Projector', 'Display', 'Laser'];
+const KIND_SHAPES = [BAR_SHAPES.BAR, BAR_SHAPES.PANEL, null, null, null];
 // Which builder each kind goes to. Bars and panels differ in how they are
 // drawn and described to other tools, not in what makes them -- so both come
-// from the same builder and only the projector adds a second one.
+// from the same builder; the projector, display and laser each add their own.
 const KIND_BUILDERS = [
-  GENERIC_KINDS.BAR, GENERIC_KINDS.BAR, GENERIC_KINDS.PROJECTOR, GENERIC_KINDS.DISPLAY,
+  GENERIC_KINDS.BAR, GENERIC_KINDS.BAR, GENERIC_KINDS.PROJECTOR,
+  GENERIC_KINDS.DISPLAY, GENERIC_KINDS.LASER,
 ];
 // The model name each kind starts out with. Changing the type renames the
 // fixture to match, so the two do not sit there disagreeing -- but only while
 // the name is still the one this dialog chose.
-const KIND_NAMES = ['LED Bar', 'LED Panel', 'Projector', 'Display'];
+const KIND_NAMES = ['LED Bar', 'LED Panel', 'Projector', 'Display', 'Laser'];
+// How a generic parameter is decided, and the bit depths a DMX one may use.
+// The selects model an index, so these are the source of both the labels and
+// the value each index maps to.
+const CONTROL_MODES = ['fixed', 'adjustable', 'dmx'];
+const CONTROL_MODE_LABELS = ['Fixed', 'Adjustable', 'DMX'];
+const CONTROL_BITS = [8, 16, 24];
+const CONTROL_BIT_LABELS = ['8-bit', '16-bit', '24-bit'];
+// The value a laser's output-stage parameter parks at: full for the masters
+// and scales, centred for the offsets, open for the shutter.
+const LASER_CONTROL_DEFAULTS = {
+  dimmer: 100,
+  shutter: 100,
+  red: 100,
+  green: 100,
+  blue: 100,
+  xScale: 100,
+  yScale: 100,
+  xPos: 0,
+  yPos: 0,
+};
 const ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR', 'RGBW', 'GRBW', 'BGRW', 'RGBA', 'GRBA'];
 const CORNERS = Object.values(START_CORNERS);
 const AXES = Object.values(SCAN_AXES);
@@ -630,6 +813,31 @@ export default {
       displayChannelsOn: Object.fromEntries(DISPLAY_CHANNEL_ORDER.map(
         (key) => [key, DEFAULT_DISPLAY_PARAMS.channels.includes(key)],
       )),
+      // Laser. Kept apart from the others for the same reason they are kept
+      // apart from each other: switching type must not carry one machine's
+      // numbers onto another and quietly keep them.
+      power: DEFAULT_LASER_PARAMS.power,
+      scanAngleH: DEFAULT_LASER_PARAMS.scanAngleH,
+      scanAngleV: DEFAULT_LASER_PARAMS.scanAngleV,
+      beamDiameter: DEFAULT_LASER_PARAMS.beamDiameter,
+      divergence: DEFAULT_LASER_PARAMS.divergence,
+      maxPointRate: DEFAULT_LASER_PARAMS.maxPointRate,
+      laserWidth: DEFAULT_LASER_PARAMS.width * MM,
+      laserHeight: DEFAULT_LASER_PARAMS.height * MM,
+      laserDepth: DEFAULT_LASER_PARAMS.depth * MM,
+      apertureX: DEFAULT_LASER_PARAMS.apertureX * MM,
+      apertureY: DEFAULT_LASER_PARAMS.apertureY * MM,
+      apertureDiameter: DEFAULT_LASER_PARAMS.apertureDiameter * MM,
+      // One row per output-stage parameter: how it is decided, its parked or
+      // baked value, and -- when DMX -- its relative channel and bit depth.
+      // Everything starts Adjustable at its default, channels numbered in order
+      // so a run of DMX ticks lands contiguously without thinking about it.
+      laserControls: Object.fromEntries(LASER_CHANNEL_ORDER.map((key, i) => [key, {
+        modeIndex: 1,
+        value: LASER_CONTROL_DEFAULTS[key],
+        channel: i + 1,
+        bitsIndex: 0,
+      }])),
     };
   },
   computed: {
@@ -651,6 +859,95 @@ export default {
     },
     isProjector() {
       return this.builder === GENERIC_KINDS.PROJECTOR;
+    },
+    isDisplay() {
+      return this.builder === GENERIC_KINDS.DISPLAY;
+    },
+    isLaser() {
+      return this.builder === GENERIC_KINDS.LASER;
+    },
+    /** One control row per output-stage parameter, in addressing order. */
+    laserControlOptions() {
+      return LASER_CHANNEL_ORDER.map((key) => ({ key, label: LASER_CHANNEL_LABELS[key] }));
+    },
+    /** Labels for the mode and bit-depth selects. */
+    controlModeLabels() {
+      return CONTROL_MODE_LABELS;
+    },
+    controlBitLabels() {
+      return CONTROL_BIT_LABELS;
+    },
+    /**
+     * The controls block, in the shape the model stores: one entry per
+     * parameter with its mode, its parked/baked value, and -- for DMX -- the
+     * relative channel and bit depth.
+     *
+     * @type {Object}
+     */
+    laserControlsOut() {
+      return Object.fromEntries(LASER_CHANNEL_ORDER.map((key) => {
+        const c = this.laserControls[key];
+        return [key, {
+          mode: CONTROL_MODES[c.modeIndex] || 'adjustable',
+          value: c.value,
+          channel: Math.max(1, Math.round(c.channel) || 1),
+          bits: CONTROL_BITS[c.bitsIndex] || 8,
+        }];
+      }));
+    },
+    /**
+     * The laser's parameters, as the model wants them. One place rather than
+     * spelled out again in `create`, so the summary and the written profile
+     * cannot disagree.
+     *
+     * @type {Object}
+     */
+    laserParams() {
+      return {
+        power: this.power,
+        scanAngleH: this.scanAngleH,
+        scanAngleV: this.scanAngleV,
+        beamDiameter: this.beamDiameter,
+        divergence: this.divergence,
+        maxPointRate: this.maxPointRate,
+        width: this.laserWidth / MM,
+        height: this.laserHeight / MM,
+        depth: this.laserDepth / MM,
+        apertureX: this.apertureX / MM,
+        apertureY: this.apertureY / MM,
+        apertureDiameter: this.apertureDiameter / MM,
+        controls: this.laserControlsOut,
+      };
+    },
+    /**
+     * How many DMX channels the laser occupies: the furthest byte any driven
+     * parameter reaches.
+     *
+     * @type {Number}
+     */
+    laserFootprint() {
+      let footprint = 0;
+      LASER_CHANNEL_ORDER.forEach((key) => {
+        const c = this.laserControls[key];
+        if (CONTROL_MODES[c.modeIndex] !== 'dmx') return;
+        const channel = Math.max(1, Math.round(c.channel) || 1);
+        const bytes = (CONTROL_BITS[c.bitsIndex] || 8) / 8;
+        footprint = Math.max(footprint, channel - 1 + bytes);
+      });
+      return footprint;
+    },
+    /**
+     * What the scan comes to, in the terms someone aiming it thinks in: the
+     * full angle, the picture at 10 m, and the DMX footprint.
+     *
+     * @type {String}
+     */
+    laserSummary() {
+      const at10 = laserImageSizeAt(10, this.laserParams);
+      const n = this.laserFootprint;
+      return `${this.scanAngleH}° × ${this.scanAngleV}° scan`
+        + ` · at 10 m fills ${at10.width.toFixed(1)} × ${at10.height.toFixed(1)} m`
+        + ` · ${n} DMX channel${n === 1 ? '' : 's'}`;
     },
     /** The tick boxes, in the order the profile addresses them. */
     displayChannelOptions() {
@@ -940,6 +1237,16 @@ export default {
       if (this.builder === GENERIC_KINDS.DISPLAY) {
         return this.screenWidth > 0 && this.screenHeight > 0 && this.screenDepth > 0;
       }
+      // A laser is allowed no channels, like a projector. What it cannot have
+      // is a body with no size, a scan that makes no picture, or an aperture
+      // off the front panel it is measured from.
+      if (this.isLaser) {
+        const radius = this.apertureDiameter / 2;
+        return this.laserWidth > 0 && this.laserHeight > 0 && this.laserDepth > 0
+          && this.scanAngleH > 0 && this.scanAngleV > 0
+          && Math.abs(this.apertureX) + radius <= this.laserWidth / 2
+          && Math.abs(this.apertureY) + radius <= this.laserHeight / 2;
+      }
       // A projector is allowed no channels at all, so the bar's "must address
       // something" rule would refuse the commonest projector there is. What it
       // cannot have is a lens that makes no picture.
@@ -984,6 +1291,45 @@ export default {
     },
   },
   methods: {
+    /**
+     * The first relative channel no other DMX parameter is using.
+     *
+     * A parameter's byte span is its channel through `channel + bits/8 - 1`, so
+     * the next free channel is one past the furthest byte any *other* driven
+     * parameter reaches. Assigned when a parameter is switched to DMX, so a
+     * 16-bit dimmer at channel 1 leaves the next tick landing on channel 3
+     * rather than colliding on channel 2.
+     *
+     * @public
+     * @param {String} exceptKey the parameter being placed, left out of the sum
+     * @returns {Number}
+     */
+    nextFreeChannel(exceptKey) {
+      let end = 0;
+      LASER_CHANNEL_ORDER.forEach((key) => {
+        if (key === exceptKey) return;
+        const control = this.laserControls[key];
+        if (CONTROL_MODES[control.modeIndex] !== 'dmx') return;
+        const channel = Math.max(1, Math.round(control.channel) || 1);
+        const bytes = (CONTROL_BITS[control.bitsIndex] || 8) / 8;
+        end = Math.max(end, channel - 1 + bytes);
+      });
+      return end + 1;
+    },
+    /**
+     * Changes a parameter's mode, and when it becomes DMX drops it on the next
+     * free channel so a fresh tick never lands on a byte already in use.
+     *
+     * @public
+     * @param {String} key
+     * @param {Number} index into `CONTROL_MODES`
+     */
+    setControlMode(key, index) {
+      this.laserControls[key].modeIndex = index;
+      if (CONTROL_MODES[index] === 'dmx') {
+        this.laserControls[key].channel = this.nextFreeChannel(key);
+      }
+    },
     /**
      * A ratio in the terms people say out loud, when it is one of those.
      *
@@ -1054,6 +1400,16 @@ export default {
           this.manufacturer.trim(),
           this.model.trim(),
           this.displayParams,
+          this.builder,
+        );
+        this.$emit('created', made);
+        return;
+      }
+      if (this.isLaser) {
+        const made = await this.$show.createGeneratedProfile(
+          this.manufacturer.trim(),
+          this.model.trim(),
+          this.laserParams,
           this.builder,
         );
         this.$emit('created', made);
@@ -1146,6 +1502,22 @@ export default {
 }
 .ticks {
   flex-wrap: wrap;
+}
+/* One output-stage parameter: label, mode, then either a value or the DMX
+   channel and depth. Bottom-aligned so the labelled inputs line up. */
+.control_row {
+  align-items: flex-end;
+  margin-bottom: 4px;
+}
+.control_label {
+  width: 96px;
+  align-self: center;
+  /* global.css sets no font on body, so a bare span falls through to the
+     browser default -- a black serif. Name the family and colour, as every
+     other label here does. */
+  font-family: Roboto-Regular;
+  font-size: 12px;
+  color: var(--secondary-lighter-alt);
 }
 .preview {
   width: 100%;

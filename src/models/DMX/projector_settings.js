@@ -89,33 +89,27 @@ export const PROJECTOR_SPEC = {
   [PROJECTOR_ATTRIBUTES.ZOOM]: {
     initial: (params) => throwRange(params).min,
     coerce: (value, params) => clampThrow(params, value),
-    // DMX 0 is the *narrow* end, because the capability writes the narrowest
+    // Level 0 is the *narrow* end, because the capability writes the narrowest
     // angle as its start -- and a narrow angle is a long throw ratio. So the
     // ratio runs from max down to min, not the other way about. Backwards
     // inverts every projector's zoom, invisibly.
-    fromDmx: (dmx, params) => {
+    fromLevel: (level, params) => {
       const { min, max } = throwRange(params);
-      const level = Math.min(Math.max(Number(dmx) || 0, 0), 255) / 255;
-      return max + (min - max) * level;
+      const l = Math.min(Math.max(level, 0), 1);
+      return max + (min - max) * l;
     },
   },
-  // Centred at half scale, so a console sitting at 128 leaves the image where
-  // the optics put it.
+  // Centred at half scale, so a console sitting at the middle leaves the image
+  // where the optics put it.
   [PROJECTOR_ATTRIBUTES.SHIFT_H]: {
     initial: () => 0,
     coerce: (value, params) => clamp(value, -shiftLimit(params, 'H'), shiftLimit(params, 'H'), 0),
-    fromDmx: (dmx, params) => {
-      const level = Math.min(Math.max(Number(dmx) || 0, 0), 255) / 255;
-      return (level * 2 - 1) * shiftLimit(params, 'H');
-    },
+    fromLevel: (level, params) => (Math.min(Math.max(level, 0), 1) * 2 - 1) * shiftLimit(params, 'H'),
   },
   [PROJECTOR_ATTRIBUTES.SHIFT_V]: {
     initial: () => 0,
     coerce: (value, params) => clamp(value, -shiftLimit(params, 'V'), shiftLimit(params, 'V'), 0),
-    fromDmx: (dmx, params) => {
-      const level = Math.min(Math.max(Number(dmx) || 0, 0), 255) / 255;
-      return (level * 2 - 1) * shiftLimit(params, 'V');
-    },
+    fromLevel: (level, params) => (Math.min(Math.max(level, 0), 1) * 2 - 1) * shiftLimit(params, 'V'),
   },
   [PROJECTOR_ATTRIBUTES.SOURCE]: COMMON_ATTRIBUTES.source,
   [PROJECTOR_ATTRIBUTES.DIMMER]: COMMON_ATTRIBUTES.dimmer,
@@ -128,7 +122,7 @@ class ProjectorSettings extends DeviceSettings {
    * @param {Object} [data] stored values from the show
    */
   constructor(params, data = {}) {
-    super(PROJECTOR_SPEC, CHANNEL_ORDER, params, data);
+    super(PROJECTOR_SPEC, params, data, CHANNEL_ORDER);
   }
 
   /** How far the optics may shift, as a percentage of the image. */

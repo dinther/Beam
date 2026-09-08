@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 
 /**
- * @file What each projector can see, packed into one texture.
+ * @file What a fixture can see, packed into one texture.
  *
- * A projector that paints through a building is not a preview of anything. The
- * only way to know a surface is lit is to ask whether the projector can see it,
- * and that means depth from the lens -- the same question a shadow map answers,
+ * A projector that paints through a building, or a laser whose beam would pass
+ * through a wall, is not a preview of anything. The only way to know a surface
+ * is the first thing in the way is to ask whether the fixture can see it, and
+ * that means depth from the fixture -- the same question a shadow map answers,
  * asked from somewhere the renderer's own lights are not.
  *
  * **Why not a spot light's shadow map.** Three will do this for a `SpotLight`
@@ -13,35 +14,40 @@ import * as THREE from 'three';
  * stop it. The renderer's shadow-caster budget is eight texture units shared
  * with every mover in the show, and a mapping rig is three to six machines on
  * one building; and a spot light's shadow camera is a symmetric frustum, which
- * cannot express lens shift. A projector mapping a facade is almost never on
- * axis -- it sits below and shifts up -- so a symmetric frustum draws the
- * picture somewhere the real machine would not put it.
+ * cannot express a projector's lens shift. So each fixture gets a tile in an
+ * atlas instead.
  *
- * **One texture, tiled.** Six separate depth maps would cost six texture units,
+ * **One texture, tiled.** N separate depth maps would cost N texture units,
  * which is the budget problem again. Tiling them into one costs a single unit
- * however many projectors there are, and the pass reads a tile by offsetting
+ * however many fixtures there are, and the reader reads a tile by offsetting
  * its coordinate. That is the whole reason this file exists rather than a
- * render target per projector.
+ * render target per fixture.
  *
  * Depth is packed into RGBA rather than written to a depth texture, because a
  * tiled render needs scissor and viewport control over an ordinary colour
  * target, and `unpackRGBAToDepth` is already in three's shader chunks at the
  * other end.
+ *
+ * **`DepthAtlas` is the reusable engine; the default export is the projector's
+ * instance.** A laser makes its own instance with its own tile count and
+ * range (see `laser.js`), so the two never share tiles or a texture unit's
+ * worth of coupling -- only the code.
  */
 
 /**
  * How many projectors can light the scene at once.
  *
  * Six covers the rigs Paul described -- three to six machines on a facade --
- * and it is the number the atlas is laid out for. Past it the extra projectors
- * simply do not contribute rather than corrupting anyone else's tile.
+ * and it is the number the projector atlas is laid out for. Past it the extra
+ * projectors simply do not contribute rather than corrupting anyone else's
+ * tile.
  *
  * @constant {Number}
  */
 export const MAX_PROJECTIONS = 6;
 
 /**
- * The depth range every projector's frustum is built with.
+ * The depth range a projector's frustum is built with.
  *
  * Shared because the pass has to undo exactly the projection the atlas was
  * drawn with, and two copies of these numbers drifting apart would put the
@@ -60,91 +66,198 @@ export const PROJECTOR_NEAR = 0.5;
 /** Past anything a projector in a room will reach. @constant {Number} */
 export const PROJECTOR_FAR = 400;
 
-/** Tiles across and down. Three by two holds six at a sensible atlas shape. */
-const COLUMNS = 3;
-const ROWS = 2;
-
-/**
- * One tile's resolution.
- *
- * This is the grain of the occlusion, not of the picture -- the image itself is
- * sampled from the video texture at full resolution. 1024 across a facade is
- * about a centimetre at twenty metres, which is finer than the edge of a
- * shadow needs to be for a coverage answer.
- *
- * @constant {Number}
- */
-const TILE = 1024;
-
 /** Depth 1.0 packs to white: everything starts as "nothing in the way". */
 const FAR_COLOUR = new THREE.Color(1, 1, 1);
 
 /**
- * Written instead of every material in the scene while the atlas is drawn.
+ * Written instead of every material in the scene while an atlas is drawn.
  *
- * `RGBADepthPacking` because the target is a colour buffer -- see the file note.
+ * `RGBADepthPacking` because the target is a colour buffer -- see the file
+ * note. Shared: it is stateless, and only one atlas renders at a time.
  */
 const DEPTH_MATERIAL = new THREE.MeshDepthMaterial({
   depthPacking: THREE.RGBADepthPacking,
 });
 
-let target = null;
+/**
+ * The same question asked linearly: view distance over `far`, packed to RGBA.
+ *
+ * `MeshDepthMaterial` derives its value from `0.5 * zw.x / zw.y + 0.5`, an
+ * interpolated varying divided per fragment. A ground plane is two triangles
+ * tens of metres across that run from well behind the camera to well in front,
+ * so that varying is interpolated across a triangle crossing `w = 0` and the
+ * division loses all meaning: the whole floor came back as `packDepthToRGBA` of
+ * a negative number -- alpha 0, the other channels noise, which unpacks to
+ * roughly zero and reads as a surface sitting on the near plane. Every beam
+ * aimed anywhere near the floor was then cut a few centimetres out of the
+ * aperture. Changing near/far does not help; the interpolation is the problem.
+ *
+ * View-space distance has none of that: it is linear, it never divides by an
+ * interpolated `w`, and it spends the buffer evenly instead of crushing
+ * everything past a few metres into the last thousandths.
+ */
+const LINEAR_DEPTH_MATERIAL = new THREE.ShaderMaterial({
+  uniforms: { uNear: { value: 0.5 }, uFar: { value: 120 } },
+  vertexShader: `
+    #include <common>
+    #include <skinning_pars_vertex>
+    void main() {
+      #include <begin_vertex>
+      #include <skinbase_vertex>
+      #include <skinning_vertex>
+      #include <project_vertex>
+    }
+  `,
+  fragmentShader: `
+    #include <packing>
+    uniform float uNear;
+    uniform float uFar;
+    void main() {
+      // gl_FragCoord.z, never an interpolated varying. A ground plane is two
+      // triangles running from behind the camera to far in front, so any
+      // varying is interpolated across a triangle crossing w = 0 and comes out
+      // meaningless -- which is exactly how the floor used to pack as noise and
+      // read back as a surface on the near plane. The rasteriser computes
+      // gl_FragCoord.z after clipping, so it is always right; the depth buffer
+      // and the on-screen render rely on the same value.
+      float ndc = gl_FragCoord.z * 2.0 - 1.0;
+      float viewZ = (2.0 * uNear * uFar) / (uFar + uNear - ndc * (uFar - uNear));
+      gl_FragColor = packDepthToRGBA(clamp(viewZ / uFar, 0.0, 1.0));
+    }
+  `,
+});
 
-/** Scratch, so a per-frame pass allocates nothing. */
+/** Scratch, so a per-frame pass allocates nothing. Reused within one render. */
 const previousColour = new THREE.Color();
+const scratchSize = new THREE.Vector2();
 const hidden = [];
 
-function ensureTarget() {
-  if (target) return target;
-  target = new THREE.WebGLRenderTarget(COLUMNS * TILE, ROWS * TILE, {
-    minFilter: THREE.NearestFilter,
-    magFilter: THREE.NearestFilter,
-    // A depth comparison must not be interpolated, and this carries no colour.
-    generateMipmaps: false,
-    colorSpace: THREE.NoColorSpace,
-    depthBuffer: true,
-    stencilBuffer: false,
+/** Scratch for hashing a float by its exact bits. */
+const keyFloat = new Float32Array(1);
+const keyInt = new Int32Array(keyFloat.buffer);
+
+/**
+ * A number that changes whenever a fixture's depth tile would come out different.
+ *
+ * A rig is normally bolted to the truss and the room does not move, so the
+ * atlas is redrawn sixty times a second to produce a byte-identical image --
+ * once per fixture, each a full pass over the scene. This is what lets that be
+ * skipped: hash everything the pass depends on, and redraw only when the hash
+ * moves.
+ *
+ * **Hashed, rather than invalidated by hand.** Explicit `invalidate()` calls at
+ * every site that moves geometry are cheaper, and one missed call site leaves a
+ * stale tile -- a beam passing through a wall, or cut against open air. Walking
+ * the shadow casters costs a fraction of the render it avoids, and it cannot be
+ * forgotten: moves, adds, deletes, scale, a rebuilt geometry and a fixture
+ * being re-aimed all land in the hash on their own.
+ *
+ * @public
+ * @param {Object} scene
+ * @param {Array} cameras the fixture cameras the atlas is drawn from
+ * @returns {Number}
+ */
+export function depthAtlasKey(scene, cameras) {
+  let h = 2166136261;
+  // Bit twiddling is the point of a hash, not an accident.
+  // eslint-disable-next-line no-bitwise
+  const mix = (n) => { h = Math.imul(h ^ (n | 0), 16777619); };
+  const mixFloat = (f) => { keyFloat[0] = f; mix(keyInt[0]); };
+  const mixMatrix = (m) => { for (let i = 0; i < 16; i += 1) mixFloat(m.elements[i]); };
+
+  scene.traverse((object) => {
+    if (!object.isMesh || !object.castShadow || !object.visible) return;
+    mix(object.id);
+    mixMatrix(object.matrixWorld);
+    // A mover that pans, or an LED bar rebuilt: the instances move while the
+    // mesh's own matrix sits still, so hashing `matrixWorld` alone would call
+    // a swinging rig unchanged and leave beams passing through it.
+    if (object.isInstancedMesh) {
+      mix(object.count);
+      if (object.instanceMatrix) mix(object.instanceMatrix.version);
+    }
+    if (!object.geometry) return;
+    mix(object.geometry.id);
+    // A panel or structure rebuilt in place keeps its id but bumps this.
+    const position = object.geometry.attributes && object.geometry.attributes.position;
+    if (position) mix(position.version);
   });
-  return target;
+
+  // Aiming a fixture changes its tile without touching the scene at all.
+  mix(cameras.length);
+  cameras.forEach((camera) => mixMatrix(camera.matrixWorld));
+  return h;
 }
 
-export default {
-  MAX_PROJECTIONS,
+/**
+ * A tiled depth atlas rendered from a set of fixture cameras.
+ */
+export class DepthAtlas {
+  /**
+   * @param {Object} options
+   * @param {Number} options.columns tiles across
+   * @param {Number} options.rows tiles down
+   * @param {Number} options.tile one tile's resolution in pixels
+   * @param {Number} options.near shared near plane of every frustum
+   * @param {Number} options.far shared far plane
+   */
+  constructor({
+    columns, rows, tile, near, far, linear = false,
+  }) {
+    this.linear = linear;
+    this.columns = columns;
+    this.rows = rows;
+    this.tile = tile;
+    this.near = near;
+    this.far = far;
+    this.maxProjections = columns * rows;
+    this.target = null;
+  }
+
+  ensureTarget() {
+    if (this.target) return this.target;
+    this.target = new THREE.WebGLRenderTarget(this.columns * this.tile, this.rows * this.tile, {
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      // A depth comparison must not be interpolated, and this carries no colour.
+      generateMipmaps: false,
+      colorSpace: THREE.NoColorSpace,
+      depthBuffer: true,
+      stencilBuffer: false,
+    });
+    return this.target;
+  }
 
   /**
    * Where a slot sits in the atlas, in texture coordinates.
    *
-   * **Two sizes, not one.** The tiles are square in pixels but the atlas is
-   * three across and two down, so a tile is a third of its width and a *half*
-   * of its height. This returned a single `size` of `1 / COLUMNS` and the pass
-   * scaled both axes by it, which stretched every atlas lookup vertically by
-   * two thirds. The depth read came from the wrong place, so surfaces well
-   * inside the frustum were reported as blocked -- a clean band of false shadow
-   * offset along the projector's own vertical. On a machine rolled on its side
-   * that lands sideways in the world, which is how Paul described it.
+   * **Two sizes, not one.** The tiles are square in pixels but the atlas is not
+   * square in tiles, so a tile is `1/columns` of the width and `1/rows` of the
+   * height. Returning a single `size` once stretched every lookup and put the
+   * depth read in the wrong place -- a clean band of false shadow.
    *
    * @public
    * @param {Number} slot
    * @returns {Object} `{ x, y, width, height }` in texture coordinates
    */
   tileUv(slot) {
-    const column = slot % COLUMNS;
-    const row = Math.floor(slot / COLUMNS);
+    const column = slot % this.columns;
+    const row = Math.floor(slot / this.columns);
     return {
-      x: column / COLUMNS,
-      y: row / ROWS,
-      width: 1 / COLUMNS,
-      height: 1 / ROWS,
+      x: column / this.columns,
+      y: row / this.rows,
+      width: 1 / this.columns,
+      height: 1 / this.rows,
     };
-  },
+  }
 
   /** @public @returns {Object|null} the atlas texture, once one has been drawn */
   texture() {
-    return target ? target.texture : null;
-  },
+    return this.target ? this.target.texture : null;
+  }
 
   /**
-   * Draws every projector's view of the scene.
+   * Draws every fixture's view of the scene.
    *
    * Only what casts a shadow occludes, which is the same rule the renderer's
    * own lights follow. Without it a beam cone -- additive, transparent, and
@@ -158,39 +271,28 @@ export default {
    */
   render(renderer, scene, projections) {
     if (!projections || !projections.length) return;
-    ensureTarget();
+    const { tile } = this;
+    this.ensureTarget();
 
     // Matrices brought up to date once, and then frozen for the tiles.
     //
     // Hiding things is not enough on its own. `renderer.render` begins with
     // `scene.updateMatrixWorld()`, and some objects use that hook to manage
     // their own visibility -- three's TransformControls gizmo re-enables its
-    // handles and its invisible picker meshes there, every call. So a hide
-    // applied before the render was undone inside it, once per tile, and the
-    // gizmo went on printing its rotate rings into the atlas as shadow circles
-    // on whatever the projector was lighting. Paul, twice, and right both
-    // times: *"It is definetely from the gizmo"*.
-    //
-    // Updating once here and then switching the automatic pass off makes the
-    // hide below stick, and costs nothing: nothing moves between tiles.
+    // handles and its picker meshes there, every call. So a hide applied before
+    // the render was undone inside it, once per tile, and the gizmo went on
+    // printing its rotate rings into the atlas as shadow circles.
     scene.updateMatrixWorld();
     const wasAutoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
     // Everything from here to the restore runs inside `try`, because leaving
     // this flag off is not a glitch that clears on the next frame: the scene's
-    // transforms stop being recomputed *for good*, and every object that takes
-    // its place from a parent freezes where it stood. One throw in a tile
-    // render would do it, and the symptom would look nothing like this file.
+    // transforms stop being recomputed *for good*.
 
-    // Everything drawable that is not a shadow-casting mesh stands down.
-    //
-    // The test used to be `object.isMesh && !object.castShadow`, which reads
-    // like it hides non-casters and does not: a line, a sprite or a point cloud
-    // is not `isMesh`, so it failed the first clause and was left visible --
-    // then drawn into the atlas through the override depth material like solid
-    // geometry. What that looked like was a projector casting a shadow only
-    // while it was selected, because selecting one is what makes its frustum
-    // wireframe and its outline visible. Paul spotted it and named the frustum.
+    // Everything drawable that is not a shadow-casting mesh stands down. A
+    // line, a sprite or a point cloud is not `isMesh`, so testing that alone
+    // left them visible to be drawn through the override depth material like
+    // solid geometry.
     scene.traverse((object) => {
       if (!object.visible) return;
       const drawable = object.isMesh || object.isLine || object.isPoints
@@ -203,26 +305,41 @@ export default {
 
     const wasTarget = renderer.getRenderTarget();
     const wasOverride = scene.overrideMaterial;
+    // The scene's background has to stand down for the depth pass.
+    //
+    // `renderer.render` runs WebGLBackground before it draws anything, and a
+    // Color background makes it force a clear of the *current scissor* to that
+    // colour -- once per tile, after our far-white clear. The tile then holds
+    // the background colour (#0C0D0A) where nothing was drawn, and RGBA depth
+    // unpacking reads those bytes as a perfectly good depth (~0.996), so every
+    // empty direction became a solid occluder about 22 m out and beams were cut
+    // against open air. Nulled here, restored below.
+    const wasBackground = scene.background;
     const wasAlpha = renderer.getClearAlpha();
     renderer.getClearColor(previousColour);
     const wasAutoClear = renderer.autoClear;
 
     try {
-      scene.overrideMaterial = DEPTH_MATERIAL;
+      if (this.linear) {
+        LINEAR_DEPTH_MATERIAL.uniforms.uNear.value = this.near;
+        LINEAR_DEPTH_MATERIAL.uniforms.uFar.value = this.far;
+      }
+      scene.overrideMaterial = this.linear ? LINEAR_DEPTH_MATERIAL : DEPTH_MATERIAL;
+      scene.background = null;
       renderer.autoClear = false;
-      renderer.setRenderTarget(target);
+      renderer.setRenderTarget(this.target);
       renderer.setScissorTest(false);
       renderer.setClearColor(FAR_COLOUR, 1);
       renderer.clear(true, true, false);
       renderer.setScissorTest(true);
 
-      projections.slice(0, MAX_PROJECTIONS).forEach((projection, slot) => {
-        const column = slot % COLUMNS;
-        const row = Math.floor(slot / COLUMNS);
-        const x = column * TILE;
-        const y = row * TILE;
-        renderer.setViewport(x, y, TILE, TILE);
-        renderer.setScissor(x, y, TILE, TILE);
+      projections.slice(0, this.maxProjections).forEach((projection, slot) => {
+        const column = slot % this.columns;
+        const row = Math.floor(slot / this.columns);
+        const x = column * tile;
+        const y = row * tile;
+        renderer.setViewport(x, y, tile, tile);
+        renderer.setScissor(x, y, tile, tile);
         renderer.render(scene, projection.camera);
       });
 
@@ -231,10 +348,11 @@ export default {
       renderer.setClearColor(previousColour, wasAlpha);
       renderer.autoClear = wasAutoClear;
       scene.overrideMaterial = wasOverride;
+      scene.background = wasBackground;
       // The viewport is left where the tiles put it otherwise, and the next
-      // full-screen render comes out a sixth of the size.
-      const size = renderer.getSize(new THREE.Vector2());
-      renderer.setViewport(0, 0, size.x, size.y);
+      // full-screen render comes out a fraction of the size.
+      renderer.getSize(scratchSize);
+      renderer.setViewport(0, 0, scratchSize.x, scratchSize.y);
     } finally {
       // Restored whatever happened above. The scene is shared, and every one of
       // these left set is a fault somewhere else entirely.
@@ -243,16 +361,31 @@ export default {
       renderer.setClearColor(previousColour, wasAlpha);
       renderer.autoClear = wasAutoClear;
       scene.overrideMaterial = wasOverride;
+      scene.background = wasBackground;
       scene.matrixWorldAutoUpdate = wasAutoUpdate;
       hidden.forEach((object) => { object.visible = true; });
       hidden.length = 0;
     }
-  },
+  }
 
   /** @public Releases the atlas. */
   dispose() {
-    if (!target) return;
-    target.dispose();
-    target = null;
-  },
-};
+    if (!this.target) return;
+    this.target.dispose();
+    this.target = null;
+  }
+}
+
+/**
+ * The projector atlas: three across, two down, at the projector range.
+ *
+ * The default export, so every caller that had `import ProjectorDepth from
+ * './projector_depth'` keeps the same object and API.
+ */
+export default new DepthAtlas({
+  columns: 3,
+  rows: 2,
+  tile: 1024,
+  near: PROJECTOR_NEAR,
+  far: PROJECTOR_FAR,
+});

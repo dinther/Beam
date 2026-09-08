@@ -37,7 +37,7 @@ class DisplaySettings extends DeviceSettings {
    * @param {Object} [data] stored values from the show
    */
   constructor(params, data = {}) {
-    super(DISPLAY_SPEC, CHANNEL_ORDER, params, data);
+    super(DISPLAY_SPEC, params, data, CHANNEL_ORDER);
   }
 }
 

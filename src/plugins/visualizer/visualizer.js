@@ -74,10 +74,12 @@ import createLEDDebugPanel from './led_debug_panel';
 import VideoFeed from './video_feed';
 import Display from './display';
 import Projector from './projector';
+import Laser from './laser';
 import VideoRouter from './video_router';
 import VideoDecode from './video_decode';
 import ProjectorDepth from './projector_depth';
 import ProjectorEffect from './projector_pass';
+import LaserEffect from './laser_pass';
 import {
   EffectComposer,
   RenderPass,
@@ -99,6 +101,7 @@ let finalComposer = null;
 
 /** The projection pass, module-scoped for the same reason the composer is. */
 let projectorEffect = null;
+let laserEffect = null;
 
 /**
  * Bloom pass, kept accessible so the fog controls can drive it.
@@ -1052,6 +1055,20 @@ class Visualizer {
       // because that is what they will be drawing from.
       VideoDecode.decodeAll(this.renderer, VideoFeed.all());
       Display.syncAll();
+      // Rebuild each laser's beam from the points its DAC has played since the
+      // last frame. Stream-fed like the video devices, not DMX-driven, so it
+      // updates here rather than through setChannel.
+      Laser.update(t);
+      // Each laser's depth from its aperture, so the beam stops at the first
+      // surface rather than running through it. Drawn before the frame, like the
+      // projectors' depth pass above.
+      Laser.renderDepth(this.renderer, SceneManager);
+      Laser.renderFigures(this.renderer);
+      if (laserEffect) {
+        laserEffect.setLasers(
+          Laser.projections(), Laser.figureTexture(), Laser.depthTexture(), Laser.depthFar(),
+        );
+      }
       // Each projector's own view of the scene, drawn before the frame is, so
       // the pass can ask whether a surface is actually visible from the lens.
       // Nothing to do at all when no projector is throwing anything.
@@ -1307,7 +1324,23 @@ class Visualizer {
     // and the air in front of it should veil it like anything else. Before
     // bloom for the same reason a lamp is: a bright projection on stone glares.
     projectorEffect = new ProjectorEffect(this.camera);
+    laserEffect = new LaserEffect(this.camera);
 
+    // The laser figure gets a pass of its own, ahead of the rest.
+    //
+    // Everything in one EffectPass is merged into a single shader, but bloom
+    // does its blur in `update()` -- before that shader runs -- over the pass's
+    // *input*, which is the scene as the RenderPass left it. So anything added
+    // inside the merged shader is invisible to bloom: the beam in the air
+    // glowed, being real geometry, while the figure painted on the stone could
+    // not, however far its gain was pushed. A laser line without bloom reads as
+    // matte paint rather than light. Landing it in an earlier pass puts it into
+    // the buffer bloom then samples.
+    //
+    // The projector deliberately stays behind bloom, where it has always been:
+    // its brightness is calibrated in lux against a real rig, and giving it a
+    // glow it never had would quietly change every mapping show.
+    finalComposer.addPass(new EffectPass(this.camera, laserEffect));
     const effects = bloomEffect
       ? [projectorEffect, ambientHazeEffect, bloomEffect, toneMapping]
       : [projectorEffect, ambientHazeEffect, toneMapping];

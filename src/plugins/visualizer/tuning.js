@@ -21,6 +21,7 @@
 import Preferences from './preferences';
 import { EMITTER_UNIFORMS, GLOW_UNIFORMS } from './led_field';
 import LEDPanel from './led_panel';
+import Laser from './laser';
 import { setAmbientCeiling } from './ambient';
 
 const PREFIX = 'tune.';
@@ -70,6 +71,14 @@ const CONTROLS = {
   airScale: (value, vis) => {
     if (vis.ambientHaze) vis.ambientHaze.setScaleMultiplier(value);
   },
+  // Laser. The air and the surface are two different renderers -- geometry
+  // through haze, and a projected figure -- so they need separate hands.
+  laserAir: (value) => Laser.setScatterGain(value),
+  laserSurface: (value) => Laser.setSurfaceGain(value),
+  laserWidth: (value) => Laser.setFigureWidth(value),
+  laserLength: (value) => Laser.setBeamLength(value),
+  laserTail: (value) => Laser.setBeamTail(value),
+  laserScatter: (value) => Laser.setScatterAmount(value / 100),
   // Bloom. Only meaningful once it has been taken off the haze follower --
   // `bloomManual` is what `setBloom` sets, and restoring a value has to set it
   // too or the follower would overwrite these on the next change of haze.

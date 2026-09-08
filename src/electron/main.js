@@ -9,6 +9,7 @@ import {
   protocol,
   ipcMain,
   Menu,
+  screen,
   session,
 } from 'electron';
 import {
@@ -20,6 +21,9 @@ import path from 'path';
 import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
 import sacn from './sacn';
+import EtherDreamDac from './etherdream';
+import LaserCubeDac from './lasercube';
+import IdnDac from './idn';
 import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
@@ -132,9 +136,74 @@ function documentFromArgv(argv) {
   return argv.slice(1).find((arg) => arg.toLowerCase().endsWith('.beam')) || null;
 }
 
+/** The store the window's last position, size and maximised state live in. */
+const WINDOW_STATE = 'window-state';
+/** Coalesces a burst of move/resize events into one write. */
+let windowStateTimer = null;
+
+/**
+ * Whether a window rectangle would land somewhere a display can actually show
+ * it.
+ *
+ * The case this exists for: the window was last on a second monitor that is no
+ * longer attached. Restoring its saved position then puts it in empty space
+ * where it cannot be reached. So a saved position is only used when it still
+ * overlaps a current display enough to grab -- enough of the top edge to catch
+ * the title bar -- and otherwise dropped, leaving the OS to centre the window
+ * on the primary display.
+ *
+ * @param {Object} bounds `{ x, y, width, height }`
+ * @returns {Boolean}
+ */
+function boundsOnADisplay(bounds) {
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    const right = Math.min(area.x + area.width, bounds.x + bounds.width);
+    const bottom = Math.min(area.y + area.height, bounds.y + bounds.height);
+    const overlapW = right - Math.max(area.x, bounds.x);
+    const overlapH = bottom - Math.max(area.y, bounds.y);
+    // A strip wide and tall enough to hold and drag by, not a single pixel.
+    return overlapW > 120 && overlapH > 48;
+  });
+}
+
+/** The last saved window state, or null if there is none or it is unusable. */
+function storedWindowState() {
+  const state = jsonstore.read(WINDOW_STATE);
+  if (!state || typeof state !== 'object') return null;
+  if (!Number.isFinite(state.width) || !Number.isFinite(state.height)) return null;
+  return state;
+}
+
+/**
+ * Writes the window's current position, size and maximised state.
+ *
+ * `getNormalBounds` rather than `getBounds`, so a maximised window remembers
+ * the size to *restore* to, not the full-screen size -- otherwise un-maximising
+ * after a restart would do nothing.
+ */
+function persistWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const bounds = mainWindow.getNormalBounds();
+  jsonstore.write(WINDOW_STATE, JSON.stringify({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    maximized: mainWindow.isMaximized(),
+  }));
+}
+
+/** Persists after a short quiet, so a drag or resize writes once at its end. */
+function queueWindowStateSave() {
+  if (windowStateTimer) clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(persistWindowState, 400);
+}
+
 function createWindow() {
-  // Create the browser window.
-  mainWindow = new BrowserWindow({
+  // Last time's position and size, if any and if a display can still show them.
+  const state = storedWindowState();
+  const options = {
     width: 1200,
     height: 800,
     minWidth: 1200,
@@ -157,7 +226,46 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, '../preload/preload.js'),
     },
-  });
+  };
+
+  // Restore last time's size, and its position too when a display can still
+  // show it. Size is clamped up to the minimum; a position on a monitor that is
+  // gone is dropped, leaving the window centred on the primary display.
+  //
+  // With no saved state -- the genuine first run -- open a large window centred
+  // on the primary display rather than maximised. The app used to always
+  // maximise; remembering the window means honouring what the user leaves it
+  // as, so forcing maximise every launch was exactly the behaviour to drop.
+  if (state) {
+    options.width = Math.max(options.minWidth, Math.round(state.width));
+    options.height = Math.max(options.minHeight, Math.round(state.height));
+    if (Number.isFinite(state.x) && Number.isFinite(state.y)
+      && boundsOnADisplay({
+        x: state.x, y: state.y, width: options.width, height: options.height,
+      })) {
+      options.x = Math.round(state.x);
+      options.y = Math.round(state.y);
+    }
+  } else {
+    const area = screen.getPrimaryDisplay().workArea;
+    options.width = Math.max(options.minWidth, Math.round(area.width * 0.9));
+    options.height = Math.max(options.minHeight, Math.round(area.height * 0.9));
+    options.x = area.x + Math.round((area.width - options.width) / 2);
+    options.y = area.y + Math.round((area.height - options.height) / 2);
+  }
+
+  // Create the browser window.
+  mainWindow = new BrowserWindow(options);
+
+  // Write the state back as it changes: once at the end of a drag or resize,
+  // and immediately on a maximise change.
+  mainWindow.on('resize', queueWindowStateSave);
+  mainWindow.on('move', queueWindowStateSave);
+  mainWindow.on('maximize', persistWindowState);
+  mainWindow.on('unmaximize', persistWindowState);
+  // On the way down rather than after: `getNormalBounds` needs the window to
+  // still exist, and `closed` has already destroyed it.
+  mainWindow.on('close', persistWindowState);
 
   // electron-vite sets ELECTRON_RENDERER_URL while `dev` is running. In dev we
   // load the live Vite dev server (http origin, assets over http); when packaged
@@ -169,7 +277,9 @@ function createWindow() {
   }
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.maximize();
+    // Only a window last left maximised reopens maximised; everything else opens
+    // at the size and position set in the options above. No forced maximise.
+    if (state && state.maximized) mainWindow.maximize();
     mainWindow.show();
   });
 
@@ -269,6 +379,99 @@ function setupArtnet() {
   // application is doing before they can see anything at all.
   artnet.start(forward);
   sacn.start(forward);
+}
+
+/**
+ * The virtual laser DACs, one per protocol.
+ *
+ * Laser software finds a DAC on the network and streams galvo points to it;
+ * Beam answers as one so the software needs nothing installed. Ether Dream
+ * for MadLaser and everything else that speaks the open protocol; LaserCube
+ * for LaserOS, which speaks to nothing else. Both are receive-only.
+ */
+/**
+ * The DACs Beam answers as, and which of them are switched on.
+ *
+ * **IDN is the one that runs.** It is the only protocol of the three that can
+ * say its own name: its discovery answers carry a host name and its service map
+ * a service name, both set to "Beam", which is what a producer then shows in its
+ * device list. Ether Dream's beacon has nowhere to put a string at all, so it
+ * can only ever appear as "Etherdream" -- it works perfectly well and is a
+ * better-specified protocol, but a rig with one virtual laser in it should say
+ * what that laser is. Switched off rather than deleted: flip the flag if a
+ * producer turns up that speaks Ether Dream and nothing else.
+ *
+ * **The LaserCube is built and kept, but off.** It works -- it answers a real
+ * LaserCube's discovery and carries its point format -- but the only software
+ * that would talk to it here is LaserOS, and LaserOS gates its DACs behind an
+ * ATSHA204 challenge Beam cannot answer. Rather than delete a working
+ * implementation of a protocol that is a day's work to write, it stays here
+ * unstarted: flip the flag and it listens again. Nothing binds its ports while
+ * it is off, which also leaves them free for LaserOS itself.
+ */
+const LASER_ENABLED = {
+  etherdream: false,
+  lasercube: false,
+  idn: true,
+};
+
+const lasers = {
+  etherdream: new EtherDreamDac(),
+  lasercube: new LaserCubeDac(),
+  idn: new IdnDac(),
+};
+
+function setupLaser() {
+  // A laser batch is ~24 KB a flush, a thirtieth of what a big DMX rig
+  // sends, so it takes the plain IPC path rather than a transferred port.
+  const forward = (kind) => (batch) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('laser:frames', { protocol: kind, ...batch });
+    }
+  };
+
+  // Starting is a promise because binding can fail, and for the LaserCube it
+  // fails for one specific reason worth naming: LaserOS on this machine
+  // holds the same ports. A DAC that cannot bind is reported as not
+  // listening rather than crashing the app.
+  const startLaser = async (kind) => {
+    const dac = lasers[kind];
+    if (!dac) return false;
+    if (!LASER_ENABLED[kind]) return false;
+    try {
+      await dac.start(forward(kind));
+    } catch (err) {
+      console.error(`[laser] ${kind} did not start:`, err.message);
+    }
+    return dac.listening;
+  };
+
+  ipcMain.handle('laser:start', (_event, kind) => startLaser(kind));
+  ipcMain.handle('laser:stop', (_event, kind) => {
+    const dac = lasers[kind];
+    if (dac) dac.stop();
+    return dac ? dac.listening : false;
+  });
+  ipcMain.handle('laser:report', () => Object.values(lasers).map((dac) => dac.report()));
+
+  // The show's own lasers, so IDN can offer one named service per fixture.
+  // Only IDN carries names; the others have nowhere to put one.
+  // Which producer stream feeds which laser is first-come and therefore
+  // arbitrary; this swaps them when they land the wrong way round.
+  ipcMain.handle('laser:rotateStreams', () => {
+    if (lasers.idn && lasers.idn.rotateStreams) lasers.idn.rotateStreams();
+    return true;
+  });
+
+  ipcMain.handle('laser:services', (_event, services) => {
+    if (lasers.idn && lasers.idn.setServices) lasers.idn.setServices(services);
+    return true;
+  });
+
+  // Whatever is switched on, from the start, like the DMX receivers: a
+  // visualizer's job is to receive, and the software on the other end is
+  // looking for a device the moment it opens.
+  Object.keys(lasers).filter((kind) => LASER_ENABLED[kind]).forEach(startLaser);
 }
 
 /**
@@ -448,6 +651,7 @@ app.whenReady().then(() => {
   setupDesktopAudio();
   createWindow();
   setupArtnet();
+  setupLaser();
   setupJsonStore();
   setupFileExport();
   setupLibrary();
@@ -513,5 +717,6 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => {
   artnet.stop();
   sacn.stop();
+  Object.values(lasers).forEach((dac) => dac.stop());
   app.quit();
 });

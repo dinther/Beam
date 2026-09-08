@@ -1,5 +1,6 @@
 // eslint-disable-next-line import/extensions, import/no-unresolved
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
+import Laser from './laser';
 import LEDField from './led_field';
 import LEDPanel from './led_panel';
 import Perf from './perf_overlay';
@@ -83,6 +84,13 @@ export default function createLEDDebugPanel(visualizer, host) {
     airHaze: visualizer.ambientHaze ? visualizer.ambientHaze.ceiling : 0,
     airGrain: visualizer.ambientHaze ? visualizer.ambientHaze.fieldDepth() : 0,
     airScale: visualizer.ambientHaze ? visualizer.ambientHaze.scaleMultiplier : 1,
+    // Laser
+    laserAir: Laser.scatterGain(),
+    laserSurface: Laser.surfaceGain(),
+    laserWidth: Laser.figureWidth(),
+    laserLength: Laser.beamLength(),
+    laserTail: Laser.beamTail(),
+    laserScatter: Math.round(Laser.scatterAmount() * 100),
     // Measurement
     passes: Perf.getPasses(),
   };
@@ -279,6 +287,35 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => {
       Tuning.write('airScale', v, visualizer);
     });
+
+  // Two separate hands, because a laser is drawn twice: the shaft through the
+  // haze is geometry, the figure on the stone is a projected picture. Turning
+  // one down should not drag the other with it.
+  const laser = gui.addFolder('Laser');
+  laser.add(state, 'laserAir', 0, 4, 0.05)
+    .name('beam in air')
+    .onChange((v) => Tuning.write('laserAir', v, visualizer));
+  laser.add(state, 'laserSurface', 0, 12, 0.05)
+    .name('figure on surface')
+    .onChange((v) => Tuning.write('laserSurface', v, visualizer));
+  laser.add(state, 'laserWidth', 0.5, 12, 0.5)
+    .name('figure width (px)')
+    .onChange((v) => Tuning.write('laserWidth', v, visualizer));
+  laser.add(state, 'laserLength', 5, 120, 1)
+    .name('beam length (m)')
+    .onChange((v) => Tuning.write('laserLength', v, visualizer));
+  laser.add(state, 'laserTail', 0.05, 0.95, 0.05)
+    .name('beam fade')
+    .onChange((v) => Tuning.write('laserTail', v, visualizer));
+  // A beam pointed at you is far brighter than one crossing your view, because
+  // haze scatters light forwards. Head-on is the reference; this is how far the
+  // other angles fall below it, so turning it up only ever darkens.
+  laser.add(state, 'laserScatter', 0, 100, 1)
+    .name('side-on dimming %')
+    .onChange((v) => Tuning.write('laserScatter', v, visualizer));
+  // Which producer stream feeds which laser is first-come, so it can land the
+  // wrong way round. Nothing to store: it acts on the DACs, not on a setting.
+  laser.add({ swap: () => Laser.rotateStreams() }, 'swap').name('swap streams');
 
   const perf = gui.addFolder('Measurement');
   perf.add(state, 'passes', 1, 16, 1)

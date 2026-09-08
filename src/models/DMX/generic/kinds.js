@@ -20,6 +20,8 @@ export const GENERIC_KINDS = {
   PROJECTOR: 'projector',
   /** A display: a surface showing a video connector -- see `display.js`. */
   DISPLAY: 'display',
+  /** An RGB show laser fed a galvo point stream -- see `laser.js`. */
+  LASER: 'laser',
 };
 
 export default GENERIC_KINDS;

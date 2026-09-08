@@ -64,6 +64,58 @@ contextBridge.exposeInMainWorld('artnet', {
 });
 
 /**
+ * Renderer-facing laser bridge.
+ *
+ * The virtual laser DACs live in the main process (see `setupLaser` in
+ * main.js); what the renderer gets is the points they have played, batched
+ * per display frame, and a readout of what each DAC is doing.
+ */
+contextBridge.exposeInMainWorld('laser', {
+  /**
+   * Subscribe to played laser points.
+   *
+   * A batch is `{ protocol, rate, points }`: which DAC played them, the point
+   * rate they were played at, and the points as six unsigned 16-bit values
+   * each -- x, y as signed bit patterns (`(v << 16) >> 16`), then r, g, b, i.
+   *
+   * @param {(batch: {protocol: String, rate: Number, points: Uint16Array}) => void} callback
+   * @returns {() => void} unsubscribe
+   */
+  onFrames: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('laser:frames', listener);
+    return () => ipcRenderer.removeListener('laser:frames', listener);
+  },
+  /** Start one DAC by protocol name: 'etherdream' or 'lasercube'. */
+  start: (protocol) => ipcRenderer.invoke('laser:start', protocol),
+  /** Stop one DAC by protocol name. */
+  stop: (protocol) => ipcRenderer.invoke('laser:stop', protocol),
+  /**
+   * What each DAC is doing: whether it is listening, who is sending, the
+   * rate, and how full its buffer is.
+   *
+   * @returns {Promise<Array>} one plain record per DAC
+   */
+  report: () => ipcRenderer.invoke('laser:report'),
+
+  /**
+   * Publishes the lasers in the show, so a DAC that names its services (IDN)
+   * offers them under the names the show gave them.
+   *
+   * @param {Array} services each `{ id, name }`
+   */
+  services: (services) => ipcRenderer.invoke('laser:services', services),
+
+  /**
+   * Moves every producer stream on to the next laser.
+   *
+   * For the usual two lasers this is a swap: which stream feeds which laser is
+   * decided by whichever arrives first, and that order is arbitrary.
+   */
+  rotateStreams: () => ipcRenderer.invoke('laser:rotateStreams'),
+});
+
+/**
  * Saving generated documents somewhere the user picks.
  *
  * Separate from `jsonStore`, which owns our own state: these files are written
