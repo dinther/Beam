@@ -33,13 +33,21 @@
  *     u8       chunk count
  *     u8       chunk number
  *     u32      CRC: the plain sum of every data octet in the frame, all chunks
- *   data, once the chunks are joined:
- *     u8       data format
- *     per path:
- *       u8     meta count
- *       per meta: char[8] key, f32 value
- *       u16    point count
- *       points: format 0 = x,y,r,g,b as u16; format 1 = x,y as f32, r,g,b as u8
+ *   data, once the chunks are joined, per path:
+ *     u8       data format -- **per path**, not once per frame
+ *     u8       meta count
+ *     per meta: char[8] key, f32 value
+ *     u16      point count
+ *     points: format 0 = x,y,r,g,b as u16; format 1 = x,y as f32, r,g,b as u8
+ *
+ * **The format byte is per path.** `PonkDefs.h` draws it once at the front of
+ * the packet data and the README lists it inside "for each path"; the stream
+ * follows the README (a six-path frame walked cleanly to its last byte that
+ * way, and not the other). Reading it once decoded a one-path frame perfectly
+ * and rejected every frame with two or more -- the second path's format byte
+ * read as its meta count -- which showed up as a dashed line that only
+ * appeared when it was continuous, and a masked circle that vanished with the
+ * mask on.
  *
  * The CRC rule is stated loosely in the spec ("sum of all data") and was
  * pinned against the live stream: a byte sum modulo 2^32 matched twenty of
@@ -89,15 +97,17 @@ export const SENDER_TIMEOUT_MS = 2000;
  */
 export function decodeFrame(data) {
   if (!data || data.length < 1) return null;
-  const format = data.readUInt8(0);
-  const stride = POINT_BYTES[format];
-  if (!stride) return null;
   const paths = [];
-  let at = 1;
+  let format = null;
+  let at = 0;
   while (at < data.length) {
-    if (at + 1 > data.length) return null;
-    const metaCount = data.readUInt8(at);
-    at += 1;
+    if (at + 2 > data.length) return null;
+    const pathFormat = data.readUInt8(at);
+    const stride = POINT_BYTES[pathFormat];
+    if (!stride) return null;
+    if (format === null) format = pathFormat;
+    const metaCount = data.readUInt8(at + 1);
+    at += 2;
     const meta = {};
     for (let i = 0; i < metaCount; i += 1) {
       if (at + 12 > data.length) return null;
@@ -112,7 +122,7 @@ export function decodeFrame(data) {
     const xy = new Float32Array(count * 2);
     const rgb = new Uint8Array(count * 3);
     for (let i = 0; i < count; i += 1) {
-      if (format === FORMAT_XY_F32_RGB_U8) {
+      if (pathFormat === FORMAT_XY_F32_RGB_U8) {
         xy[i * 2] = data.readFloatLE(at);
         xy[i * 2 + 1] = data.readFloatLE(at + 4);
         rgb[i * 3] = data[at + 8];
@@ -130,10 +140,10 @@ export function decodeFrame(data) {
       at += stride;
     }
     paths.push({
-      count, xy, rgb, meta,
+      count, xy, rgb, meta, format: pathFormat,
     });
   }
-  return { format, paths };
+  return { format: format === null ? FORMAT_XY_F32_RGB_U8 : format, paths };
 }
 
 /**
@@ -188,17 +198,18 @@ export function encodeFrame(frame, chunkBytes = 1472) {
   const {
     sender, name, frame: frameNumber, format = FORMAT_XY_F32_RGB_U8, paths,
   } = frame;
-  const parts = [Buffer.from([format])];
+  const parts = [];
   paths.forEach((path) => {
     const meta = Object.entries(path.meta || {});
     const count = Math.floor(path.xy.length / 2);
-    const head = Buffer.alloc(1 + meta.length * 12 + 2);
-    head.writeUInt8(meta.length, 0);
+    const head = Buffer.alloc(2 + meta.length * 12 + 2);
+    head.writeUInt8(format, 0);
+    head.writeUInt8(meta.length, 1);
     meta.forEach(([key, value], i) => {
-      head.write(key.padEnd(8, '\0').slice(0, 8), 1 + i * 12, 'ascii');
-      head.writeFloatLE(value, 1 + i * 12 + 8);
+      head.write(key.padEnd(8, '\0').slice(0, 8), 2 + i * 12, 'ascii');
+      head.writeFloatLE(value, 2 + i * 12 + 8);
     });
-    head.writeUInt16LE(count, 1 + meta.length * 12);
+    head.writeUInt16LE(count, 2 + meta.length * 12);
     const stride = POINT_BYTES[format];
     const body = Buffer.alloc(count * stride);
     for (let i = 0; i < count; i += 1) {

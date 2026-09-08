@@ -145,6 +145,20 @@ console.log('\n-- what a network does --');
   check('format 0 colour to 8 bits', d.paths[0].rgb[0], 128);
   check('unknown format: null', decodeFrame(Buffer.from([9, 0, 0, 0])), null);
   check('truncated frame: null', decodeFrame(Buffer.from([1, 0, 5, 0, 1, 2])), null);
+  // The format byte leads every path, as the stream has it -- a frame laid out
+  // with it once at the front is exactly what rejected every multi-path frame.
+  const twoPaths = Buffer.concat([
+    Buffer.from([1, 0, 1, 0]), Buffer.alloc(11), // format, no meta, 1 point
+    Buffer.from([1, 0, 1, 0]), Buffer.alloc(11),
+  ]);
+  check('per-path format bytes parse', decodeFrame(twoPaths).paths.length, 2);
+  check('and each path knows its format', decodeFrame(twoPaths).paths[1].format, 1);
+  const onceOnly = Buffer.concat([
+    Buffer.from([1]),
+    Buffer.from([0, 1, 0]), Buffer.alloc(11),
+    Buffer.from([0, 1, 0]), Buffer.alloc(11),
+  ]);
+  check('the header-file layout is rejected', decodeFrame(onceOnly), null);
 
   // The checksum rule, as pinned against MadMapper: a byte sum.
   check('crc is the byte sum', frameCrc(Buffer.from([1, 2, 250, 255])), 508);
