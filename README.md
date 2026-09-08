@@ -26,7 +26,7 @@ I was writing flight simulation software for the TI-99/4a back in the eighties.
 Yes, I am using AI extensively. It is working under my guidance and expertise like
 any junior coder who worked for me in the past.
 
-Don't judge a hole by the shovel that was used. AI is just a tool.
+Don't judge a ditch by the shovel that was used. AI is just a tool.
 Slop comes from sloppy people.
 ```
 
