@@ -6,6 +6,7 @@ import SceneManager from './scene_manager';
 import SceneEnv from './scene_env';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import { DepthAtlas } from './projector_depth';
+import { flattenPaths } from './laser_dwell';
 import FIGURE_ATLAS, { LaserFigure, setLineWidth, lineWidth } from './laser_figure';
 import LaserStream, { POINT_STRIDE } from '../laser_stream';
 import { apertureOrigin, scanHalfAngles } from '../../models/DMX/generic/laser';
@@ -173,10 +174,38 @@ let beamTailValue = 0.7;
  */
 const MAX_POINTS = 4096;
 
-/** Every possible protocol, tried in this order when a source is unset. */
+/** Every DAC protocol, tried in this order when a source is unset. */
 // IDN first: it is the one that runs, so a fixture left on auto finds it
-// without walking past two protocols that are switched off.
+// without walking past two protocols that are switched off. Ponk is not in
+// this list -- it is streams, not a protocol, and comes before all of them.
 const PROTOCOLS = ['idn', 'etherdream', 'lasercube'];
+
+/**
+ * A stored source, decoded.
+ *
+ * A DAC protocol is its name; a Ponk stream is `ponk:<sender id>` -- the
+ * 32-bit identifier MadMapper keeps across project reloads, which is what
+ * makes the binding survive a rename on either side.
+ *
+ * @param {*} value
+ * @returns {{ protocol: String, service: Number|null }|null}
+ */
+function parseSource(value) {
+  if (typeof value !== 'string') return null;
+  if (PROTOCOLS.includes(value)) return { protocol: value, service: null };
+  const m = /^ponk:(\d+)$/.exec(value);
+  if (m) return { protocol: 'ponk', service: Number(m[1]) };
+  return null;
+}
+
+/**
+ * Whether Ponk frames are weighted by the scanner's dwell.
+ *
+ * A Ponk frame is geometry before the rasteriser, so without this every path
+ * is equally bright however long it is; with it a dot is hot and a crowded
+ * frame is dim, as on the real machine. See `laser_dwell.js`.
+ */
+let dwellModelValue = true;
 
 /**
  * Below this a point counts as blanked -- the beam is off between shapes and
@@ -605,18 +634,24 @@ class Laser {
    * picked by hand.
    *
    * @param {Object} settings the placement's LaserSettings, or null
-   * @returns {String|null}
+   * @returns {{ protocol: String, service: Number|null }|null}
    */
-  // eslint-disable-next-line class-methods-use-this
   resolveSource(settings) {
-    const chosen = settings ? settings.value('source') : null;
-    if (chosen && PROTOCOLS.includes(chosen)) return chosen;
-    // On auto, a laser looks for points meant for *it*: an IDN unit offers a
-    // service per fixture, so another laser's stream is not this one's.
+    const chosen = parseSource(settings ? settings.value('source') : null);
+    if (chosen) return chosen;
+    // On auto, a laser looks for points meant for *it*. A Ponk stream is a
+    // named MadMapper output and the first live one is taken; an IDN unit
+    // offers a service per fixture, so another laser's stream is not this
+    // one's. Two lasers on auto will show the same stream -- picking a Source
+    // is how they are told apart, and that is the point of Ponk.
     const report = LaserStream.report();
-    return PROTOCOLS.find((p) => report.some((r) => r.protocol === p
+    const ponk = report.find((r) => r.protocol === 'ponk' && r.held > 0);
+    if (ponk) return { protocol: 'ponk', service: ponk.service };
+    const protocol = PROTOCOLS.find((p) => report.some((r) => r.protocol === p
       && (p !== 'idn' || r.service === this._serviceId)
       && r.held > 0)) || null;
+    if (!protocol) return null;
+    return { protocol, service: protocol === 'idn' ? this._serviceId : null };
   }
 
   /**
@@ -636,10 +671,26 @@ class Laser {
     // here rather than painting with the previous frame's aim.
     this.updateDepthCamera();
     const settings = this._settingsAt();
+    const params = this._params || {};
     const source = this.resolveSource(settings);
-    const frame = source
-      ? LaserStream.frame(source, 50, source === 'idn' ? this._serviceId : null)
-      : null;
+    // A Ponk frame is paths, laid out as a DAC run with a blank between paths
+    // and a dwell weight per point; a DAC's is the persistence window of what
+    // it played. From here down the two are the same points.
+    let frame = null;
+    let weights = null;
+    if (source && source.protocol === 'ponk') {
+      const ponk = LaserStream.ponkFrame(source.service);
+      if (ponk) {
+        frame = flattenPaths(ponk.paths, {
+          pointRate: Number(params.maxPointRate) || 0,
+          dwell: dwellModelValue,
+          maxPoints: MAX_POINTS,
+        });
+        ({ weights } = frame);
+      }
+    } else if (source) {
+      frame = LaserStream.frame(source.protocol, 50, source.service);
+    }
     const n = Math.min(frame ? frame.count : 0, MAX_POINTS);
     if (n < 1) {
       this._beamGeo.setDrawRange(0, 0);
@@ -650,7 +701,6 @@ class Laser {
     }
 
     const pts = frame.points;
-    const params = this._params || {};
     const { h, v: v0 } = scanHalfAngles(params);
     const ap = apertureOrigin(params);
     const val = (key, fallback) => (settings ? Number(settings.value(key)) : fallback);
@@ -691,9 +741,12 @@ class Laser {
     // Every point resolved once: is it lit, where does its ray end, what colour.
     for (let i = 0; i < n; i += 1) {
       const b = i * POINT_STRIDE;
-      const cr = (pts[b + 2] / 65535) * red;
-      const cg = (pts[b + 3] / 65535) * green;
-      const cb = (pts[b + 4] / 65535) * blue;
+      // Dwell: how long the scanner would have lingered here, relative to a
+      // line across the field. 1 for a DAC stream, whose points carry it.
+      const w = weights ? weights[i] : 1;
+      const cr = (pts[b + 2] / 65535) * red * w;
+      const cg = (pts[b + 3] / 65535) * green * w;
+      const cb = (pts[b + 4] / 65535) * blue * w;
       // Signed galvo positions carried as their 16-bit bit pattern, to -1..1.
       const rawX = ((pts[b] << 16) >> 16) / 32768;
       const rawY = ((pts[b + 1] << 16) >> 16) / 32768;
@@ -1194,12 +1247,18 @@ class Laser {
   }
 
   /**
-   * Swaps which producer stream feeds which laser.
+   * Whether Ponk frames are weighted by scanner dwell. See `laser_dwell.js`.
    *
    * @public
+   * @param {Boolean} on
    */
-  static rotateStreams() {
-    LaserStream.rotateStreams();
+  static setDwellModel(on) {
+    dwellModelValue = !!on;
+  }
+
+  /** @public @returns {Boolean} */
+  static dwellModel() {
+    return dwellModelValue;
   }
 
   /**

@@ -284,9 +284,12 @@ import { DMX_UNIVERSE_LENGTH } from '@/models/DMX/patch.model';
 import { MAX_SHADOW_CASTERS } from '@/plugins/visualizer/moving_head';
 import { imageSizeAt } from '@/models/DMX/generic/projector';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
+import LaserStream from '@/plugins/laser_stream';
 
 /**
- * A laser's source options, in dropdown order: auto, then each DAC protocol.
+ * A laser's fixed source options, in dropdown order: auto, then each DAC
+ * protocol. The Ponk streams MadMapper is publishing are appended live, by
+ * name -- see `laserSources`.
  *
  * One list rather than a list of values beside a list of labels. They were two,
  * and adding IDN to the values while the labels stayed as they were is exactly
@@ -298,6 +301,9 @@ const LASER_SOURCES = [
   { value: 'lasercube', label: 'LaserCube' },
   { value: 'idn', label: 'Beam' },
 ];
+
+/** How often the Ponk stream list is re-read while a laser is shown, in ms. */
+const STREAM_POLL_MS = 1000;
 
 export default {
   name: 'FixtureModifierWidgetSettings',
@@ -316,6 +322,12 @@ export default {
   },
   data() {
     return {
+      /**
+       * Bumped on a timer while a laser is shown, so a MadMapper output that
+       * starts publishing appears in the Source list without a click.
+       */
+      streamTick: 0,
+      streamTimer: null,
       /**
        * Widget header data
        */
@@ -426,15 +438,39 @@ export default {
     connectors() {
       return (this.$show && this.$show.videoConnectors) || [];
     },
+    /**
+     * The fixed sources, then every Ponk stream heard -- MadMapper's laser
+     * outputs by their own names -- and, if the show binds this laser to a
+     * stream nobody is sending right now, that one too, marked, so the binding
+     * is visible rather than silently reading as auto.
+     */
+    laserSources() {
+      // Read so a tick re-evaluates this; the stream list is not reactive.
+      void this.streamTick; // eslint-disable-line no-void
+      const streams = LaserStream.ponkStreams();
+      const list = [
+        ...LASER_SOURCES,
+        ...streams.map((s) => ({
+          value: `ponk:${s.id}`,
+          label: s.live ? s.name : `${s.name} (quiet)`,
+        })),
+      ];
+      const bound = this.device ? this.device.value('source') : null;
+      if (typeof bound === 'string' && bound.startsWith('ponk:')
+        && !list.some((source) => source.value === bound)) {
+        list.push({ value: bound, label: `Ponk stream ${bound.slice(5)} (absent)` });
+      }
+      return list;
+    },
     sourceOptions() {
       // A laser's source is which DAC stream feeds it, not a video connector.
-      if (this.isLaser) return LASER_SOURCES.map((source) => source.label);
+      if (this.isLaser) return this.laserSources.map((source) => source.label);
       return ['— none —', ...this.connectors.map((c) => c.name)];
     },
     sourceIndex() {
       const value = this.read('source');
       if (this.isLaser) {
-        const at = LASER_SOURCES.findIndex((source) => source.value === value);
+        const at = this.laserSources.findIndex((source) => source.value === value);
         return at < 0 ? 0 : at;
       }
       if (value === null || value === undefined) return 0;
@@ -582,6 +618,15 @@ export default {
       return this.fixture.chStart + this.fixture.channels.length > DMX_UNIVERSE_LENGTH;
     },
   },
+  mounted() {
+    // The Ponk stream list lives outside Vue; a timer is what makes a new
+    // MadMapper output show up in the Source dropdown while it is open.
+    this.streamTimer = setInterval(() => { this.streamTick += 1; }, STREAM_POLL_MS);
+  },
+  beforeUnmount() {
+    if (this.streamTimer) clearInterval(this.streamTimer);
+    this.streamTimer = null;
+  },
   methods: {
     /**
      * One device attribute out of the snapshot.
@@ -628,9 +673,9 @@ export default {
     pickSource(index) {
       if (!this.device) return;
       if (this.isLaser) {
-        // Index 0 is auto (null); the renderer then shows whichever DAC has a
-        // stream. Otherwise the chosen protocol.
-        this.writeDevice('source', (LASER_SOURCES[index] || {}).value || null);
+        // Index 0 is auto (null); the renderer then shows whichever stream is
+        // live. Otherwise the chosen protocol or Ponk stream.
+        this.writeDevice('source', (this.laserSources[index] || {}).value || null);
         return;
       }
       const connector = index > 0 ? this.connectors[index - 1] : null;

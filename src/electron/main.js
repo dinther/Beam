@@ -24,6 +24,7 @@ import sacn from './sacn';
 import EtherDreamDac from './etherdream';
 import LaserCubeDac from './lasercube';
 import IdnDac from './idn';
+import PonkReceiver from './ponk';
 import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
@@ -413,12 +414,19 @@ const LASER_ENABLED = {
   etherdream: false,
   lasercube: false,
   idn: true,
+  ponk: true,
 };
 
+/**
+ * Ponk is not a DAC and is the one that matters: MadMapper publishes each
+ * laser output as its own named stream, so a fixture picks its laser by name
+ * -- the identity no DAC protocol could carry. See `ponk.js`.
+ */
 const lasers = {
   etherdream: new EtherDreamDac(),
   lasercube: new LaserCubeDac(),
   idn: new IdnDac(),
+  ponk: new PonkReceiver(),
 };
 
 function setupLaser() {
@@ -455,14 +463,7 @@ function setupLaser() {
   ipcMain.handle('laser:report', () => Object.values(lasers).map((dac) => dac.report()));
 
   // The show's own lasers, so IDN can offer one named service per fixture.
-  // Only IDN carries names; the others have nowhere to put one.
-  // Which producer stream feeds which laser is first-come and therefore
-  // arbitrary; this swaps them when they land the wrong way round.
-  ipcMain.handle('laser:rotateStreams', () => {
-    if (lasers.idn && lasers.idn.rotateStreams) lasers.idn.rotateStreams();
-    return true;
-  });
-
+  // Only IDN carries names among the DACs; the others have nowhere to put one.
   ipcMain.handle('laser:services', (_event, services) => {
     if (lasers.idn && lasers.idn.setServices) lasers.idn.setServices(services);
     return true;

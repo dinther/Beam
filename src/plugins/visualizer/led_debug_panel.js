@@ -91,6 +91,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     laserLength: Laser.beamLength(),
     laserTail: Laser.beamTail(),
     laserScatter: Math.round(Laser.scatterAmount() * 100),
+    laserDwell: Laser.dwellModel(),
     // Measurement
     passes: Perf.getPasses(),
   };
@@ -313,9 +314,12 @@ export default function createLEDDebugPanel(visualizer, host) {
   laser.add(state, 'laserScatter', 0, 100, 1)
     .name('side-on dimming %')
     .onChange((v) => Tuning.write('laserScatter', v, visualizer));
-  // Which producer stream feeds which laser is first-come, so it can land the
-  // wrong way round. Nothing to store: it acts on the DACs, not on a setting.
-  laser.add({ swap: () => Laser.rotateStreams() }, 'swap').name('swap streams');
+  // A Ponk frame is geometry before the scanner; this weights it by how long
+  // the scanner would have lingered -- dots hot, crowded frames dim. Off shows
+  // every path equally bright, which is what MadMapper's own preview does.
+  laser.add(state, 'laserDwell')
+    .name('scanner dwell')
+    .onChange((v) => Tuning.write('laserDwell', v, visualizer));
 
   const perf = gui.addFolder('Measurement');
   perf.add(state, 'passes', 1, 16, 1)

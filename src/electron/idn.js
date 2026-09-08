@@ -325,19 +325,6 @@ class IdnDac extends LaserDac {
      */
     this.services = new Map();
     /**
-     * Which producer endpoint feeds which laser.
-     *
-     * A workaround, and worth naming as one. A producer is supposed to say
-     * which service it is feeding, and MadMapper always says 0 -- it never asks
-     * for the service map, sends every output on channel 0, and ignores the port
-     * a unit answers from. The one thing that differs between its outputs is the
-     * UDP source port, so that is what a laser has to be told apart by. First
-     * stream seen takes the first laser, and so on; `rotateStreams` swaps them
-     * when they land the wrong way round. Ports change when the producer
-     * restarts, so the pairing is per session.
-     */
-    this.endpoints = new Map();
-    /**
      * Whether loopback scans are answered.
      *
      * Decided by what the machine has, not by which scan happens to arrive
@@ -413,58 +400,16 @@ class IdnDac extends LaserDac {
    * @param {Number} serviceId
    * @returns {Object|null} LaserDac
    */
-  serviceDac(serviceId, channelId = 0, endpoint = null) {
+  serviceDac(serviceId, channelId = 0) {
     // A producer that names its service is believed without question.
     const named = this.services.get(serviceId);
     if (named) return named.dac;
-
-    const ids = [...this.services.keys()];
-    if (!ids.length) return null;
-
-    // Otherwise the source endpoint stands in for the name. See `endpoints`.
-    if (endpoint) {
-      let assigned = this.endpoints.get(endpoint);
-      if (assigned === undefined) {
-        const taken = new Set(this.endpoints.values());
-        assigned = ids.find((id) => !taken.has(id));
-        if (assigned === undefined) [assigned] = ids;
-        this.endpoints.set(endpoint, assigned);
-        const held = this.services.get(assigned);
-        console.log(`[${this.name}] ${endpoint} feeds ${held ? held.name : assigned}`);
-      }
-      const held = this.services.get(assigned);
-      if (held) return held.dac;
-    }
-
-    // Nothing to go on: the channel, then the first laser.
+    if (!this.services.size) return null;
+    // Nothing to go on: the channel, then the first laser. MadMapper names
+    // neither, which is why its lasers reach Beam over Ponk instead (see
+    // `ponk.js`); a producer that does not is one laser through IDN.
     const list = [...this.services.values()];
     return (list[channelId] || list[0]).dac;
-  }
-
-  /**
-   * Moves every stream on to the next laser.
-   *
-   * The pairing of producer output to laser is first-come, which is arbitrary:
-   * whichever output happens to send first takes the first laser. When they
-   * land the wrong way round this rotates them, which for the usual two lasers
-   * is simply a swap.
-   *
-   * @public
-   */
-  rotateStreams() {
-    const ids = [...this.services.keys()];
-    if (ids.length < 2 || !this.endpoints.size) return;
-    this.endpoints.forEach((id, endpoint) => {
-      const at = ids.indexOf(id);
-      const next = ids[(at + 1) % ids.length];
-      this.endpoints.set(endpoint, next);
-    });
-    // Whatever each laser was mid-figure is no longer its own.
-    this.services.forEach(({ dac }) => dac.clear());
-    const summary = [...this.endpoints.entries()]
-      .map(([endpoint, id]) => `${endpoint}->${(this.services.get(id) || {}).name}`)
-      .join(', ');
-    console.log(`[${this.name}] streams rotated: ${summary}`);
   }
 
   /** Drives every service's clock from the one flush tick. */
@@ -559,7 +504,7 @@ class IdnDac extends LaserDac {
         // All of them answer from the one socket on the well-known port, and
         // MadMapper ignores the port a unit replies from in any case -- so the
         // answers say who is here, and nothing more. Which stream then belongs
-        // to which laser is a separate problem; see `endpoints`.
+        // to which laser is not IDN's to answer here: see `ponk.js`.
         this.services.forEach((service, id) => {
           this.reply(CMD.SCAN_RESPONSE, sequence, this.scanResponse(id, service.name), rinfo);
         });
@@ -573,7 +518,7 @@ class IdnDac extends LaserDac {
         break;
       case CMD.MESSAGE:
       case CMD.MESSAGE_ACK:
-        this.channelMessage(msg, rinfo);
+        this.channelMessage(msg);
         if (command === CMD.MESSAGE_ACK) this.reply(CMD.ACK, sequence, null, rinfo);
         break;
       case CMD.CLOSE:
@@ -668,7 +613,7 @@ class IdnDac extends LaserDac {
    *
    * @param {Buffer} msg
    */
-  channelMessage(msg, rinfo) {
+  channelMessage(msg) {
     let at = HELLO_HEADER_BYTES;
     if (msg.length < at + CHANNEL_HEADER_BYTES) return;
 
@@ -709,8 +654,7 @@ class IdnDac extends LaserDac {
       && (chunkType === CHUNK.WAVE_SAMPLES
         || chunkType === CHUNK.FRAME_SAMPLES
         || chunkType === CHUNK.FRAME_FIRST_FRAGMENT)) {
-      const from = rinfo ? `${rinfo.address}:${rinfo.port}` : null;
-      const dac = this.serviceDac(decoder.serviceId, channelId, from);
+      const dac = this.serviceDac(decoder.serviceId, channelId);
       if (dac) this.samples(msg, at, end, decoder, chunkType, dac);
     }
     if (closing) this.channels.delete(channelId);

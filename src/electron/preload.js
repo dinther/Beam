@@ -77,6 +77,8 @@ contextBridge.exposeInMainWorld('laser', {
    * A batch is `{ protocol, rate, points }`: which DAC played them, the point
    * rate they were played at, and the points as six unsigned 16-bit values
    * each -- x, y as signed bit patterns (`(v << 16) >> 16`), then r, g, b, i.
+   * A Ponk batch is `{ protocol: 'ponk', service, name, format, paths }`
+   * instead: one MadMapper output's frame of paths, by stream id and name.
    *
    * @param {(batch: {protocol: String, rate: Number, points: Uint16Array}) => void} callback
    * @returns {() => void} unsubscribe
@@ -105,14 +107,6 @@ contextBridge.exposeInMainWorld('laser', {
    * @param {Array} services each `{ id, name }`
    */
   services: (services) => ipcRenderer.invoke('laser:services', services),
-
-  /**
-   * Moves every producer stream on to the next laser.
-   *
-   * For the usual two lasers this is a swap: which stream feeds which laser is
-   * decided by whichever arrives first, and that order is arbitrary.
-   */
-  rotateStreams: () => ipcRenderer.invoke('laser:rotateStreams'),
 });
 
 /**

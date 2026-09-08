@@ -19,6 +19,12 @@
  * video connector. Two fixtures on one DAC draw the same figure, which is what
  * a real splitter would do.
  *
+ * **Ponk streams are the other kind.** MadMapper publishes each laser output
+ * as a named frame of paths sixty times a second (`electron/ponk.js`), so
+ * those are held one frame per sender rather than in a ring, and a fixture
+ * binds to a sender by its id. That is how a laser in the show knows which of
+ * MadMapper's lasers it is; no DAC protocol could say.
+ *
  * Off Electron (`window.laser` absent) every method is a safe no-op and the
  * renderer simply has nothing to draw.
  */
@@ -182,9 +188,49 @@ class ProtocolBuffer {
   }
 }
 
+/**
+ * One MadMapper output's Ponk stream: the last frame of paths it sent.
+ *
+ * Not a ring. Ponk is frames, not a point stream -- MadMapper publishes a
+ * whole picture sixty times a second -- so persistence is the frame itself and
+ * the renderer draws the latest one. The same liveness rule as the rings
+ * applies: a stream that stops is a laser that has gone dark.
+ */
+class PonkBuffer {
+  constructor(id, name) {
+    this.id = id;
+    this.name = name;
+    this.paths = [];
+    this.format = null;
+    this.frames = 0;
+    this.lastPush = 0;
+  }
+
+  push(batch) {
+    if (batch.name) this.name = batch.name;
+    this.paths = Array.isArray(batch.paths) ? batch.paths : [];
+    this.format = batch.format;
+    this.frames += 1;
+    this.lastPush = now();
+  }
+
+  /** @public @returns {Boolean} */
+  stale() {
+    return !this.lastPush || now() - this.lastPush > LIVE_TIMEOUT_MS;
+  }
+
+  /** @returns {Number} points in the held frame, or 0 once it is stale */
+  held() {
+    if (this.stale()) return 0;
+    return this.paths.reduce((n, p) => n + (p.count || 0), 0);
+  }
+}
+
 class LaserStream {
   constructor() {
     this.buffers = new Map();
+    /** Ponk streams by sender id. */
+    this.ponk = new Map();
     this.unsubscribe = null;
     this.enabled = false;
   }
@@ -199,16 +245,6 @@ class LaserStream {
   publishServices(services) {
     if (!this.available || !window.laser.services) return;
     window.laser.services(services);
-  }
-
-  /**
-   * Moves every producer stream on to the next laser.
-   *
-   * @public
-   */
-  rotateStreams() {
-    if (!this.available || !window.laser.rotateStreams) return;
-    window.laser.rotateStreams();
   }
 
   /** Whether a native laser bridge is present (i.e. running under Electron). */
@@ -237,6 +273,7 @@ class LaserStream {
       this.unsubscribe = null;
     }
     this.buffers.clear();
+    this.ponk.clear();
     this.enabled = false;
   }
 
@@ -248,7 +285,12 @@ class LaserStream {
    * @param {{ protocol: String, rate: Number, points: Uint16Array }} batch
    */
   push(batch) {
-    if (!batch || !batch.protocol || !batch.points) return;
+    if (!batch || !batch.protocol) return;
+    if (batch.protocol === 'ponk') {
+      this.pushPonk(batch);
+      return;
+    }
+    if (!batch.points) return;
     const service = batch.service === undefined ? null : batch.service;
     const key = streamKey(batch.protocol, service);
     let buffer = this.buffers.get(key);
@@ -257,6 +299,53 @@ class LaserStream {
       this.buffers.set(key, buffer);
     }
     buffer.push(batch.rate || 0, batch.points);
+  }
+
+  /**
+   * Takes one Ponk frame into its sender's buffer.
+   *
+   * @param {{ service: Number, name: String, format: Number, paths: Array }} batch
+   */
+  pushPonk(batch) {
+    const id = Number(batch.service);
+    if (!Number.isFinite(id)) return;
+    let buffer = this.ponk.get(id);
+    if (!buffer) {
+      buffer = new PonkBuffer(id, batch.name || `Ponk ${id}`);
+      this.ponk.set(id, buffer);
+    }
+    buffer.push(batch);
+  }
+
+  /**
+   * The latest frame of paths from one Ponk stream.
+   *
+   * @public
+   * @param {Number} id the sender identifier
+   * @returns {{ paths: Array, name: String }|null} null when the stream has
+   *   never been heard or has gone quiet
+   */
+  ponkFrame(id) {
+    const buffer = this.ponk.get(Number(id));
+    if (!buffer || buffer.stale()) return null;
+    return { paths: buffer.paths, name: buffer.name };
+  }
+
+  /**
+   * Every Ponk stream heard, for a dropdown: live ones first, then the ones
+   * that have gone quiet, since a show may name a stream that is not sending
+   * right now and the fixture should still show what it is bound to.
+   *
+   * @public
+   * @returns {Array} each `{ id, name, live }`
+   */
+  ponkStreams() {
+    return [...this.ponk.values()]
+      .map((b) => ({ id: b.id, name: b.name, live: !b.stale() }))
+      .sort((a, b) => {
+        if (a.live !== b.live) return a.live ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   }
 
   /**
@@ -279,7 +368,7 @@ class LaserStream {
    * @returns {Array} one `{ protocol, rate, held, live, received }` per buffer
    */
   report() {
-    return [...this.buffers].map(([, buffer]) => ({
+    const rings = [...this.buffers].map(([, buffer]) => ({
       protocol: buffer.protocol,
       service: buffer.service,
       rate: buffer.rate,
@@ -290,6 +379,16 @@ class LaserStream {
       live: !buffer.stale(),
       received: buffer.received,
     }));
+    const frames = [...this.ponk.values()].map((buffer) => ({
+      protocol: 'ponk',
+      service: buffer.id,
+      name: buffer.name,
+      rate: 0,
+      held: buffer.held(),
+      live: !buffer.stale(),
+      received: buffer.frames,
+    }));
+    return [...frames, ...rings];
   }
 }
 

@@ -79,6 +79,7 @@ const CONTROLS = {
   laserLength: (value) => Laser.setBeamLength(value),
   laserTail: (value) => Laser.setBeamTail(value),
   laserScatter: (value) => Laser.setScatterAmount(value / 100),
+  laserDwell: (value) => Laser.setDwellModel(value),
   // Bloom. Only meaningful once it has been taken off the haze follower --
   // `bloomManual` is what `setBloom` sets, and restoring a value has to set it
   // too or the follower would overwrite these on the next change of haze.

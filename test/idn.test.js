@@ -290,22 +290,18 @@ async function stream() {
     check('a closed channel stops drawing', svc.playedTotal, after + samples.length);
   }
 
-  console.log('\n-- two producer outputs are told apart by their endpoint --');
+  console.log('\n-- which laser a message feeds --');
   {
-    // MadMapper sends service 0 on channel 0 for every output and ignores the
-    // port a unit answers from, so the source endpoint is the only thing that
-    // differs between its streams.
+    // A producer that names its service is believed. One that does not --
+    // MadMapper sends service 0 on channel 0 for every output -- gets the
+    // channel's laser, then the first. Telling MadMapper's outputs apart is
+    // not IDN's job any more; they reach Beam over Ponk, by name.
     dac.setServices([{ id: 1, name: 'Laser Left' }, { id: 2, name: 'Laser Right' }]);
-    const left = dac.serviceDac(0, 0, '10.0.0.9:1111');
-    const right = dac.serviceDac(0, 0, '10.0.0.9:2222');
-    check('first stream takes the first laser', left.name.endsWith('Laser Left'), true);
-    check('second takes the second', right.name.endsWith('Laser Right'), true);
-    check('and an endpoint keeps its laser', dac.serviceDac(0, 0, '10.0.0.9:1111') === left, true);
-
-    dac.rotateStreams();
-    const swapped = dac.serviceDac(0, 0, '10.0.0.9:1111');
-    check('rotating swaps them', swapped.name.endsWith('Laser Right'), true);
-    check('both ways', dac.serviceDac(0, 0, '10.0.0.9:2222').name.endsWith('Laser Left'), true);
+    check('a named service is that laser', dac.serviceDac(2, 0).name.endsWith('Laser Right'), true);
+    check('unnamed on channel 0: the first', dac.serviceDac(0, 0).name.endsWith('Laser Left'), true);
+    check('unnamed on channel 1: the second', dac.serviceDac(0, 1).name.endsWith('Laser Right'), true);
+    check('a channel past the last: the first', dac.serviceDac(0, 7).name.endsWith('Laser Left'), true);
+    check('no endpoint pairing left', typeof dac.rotateStreams, 'undefined');
   }
 
   console.log('\n-- data without a dictionary is ignored, not guessed at --');
