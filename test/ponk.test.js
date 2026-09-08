@@ -202,6 +202,7 @@ console.log('\n-- flattening: a DAC-shaped run with blanks between paths --');
     ring.rgb[i * 3] = 255;
   }
   const thin = flattenPaths([ring], { pointRate: 30000, maxPoints: 16384 });
+  check('the step it settled on', thin.step, 0.002);
   // Greedy: a point is kept once it is at least `minStep` from the last one
   // kept, so the real spacing overshoots to the next source point. These sit
   // 0.00047 apart, so every fifth is kept and 8,000 becomes 1,600 -- not the
@@ -219,6 +220,24 @@ console.log('\n-- flattening: a DAC-shaped run with blanks between paths --');
   const coarse = flattenPaths([ring], { pointRate: 30000, minStep: 0 });
   check('no thinning when asked', coarse.count, 4096);
   check('and the thinned points carry a weight', thin.weights[0] > 0, true);
+
+  // Layered materials: six dense rings against a capacity that fits none of
+  // them whole. Every one must still be there -- cutting the frame at a
+  // capacity drops the last shapes entirely, which is what losing layers is.
+  const layers = Array.from({ length: 6 }, () => ring);
+  const packed = flattenPaths(layers, { pointRate: 30000, maxPoints: 2048 });
+  check('the frame fits its capacity', packed.count <= 2048, true);
+  check('and the step grew to make it fit', packed.step > 0.002, true);
+  // Each ring's own blank sits at its start, so counting blanks counts layers.
+  let blanks = 0;
+  for (let i = 0; i < packed.count; i += 1) {
+    const b = i * POINT_STRIDE;
+    if (!(packed.points[b + 2] + packed.points[b + 3] + packed.points[b + 4])) blanks += 1;
+  }
+  check('every layer after the first is present', blanks, 5);
+  // And the last layer really is drawn, not just started.
+  const tail = ((packed.points[(packed.count - 1) * POINT_STRIDE] << 16) >> 16) / 32767;
+  check('the last layer reaches its end', Math.abs(tail - 0.6) < 1e-3, true);
 }
 
 console.log('\n-- the dwell model --');

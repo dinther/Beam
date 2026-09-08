@@ -63,16 +63,15 @@ export const DWELL_DEFAULTS = Object.freeze({
 const DOT_LENGTH = 1e-4;
 
 /**
- * Points closer than this to the last one kept are dropped, in normalised
- * field units.
+ * The finest spacing worth keeping, in normalised field units.
  *
- * MadMapper samples each material at its own density: a line came at 0.0025
- * (about a pixel of its 1024 canvas), a circle at 0.0005 -- 8,000 points for
- * one ring, which is nothing a beam sheet can show and more than the renderer
- * holds. Thinning to a pixel keeps every stroke continuous and every colour
- * change (the kept points still carry theirs) while a frame stays a size the
- * geometry can take. Brightness is unaffected: dwell is worked from length,
- * not point count.
+ * MadMapper samples each material at its own density, and it can be far finer
+ * than anything a beam sheet can show: a line arrives at 0.0025 (about a pixel
+ * of its 1024 canvas), a circle at 0.0005 -- 8,146 points for one ring. About
+ * a canvas pixel is the floor; below it, points are drawn on top of each other.
+ * Colour survives thinning, because the points that are kept carry their own,
+ * and brightness is untouched -- dwell is worked from path length, never from
+ * point count.
  */
 export const MIN_STEP = 0.002;
 
@@ -162,13 +161,31 @@ export function flattenPaths(paths, {
   pointRate, dwell = true, maxPoints = 4096, minStep = MIN_STEP, model = {},
 }) {
   const list = Array.isArray(paths) ? paths : [];
-  let total = 0;
-  list.forEach((p, i) => { total += p.count + (i > 0 ? 1 : 0); });
-  const count = Math.min(total, maxPoints);
+  let raw = 0;
+  list.forEach((p, i) => { raw += p.count + (i > 0 ? 1 : 0); });
+  const count = Math.min(raw, maxPoints);
   const points = new Uint16Array(count * POINT_STRIDE);
   const weights = new Float32Array(count);
   const perPath = dwell ? dwellWeights(list, pointRate, model) : null;
-  const minStep2 = minStep * minStep;
+
+  // The step is chosen so the whole frame fits, rather than the frame being
+  // cut when it does not.
+  //
+  // **Truncating loses the tail, which is whole materials.** Paths arrive
+  // layer by layer, so a frame cut at a capacity drops the last shapes
+  // entirely while the first ones keep every point -- Paul, layering laser
+  // materials: *"I noticed when I layer laser materials that I lost bits of
+  // it."* Spreading the same capacity over the frame's total length instead
+  // costs a little resolution everywhere and never loses a shape. Greedy
+  // thinning keeps at most `length/step` points a path plus its two ends, so
+  // this step cannot overrun the buffer.
+  let length = 0;
+  list.forEach((p) => { length += pathLength(p.xy, p.count); });
+  // Two ends a path, and a blank between paths.
+  const overhead = list.length * 3;
+  const available = Math.max(count - overhead, 1);
+  const step = minStep > 0 ? Math.max(minStep, length / available) : 0;
+  const minStep2 = step * step;
 
   let at = 0;
   const put = (x, y, r, g, b, w) => {
@@ -206,5 +223,7 @@ export function flattenPaths(paths, {
       }
     }
   });
-  return { count: at, points, weights };
+  return {
+    count: at, points, weights, step,
+  };
 }
