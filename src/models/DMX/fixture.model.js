@@ -265,6 +265,21 @@ class Fixture extends withTransform(Proxify) {
        */
       this.device = null;
       this.deviceKind = null;
+      /**
+       * Channel values set by hand, by index.
+       *
+       * A library fixture has no `device` and so had nowhere to hold anything
+       * set by hand: its channels only ever carried what DMX last said, which
+       * is not saved. So a light placed to try an idea was dark until it was
+       * patched and a console was talking to it. These are what it shows until
+       * DMX does -- and only these travel in the show, never what the wire
+       * happens to be saying, which is the line the app already draws for the
+       * generic devices.
+       *
+       * Sparse on purpose: a channel nobody has touched is absent rather than
+       * zero, so a profile default is not silently overwritten by one.
+       */
+      this._parkedChannels = { ...(data.channelValues || {}) };
       // Read from `device`, falling back to the key projectors were written
       // under before displays existed. Two lines, against silently losing every
       // projector's zoom and source on the first load after this change.
@@ -309,6 +324,8 @@ class Fixture extends withTransform(Proxify) {
           this.setChannel(channel.id - 1, 0);
         });
       }
+      // After the zeroing, or a saved value would be wiped by it.
+      this.applyParkedChannels();
     }
     return this.proxify(['_3DModel']);
   }
@@ -378,6 +395,8 @@ class Fixture extends withTransform(Proxify) {
       // Only the parked values, never what DMX happens to be saying -- the
       // same line the app already draws between an address and the wire.
       device: this.device ? this.device.showData : undefined,
+      channelValues: Object.keys(this._parkedChannels || {}).length
+        ? { ...this._parkedChannels } : undefined,
     };
   }
 
@@ -913,6 +932,66 @@ class Fixture extends withTransform(Proxify) {
       return;
     }
     for (let i = 0; i < source.length; i += 1) this.setChannel(index + i, source[i]);
+  }
+
+  /**
+   * Sets a channel by hand, and remembers it.
+   *
+   * The value takes effect at once and is written into the show. It is not
+   * protected from DMX: a patched fixture whose console is talking will have
+   * this overwritten on the next frame, which is the honest behaviour --
+   * whoever is driving, drives. What this buys is a fixture that does
+   * something *before* anyone is driving it, which is the whole point of
+   * placing a light to see where it lands.
+   *
+   * @public
+   * @param {Number} index 0-based channel index
+   * @param {Number} value 0-255
+   */
+  parkChannel(index, value) {
+    const clamped = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+    this._parkedChannels[index] = clamped;
+    this.setChannel(index, clamped);
+  }
+
+  /**
+   * Forgets a hand-set channel, leaving whatever is driving it.
+   *
+   * @public
+   * @param {Number} index
+   */
+  unparkChannel(index) {
+    delete this._parkedChannels[index];
+  }
+
+  /**
+   * The value set by hand for a channel, or undefined.
+   *
+   * @public
+   * @param {Number} index
+   * @returns {Number|undefined}
+   */
+  parkedChannel(index) {
+    return this._parkedChannels[index];
+  }
+
+  /** @public @returns {Object} every hand-set channel, by index */
+  get parkedChannels() {
+    return { ...this._parkedChannels };
+  }
+
+  /**
+   * Writes every remembered value into its channel.
+   *
+   * Called once the channels exist, and again after a repatch, since neither
+   * rebuilds what a person set.
+   *
+   * @public
+   */
+  applyParkedChannels() {
+    Object.entries(this._parkedChannels || {}).forEach(([index, value]) => {
+      this.setChannel(Number(index), value);
+    });
   }
 
   /**

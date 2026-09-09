@@ -341,6 +341,46 @@
           </template>
         </template>
       </template>
+
+      <!-- A library fixture's channels, driveable by hand.
+           Here rather than beside the channel map in the Model widget, because
+           that widget is profile-scoped -- "applies to every one in the show" --
+           and a channel value belongs to this placement. The map there says
+           what the model answers to; this says what this one is set to. -->
+      <template v-if="handChannels.length">
+        <uk-flex
+          :gap="8"
+          class="channel_head"
+        >
+          <span class="section_label">Channels</span>
+          <span style="flex: 1" />
+          <span
+            v-if="fixture.address > -1"
+            class="driven"
+          >CH {{ fixture.chStart + 1 }}</span>
+        </uk-flex>
+        <span class="hint">{{ channelHint }}</span>
+        <uk-flex
+          v-for="row in handChannels"
+          :key="row.index"
+          :gap="6"
+          class="row channel_row"
+        >
+          <span class="channel_no">{{ row.address }}</span>
+          <span class="channel_name">{{ row.name }}<span
+            v-if="row.isFine"
+            class="fine_tag"
+          >fine</span></span>
+          <uk-num-input
+            :model-value="row.value"
+            style="width: 62px"
+            :precision="0"
+            :min="0"
+            :max="255"
+            @update:model-value="setChannelValue(row.index, $event)"
+          />
+        </uk-flex>
+      </template>
     </uk-flex>
   </uk-widget>
 </template>
@@ -389,6 +429,8 @@ export default {
        */
       streamTick: 0,
       streamTimer: null,
+      /** Bumped on every hand-set channel write, to re-read the values. */
+      channelRevision: 0,
       /** The machine's bindable addresses, read once from the main process. */
       laserAddresses: [],
       /** What the running devices report, refreshed on the same tick. */
@@ -517,6 +559,46 @@ export default {
         mirrorX: device.value('mirrorX'),
         mirrorY: device.value('mirrorY'),
       };
+    },
+    /**
+     * The channels this fixture can be driven by hand.
+     *
+     * Only for fixtures that carry a plain channel list -- a generic device
+     * has its own named controls above, and a bar's channels are one thing
+     * repeated thousands of times, which is a texture rather than a list.
+     */
+    handChannels() {
+      // Read so a write re-evaluates this; channels are a plain model and DMX
+      // writes into them from outside Vue entirely.
+      void this.channelRevision; // eslint-disable-line no-void
+      const { fixture } = this;
+      if (!fixture || fixture.device || !Array.isArray(fixture.channels)) return [];
+      return fixture.channels.map((channel, index) => ({
+        index,
+        // The absolute address when there is one; otherwise the channel's own
+        // number, since an unpatched fixture has no address for it to be an
+        // offset from -- and unpatched is the case this list exists for.
+        address: fixture.address > -1 && fixture.addressOf
+          ? fixture.addressOf(index) + 1 : index + 1,
+        name: channel.name || channel.type || 'Unset',
+        isFine: !!channel.isFine,
+        value: channel.value ? channel.value.DMX : 0,
+      }));
+    },
+    /**
+     * What these fields are, said once rather than per row.
+     *
+     * Which it is depends on whether anything is driving the fixture, and that
+     * is a question about the patch rather than about whether a frame happens
+     * to have landed -- a field that changed meaning whenever a console paused
+     * would be telling a different story every few seconds.
+     */
+    channelHint() {
+      const { fixture } = this;
+      if (!fixture) return '';
+      return fixture.address > -1
+        ? 'Held until DMX arrives, then whatever is driving wins.'
+        : 'Not patched, so these are the only thing driving this fixture.';
     },
     /** Every connector in the show, with an unbound entry at the top. */
     connectors() {
@@ -877,6 +959,22 @@ export default {
      * @public
      * @param {Number} index into `protocolOptions`
      */
+    /**
+     * Sets one channel by hand.
+     *
+     * @public
+     * @param {Number} index 0-based channel index
+     * @param {Number} value 0-255
+     */
+    setChannelValue(index, value) {
+      if (!this.fixture || !this.fixture.parkChannel) return;
+      this.fixture.parkChannel(index, value);
+      this.channelRevision += 1;
+      // The renderer reads the fixture rather than watching it, the same as
+      // every other write in this widget.
+      const model = this.fixture._3DModel;
+      if (model && model.refresh) model.refresh();
+    },
     pickProtocol(index) {
       const protocol = this.protocolChoices[index];
       if (!protocol || protocol === this.protocol) return;
@@ -974,6 +1072,33 @@ export default {
   background: var(--secondary-darker);
   color: var(--secondary-dark);
   cursor: unset;
+}
+.channel_row {
+  align-items: center;
+}
+.channel_no {
+  width: 30px;
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-light);
+  text-align: right;
+}
+.channel_name {
+  flex: 1;
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-lighter);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fine_tag {
+  margin-left: 4px;
+  font-size: 9px;
+  color: var(--secondary-light);
+}
+.channel_head {
+  align-items: baseline;
 }
 .section_label {
   font-family: Roboto-Medium, sans-serif;
