@@ -156,6 +156,30 @@ console.log('\n-- reconfiguring stops what nobody asked for --');
   check('an empty show runs nothing', hub.devices.size, 0);
 }
 
+console.log('\n-- a device that cannot own its ports is refused, with the reason --');
+
+{
+  // The real case: MadMapper holds the LaserCube command port on this
+  // machine's LAN address, so a `reuseAddr` bind succeeds and then receives
+  // nothing. A device that cannot start must say so, or the fixture shows a
+  // healthy input that can never draw.
+  const failing = () => ({
+    start: async () => {
+      throw new Error('UDP port 45457 on 192.168.1.2 is already in use');
+    },
+    stop: () => {},
+    setServices() {},
+    report: () => ({}),
+  });
+  const hub = new LaserHub({
+    builders: { lasercube: failing, etherdream: failing, idn: failing },
+    ponk: { start: async () => {}, stop: () => {}, report: () => ({ protocol: 'ponk' }) },
+  });
+  const results = await hub.configure([laser('a', 'lasercube', '192.168.1.2', 'Right')]);
+  check('the laser is not ok', results[0].ok, false);
+  check('and names the port it lost', results[0].reason.includes('45457'), true);
+}
+
 console.log('\n-- a laser with no address gets the default --');
 
 {

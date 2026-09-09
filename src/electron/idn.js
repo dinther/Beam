@@ -3,7 +3,7 @@
 // decoder that cannot shift and mask is not a protocol decoder.
 import dgram from 'dgram';
 import os from 'os';
-import LaserDac from './laser_dac';
+import LaserDac, { claimPorts } from './laser_dac';
 
 /**
  * @file Beam as an IDN (ILDA Digital Network) laser server.
@@ -437,8 +437,11 @@ class IdnDac extends LaserDac {
    * @param {Object} [opts]
    * @returns {Promise<void>}
    */
-  open({ bind } = {}) {
+  async open({ bind } = {}) {
     this.bindAddress = bind;
+    // See `claimPorts`: a `reuseAddr` bind of a port someone else owns
+    // succeeds and then hears nothing.
+    await claimPorts([this.port], bind || '0.0.0.0', 'another IDN consumer may be running');
     return new Promise((resolve, reject) => {
       const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
       this.socket = socket;

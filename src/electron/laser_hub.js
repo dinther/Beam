@@ -75,7 +75,8 @@ export function addresses() {
       if (!entry || entry.family !== 'IPv4') return;
       out.push({
         address: entry.address,
-        label: `${entry.address} (${name})`,
+        label: entry.address,
+        interface: name,
         internal: !!entry.internal,
       });
     });
@@ -160,15 +161,24 @@ class LaserHub {
     (Array.isArray(inputs) ? inputs : []).forEach((input) => {
       const protocol = PROTOCOLS.includes(input.protocol) ? input.protocol : 'ponk';
       if (protocol === 'ponk') {
-        results.push({ uid: input.uid, ok: true });
+        results.push({
+          uid: input.uid, ok: true, protocol, address: null, service: null,
+        });
         return;
       }
+      // Resolved, not as asked: a laser storing null means "the default", and
+      // the renderer has to look its stream up under the address the device is
+      // really bound to. Answering with the asked-for value left every laser on
+      // a default address looking up a stream that arrives under another name,
+      // and drawing nothing at all.
       const address = input.address || defaultAddress();
       const key = keyOf(protocol, address);
       if (EXCLUSIVE.includes(protocol)) {
         const owner = held.get(key);
         if (owner) {
-          results.push({ uid: input.uid, ok: false, reason: `${owner} already uses this` });
+          results.push({
+            uid: input.uid, ok: false, reason: `${owner} already uses this`, protocol, address,
+          });
           return;
         }
         held.set(key, input.name || 'another laser');
@@ -178,7 +188,9 @@ class LaserHub {
       };
       entry.inputs.push(input);
       wanted.set(key, entry);
-      results.push({ uid: input.uid, ok: true });
+      results.push({
+        uid: input.uid, ok: true, protocol, address, service: input.service || null,
+      });
     });
 
     // Devices nobody asked for any more.
@@ -221,6 +233,18 @@ class LaserHub {
       }
     });
     await Promise.all(starting);
+
+    // A device that could not start is a laser that cannot receive, and the
+    // fixture should say so rather than sit dark looking healthy. The usual
+    // cause is another program holding the port -- MadMapper itself takes the
+    // LaserCube command port on the machine's LAN address.
+    results.forEach((result) => {
+      if (!result.ok || !result.address) return;
+      const device = this.devices.get(keyOf(result.protocol, result.address));
+      if (device && device.error) {
+        Object.assign(result, { ok: false, reason: device.error });
+      }
+    });
 
     results.forEach((r) => this.status.set(r.uid, r));
     return results;

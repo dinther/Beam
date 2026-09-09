@@ -4,6 +4,8 @@
 // pattern in an unsigned array, and spelling that as arithmetic would hide the
 // one thing a reader needs to check it against.
 
+import dgram from 'dgram';
+
 /**
  * What every laser DAC does that has nothing to do with its protocol.
  *
@@ -54,6 +56,65 @@
  * point came from.
  */
 export const POINT_STRIDE = 6;
+
+/**
+ * Whether this machine will really give us a UDP port, or only appear to.
+ *
+ * **A bind with `reuseAddr` succeeds on a port another program already owns.**
+ * That is what it is for -- it lets Beam offer the same protocol on several of
+ * the machine's addresses -- but it means a device can report itself listening
+ * and then never receive a packet, because the packets go to whoever bound
+ * first. Measured on Windows against MadMapper, which holds the LaserCube
+ * command port 45457 for its own discovery:
+ *
+ *     reuseAddr: true   -> bound OK      (and receives nothing)
+ *     reuseAddr: false  -> EADDRINUSE
+ *
+ * So the honest test is a probe bound *without* `reuseAddr`, thrown away
+ * immediately. A device that cannot own its ports refuses to start and says
+ * which port and address it lost -- the same argument `lasercube.js` already
+ * makes for binding all three ports or none: a device the host can find but
+ * that can never answer is worse than one that is absent, because the user is
+ * shown a healthy thing that does not work.
+ *
+ * @public
+ * @param {Number} port
+ * @param {String} address
+ * @returns {Promise<Boolean>} true when the port is genuinely ours to take
+ */
+export function portAvailable(port, address) {
+  return new Promise((resolve) => {
+    const probe = dgram.createSocket({ type: 'udp4', reuseAddr: false });
+    probe.once('error', () => resolve(false));
+    probe.bind(port, address, () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+/**
+ * Throws unless every port is genuinely available at this address.
+ *
+ * @public
+ * @param {Array<Number>} ports
+ * @param {String} address
+ * @param {String} [hint] what is likely holding it, for the message
+ * @returns {Promise<void>}
+ */
+export async function claimPorts(ports, address, hint = '') {
+  // In order, so the message names the first port actually lost rather than
+  // whichever probe happened to settle first.
+  for (let i = 0; i < ports.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const free = await portAvailable(ports[i], address);
+    if (!free) {
+      const where = address && address !== '0.0.0.0' ? address : 'this machine';
+      const err = new Error(`UDP port ${ports[i]} on ${where} is already in use${hint ? ` -- ${hint}` : ''}`);
+      err.code = 'EADDRINUSE';
+      throw err;
+    }
+  }
+}
 
 /**
  * How often played points are handed to the renderer, in ms.

@@ -1116,6 +1116,7 @@ class Laser {
         service = at > MAX_SERVICES ? -1 : at;
       }
       laser._serviceId = service === null ? 1 : service;
+      // Replaced by the resolved one once the hub answers; null until then.
       laser._address = address;
       list.push({
         uid: (handle && handle.uid) || `laser-${i}`, name, protocol, address, service,
@@ -1133,6 +1134,9 @@ class Laser {
         const uid = (handle && handle.uid) || `laser-${i}`;
         const result = byUid.get(uid);
         laser._inputError = result && result.ok === false ? result.reason : null;
+        // The address the device is actually bound to, which is what its
+        // batches are tagged with -- a laser set to the default stores null.
+        if (result && result.address) laser._address = result.address;
       });
     });
   }

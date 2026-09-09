@@ -5,7 +5,7 @@
 // reader needs to check it against, which is the host library's own decoder.
 import dgram from 'dgram';
 import os from 'os';
-import LaserDac, { POINT_STRIDE } from './laser_dac';
+import LaserDac, { POINT_STRIDE, claimPorts } from './laser_dac';
 
 export { POINT_STRIDE };
 
@@ -219,6 +219,14 @@ class LaserCubeDac extends LaserDac {
    */
   async open(opts) {
     const bind = opts.bind || '0.0.0.0';
+    // All three, before any of them is taken: `reuseAddr` would otherwise bind
+    // a port another program owns and leave this cube listening to nothing.
+    // MadMapper itself holds 45457 on the machine's LAN address for its own
+    // discovery, which is exactly how a cube came up "connected" in MadMapper
+    // and never received a point.
+    const ports = [this.alivePort, this.cmdPort, this.dataPort];
+    const hint = 'MadMapper and LaserOS both use these ports; try another address, or 127.0.0.1';
+    await claimPorts(ports, bind, hint);
     try {
       this.aliveSocket = await this.listen(this.alivePort, bind, (m, r) => this.onAlive(m, r));
       this.alivePort = this.aliveSocket.address().port;

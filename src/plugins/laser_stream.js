@@ -264,6 +264,20 @@ class LaserStream {
     return window.laser.addresses();
   }
 
+  /**
+   * What every running device says about itself, from the main process.
+   *
+   * Kept as a plain snapshot the caller refreshes, because it crosses IPC and
+   * nothing in the renderer should ask per frame.
+   *
+   * @public
+   * @returns {Promise<Array>}
+   */
+  devices() {
+    if (!this.available || !window.laser.report) return Promise.resolve([]);
+    return window.laser.report();
+  }
+
   /** Whether a native laser bridge is present (i.e. running under Electron). */
   // eslint-disable-next-line class-methods-use-this
   get available() {

@@ -134,6 +134,9 @@ export default {
       this.select(parseInt(newValue, 10));
     },
   },
+  beforeUnmount() {
+    this.watchViewport(false);
+  },
   methods: {
     /**
      * Selects a value from the option list
@@ -166,6 +169,8 @@ export default {
           : false;
         if (!this.disabled && !childClicked) {
           this.displayed = false;
+          // Nothing to follow once the list is closed.
+          this.watchViewport(false);
         }
       }
     },
@@ -180,9 +185,31 @@ export default {
         if (this.displayed) {
           body.appendChild(this.$refs.options.$el);
           this.$nextTick(this.computeOptionListStyle);
+          this.watchViewport(true);
         } else {
           body.removeChild(this.$refs.options.$el);
+          this.watchViewport(false);
         }
+      }
+    },
+    /**
+     * Keeps an open list under its box while anything scrolls.
+     *
+     * The list is moved into `document.body` so a panel with its own scrollbar
+     * cannot clip it, which means nothing moves it when that panel scrolls --
+     * the box slides away and the list sits where it was opened. Listening in
+     * the capture phase catches every scrolling ancestor, not just the window.
+     *
+     * @param {Boolean} on
+     */
+    watchViewport(on) {
+      if (on) {
+        if (!this.onViewportChange) this.onViewportChange = () => this.computeOptionListStyle();
+        window.addEventListener('scroll', this.onViewportChange, true);
+        window.addEventListener('resize', this.onViewportChange);
+      } else if (this.onViewportChange) {
+        window.removeEventListener('scroll', this.onViewportChange, true);
+        window.removeEventListener('resize', this.onViewportChange);
       }
     },
     /**
@@ -195,6 +222,11 @@ export default {
       if (selectBoxEl && optionListEl) {
         const box = selectBoxEl.getBoundingClientRect();
         this.optionListStyle = {
+          // Fixed, not absolute: the list lives in `document.body` now, so an
+          // absolute one is placed against the *document* while these numbers
+          // come from `getBoundingClientRect`, which is against the viewport.
+          // The two agree only until something scrolls.
+          position: 'fixed',
           width: `${selectBoxEl.clientWidth}px`,
           top: `${box.top - Math.min(this.options.length * 25, 100)}px`,
           left: `${box.left}px`,
@@ -232,6 +264,11 @@ export default {
   width: 100%;
   padding: 0;
   padding-left: 5px;
+  /* The arrow button is pulled 14px back over this box so it sits inside the
+     frame, so the text has to stop before it rather than run underneath. */
+  padding-right: 18px;
+  overflow: hidden;
+  white-space: nowrap;
   -moz-appearance: none;
   -webkit-appearance: none;
   outline: 0;

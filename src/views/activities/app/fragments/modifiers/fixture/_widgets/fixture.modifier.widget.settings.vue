@@ -370,6 +370,8 @@ export default {
       streamTimer: null,
       /** The machine's bindable addresses, read once from the main process. */
       laserAddresses: [],
+      /** What the running devices report, refreshed on the same tick. */
+      laserDevices: [],
       /**
        * Widget header data
        */
@@ -465,6 +467,10 @@ export default {
         dimmer: device.value('dimmer'),
         shutter: device.value('shutter'),
         source: device.value('source'),
+        // How a laser is fed. Absent here, every read fell back to the default
+        // and the Address row never appeared however the laser was set.
+        protocol: device.value('protocol'),
+        address: device.value('address'),
         // The laser output stage. Undefined for any device without these, which
         // reads as nothing to show -- the rows are gated on the kind anyway.
         red: device.value('red'),
@@ -507,9 +513,11 @@ export default {
      * Wi-Fi one. The status line below is what tells the truth about that.
      */
     addressChoices() {
+      // The address alone: an interface name does not fit beside it, and a
+      // marker on the end of one reads as text that has been cut off.
       const list = this.laserAddresses.map((a) => ({
         value: a.address,
-        label: a.primary ? `${a.label} — default` : a.label,
+        label: a.address,
       }));
       const bound = this.read('address');
       if (bound && !list.some((a) => a.value === bound)) {
@@ -559,6 +567,9 @@ export default {
       const held = Laser.inputErrorFor && this.fixture
         ? Laser.inputErrorFor(this.fixture) : null;
       if (held) return `Not connected — ${held}.`;
+      // A device that never started -- a port another program owns, most often
+      // -- is the answer whatever else the streams say.
+
       const report = LaserStream.report();
       if (this.protocol === 'ponk') {
         const bound = this.read('source');
@@ -571,8 +582,16 @@ export default {
           ? `Receiving from "${stream.name}".`
           : `"${stream.name}" has stopped sending.`;
       }
-      const live = report.find((r) => r.protocol === this.protocol && r.live);
       const where = this.read('address') || 'the default address';
+      // A host can stream points at a LaserCube and never arm it, which leaves
+      // a device that looks perfectly healthy and draws nothing. MadMapper does
+      // exactly that. Say so rather than let the laser sit dark.
+      const device = this.laserDevices.find((d) => d.protocol === this.protocol
+        && (!d.address || d.address === (this.read('address') || d.address)));
+      if (device && device.outputEnabled === false && device.host) {
+        return `Connected, but ${device.host.split(':')[0]} has not enabled this laser's output.`;
+      }
+      const live = report.find((r) => r.protocol === this.protocol && r.live);
       if (!live) return `Listening on ${where} — nothing has connected yet.`;
       return `Receiving${live.rate ? ` at ${Math.round(live.rate / 1000)} kpps` : ''}.`;
     },
@@ -735,7 +754,12 @@ export default {
   mounted() {
     // The Ponk stream list lives outside Vue; a timer is what makes a new
     // MadMapper output show up in the Source dropdown while it is open.
-    this.streamTimer = setInterval(() => { this.streamTick += 1; }, STREAM_POLL_MS);
+    this.streamTimer = setInterval(() => {
+      this.streamTick += 1;
+      if (this.isLaser) {
+        LaserStream.devices().then((list) => { this.laserDevices = list || []; });
+      }
+    }, STREAM_POLL_MS);
     LaserStream.addresses().then((list) => { this.laserAddresses = list || []; });
   },
   beforeUnmount() {
@@ -830,16 +854,21 @@ export default {
 
 <style scoped>
 .fixture_settings {
-  max-width: 230px;
-  min-width: 230px;
+  /* 230 was enough while every row held one control. A laser's input is a
+     protocol beside an address, and two selects in 230px leave neither
+     readable. */
+  max-width: 300px;
+  min-width: 300px;
 }
 .fixture_settings_body {
   height: 100%;
   width: 100%;
   overflow-y: auto;
   padding: 6px;
-  max-width: 230px;
-  min-width: 230px;
+  /* The body follows the widget rather than repeating its number: pinned at
+     230 while the frame was widened, it left the content and its scrollbar
+     stranded short of the right edge. */
+  box-sizing: border-box;
 }
 .empty_text {
   display: flex;
@@ -878,6 +907,11 @@ export default {
   font-size: 11px;
   color: var(--secondary-lighter-alt);
   margin: 0;
+  /* The widget is nowrap so its rows stay on one line; a sentence is not a
+     row, and cut off halfway it says nothing. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 /* The marker that says a row is not yours to set. Teal rather than red: a
    channel owning a value is the normal state of a patched fixture, not a
