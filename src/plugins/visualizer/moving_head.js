@@ -1385,10 +1385,15 @@ class MovingHead {
       // cone's rim crosses another. Measured on the two-mover scene: 30 above
       // the rim against 17 below it.
       //
-      // FrontSide rather than BackSide because the outward-facing near wall is
-      // the one every ray meets first, including rays that leave through the
-      // opening.
-      side: THREE.FrontSide,
+      // FrontSide met no face at all for a ray entering through the open end,
+      // which is every ray when a beam is pointed at the camera: the beam went
+      // hollow, leaving only the rims where the wall was still edge-on.
+      //
+      // The cost is the artefact this line was written to avoid -- a ray
+      // crossing both walls is shaded twice while one leaving through the open
+      // end is shaded once, and that 2:1 step along the far rim reads as a dark
+      // edge. Paul asked for it anyway, having seen the alternative.
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       vertexShader: VOLUMETRIC_BEAM_VERTEX_SHADER,
       fragmentShader: BEAM_FRAGMENT_SHADER,
