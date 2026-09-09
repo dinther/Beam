@@ -89,8 +89,25 @@ const mirror = {
   fromLevel: (level) => level >= 0.5,
 };
 
-/** Every protocol a laser may be fed by, in the order the dropdown offers. */
+/**
+ * Every protocol a laser may be *stored* as, so a show written before one was
+ * withdrawn still loads and says what it was set to.
+ */
 export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube'];
+
+/**
+ * What the dropdown offers.
+ *
+ * **LaserCube is withdrawn, and the code is kept.** Its host binds the
+ * device's own well-known ports -- `m_cmdsocket->bind(cmd_port)` in
+ * Wickedlasers' own `LaserDockNetworkDevice.cpp` -- so a host and an emulated
+ * cube on one machine need the same UDP port and only one can have it. No
+ * choice of address helps, because the host binds that port on whichever
+ * address it talks to the cube on. It works only against a host on another
+ * machine, which is not a thing to offer in a list. Put it back here if that
+ * ever changes; nothing else has to be rebuilt.
+ */
+export const SELECTABLE_PROTOCOLS = ['ponk', 'idn', 'etherdream'];
 
 /** What each protocol is called on screen. */
 export const PROTOCOL_LABELS = {

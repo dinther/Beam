@@ -156,6 +156,36 @@ console.log('\n-- reconfiguring stops what nobody asked for --');
   check('an empty show runs nothing', hub.devices.size, 0);
 }
 
+console.log('\n-- every device carries an identity of its own --');
+
+{
+  // A host recognises a device by what it advertises, not by the address it
+  // answers from: two Ether Dreams built from the defaults are one MAC seen
+  // twice, and MadMapper showed a single destination for a rig of two.
+  const built = [];
+  const spy = (address) => {
+    built.push(address);
+    return {
+      address,
+      start: async () => {},
+      stop: () => {},
+      setServices() {},
+      report: () => ({}),
+    };
+  };
+  const hub = new LaserHub({
+    builders: { etherdream: spy, lasercube: spy, idn: spy },
+    ponk: { start: async () => {}, stop: () => {}, report: () => ({ protocol: 'ponk' }) },
+  });
+  await hub.configure([
+    laser('a', 'etherdream', '127.0.0.1', 'Left'),
+    laser('b', 'etherdream', '192.168.1.2', 'Right'),
+  ]);
+  check('each device is built for its own address', built.join(), '127.0.0.1,192.168.1.2');
+  const ids = [...hub.devices.values()].map((d) => d.dac.address).sort();
+  check('and holds it', ids.join(), '127.0.0.1,192.168.1.2');
+}
+
 console.log('\n-- a device that cannot own its ports is refused, with the reason --');
 
 {

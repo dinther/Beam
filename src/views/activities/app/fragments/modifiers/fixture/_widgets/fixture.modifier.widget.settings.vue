@@ -331,7 +331,7 @@ import { imageSizeAt } from '@/models/DMX/generic/projector';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 import LaserStream from '@/plugins/laser_stream';
 import Laser from '@/plugins/visualizer/laser';
-import { LASER_PROTOCOLS, PROTOCOL_LABELS } from '@/models/DMX/laser_settings';
+import { SELECTABLE_PROTOCOLS, PROTOCOL_LABELS } from '@/models/DMX/laser_settings';
 
 /**
  * The Ponk stream list always begins with "first live one", so a laser that
@@ -498,11 +498,21 @@ export default {
     usesStream() {
       return this.isLaser && this.protocol === 'ponk';
     },
+    /**
+     * The protocols on offer, plus whatever this laser is already set to --
+     * so a show holding a withdrawn one still shows the truth rather than
+     * silently reading as something else.
+     */
+    protocolChoices() {
+      const list = [...SELECTABLE_PROTOCOLS];
+      if (this.protocol && !list.includes(this.protocol)) list.push(this.protocol);
+      return list;
+    },
     protocolOptions() {
-      return LASER_PROTOCOLS.map((key) => PROTOCOL_LABELS[key] || key);
+      return this.protocolChoices.map((key) => PROTOCOL_LABELS[key] || key);
     },
     protocolIndex() {
-      const at = LASER_PROTOCOLS.indexOf(this.protocol);
+      const at = this.protocolChoices.indexOf(this.protocol);
       return at < 0 ? 0 : at;
     },
     /**
@@ -831,7 +841,7 @@ export default {
      * @param {Number} index into `protocolOptions`
      */
     pickProtocol(index) {
-      const protocol = LASER_PROTOCOLS[index];
+      const protocol = this.protocolChoices[index];
       if (!protocol || protocol === this.protocol) return;
       this.writeDevice('protocol', protocol);
       // A stream belongs to Ponk, so leaving one bound while the laser is fed

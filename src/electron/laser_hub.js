@@ -45,11 +45,49 @@ export const PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube'];
  */
 export const EXCLUSIVE = ['etherdream', 'lasercube'];
 
-/** Builds the DAC for a protocol, bound to one address. */
+/**
+ * One byte that differs per address, for the identity a device advertises.
+ *
+ * Never zero, so a byte is always visibly set.
+ *
+ * @param {String} address
+ * @returns {Number} 1..255
+ */
+function addressByte(address) {
+  let h = 0;
+  const text = String(address || '');
+  for (let i = 0; i < text.length; i += 1) {
+    // eslint-disable-next-line no-bitwise
+    h = ((h * 31) + text.charCodeAt(i)) & 0xff;
+  }
+  return h || 1;
+}
+
+/**
+ * Builds the DAC for a protocol, bound to one address.
+ *
+ * **Each carries an identity of its own, derived from its address.** A host
+ * recognises a device by what it advertises -- an Ether Dream by its MAC, an
+ * IDN unit by its unit ID -- not by the address it answers from. Built from
+ * the defaults, two devices at two addresses were the same device seen twice,
+ * and MadMapper showed one destination for a rig of two. The address is the
+ * one thing that differs between them, so it is what the identity is made
+ * from, and it is stable across restarts because the address is.
+ *
+ * For IDN the varying byte is the *seventh*, not the last: `scanResponse`
+ * overwrites the last identifier octet with the service number, which is 1 on
+ * every unit offering one laser.
+ */
 const BUILDERS = {
-  etherdream: () => new EtherDreamDac(),
-  lasercube: () => new LaserCubeDac(),
-  idn: () => new IdnDac(),
+  etherdream: (address) => new EtherDreamDac({
+    mac: [0x02, 0xbe, 0xa1, 0x00, addressByte(address), 0x01],
+  }),
+  lasercube: (address) => new LaserCubeDac({
+    serial: [0x02, 0xbe, 0xa1, 0x00, addressByte(address), 0x01],
+  }),
+  idn: (address) => new IdnDac({
+    unitID: [0x07, 0x01, 0x00, 0x04, 0xbe, 0xa1, addressByte(address), 0x01],
+  }),
 };
 
 /**
@@ -207,7 +245,7 @@ class LaserHub {
     wanted.forEach((entry, key) => {
       let device = this.devices.get(key);
       if (!device) {
-        const dac = this.builders[entry.protocol]();
+        const dac = this.builders[entry.protocol](entry.address);
         device = { ...entry, dac, listening: false };
         this.devices.set(key, device);
         starting.push(
