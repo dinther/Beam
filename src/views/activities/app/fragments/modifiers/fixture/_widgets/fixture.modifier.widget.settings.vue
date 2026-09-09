@@ -283,16 +283,22 @@
             :key="group.label"
           >
             <span class="section_label">{{ group.label }}</span>
+            <!-- Lines are declared, not left to wrap: which fields sit together
+                 is a statement about what they are -- the two scales, then the
+                 two positions -- and letting flex decide put them wherever the
+                 widget's width happened to break. -->
             <uk-flex
+              v-for="(line, at) in group.lines"
+              :key="`${group.label}-${at}`"
               :gap="6"
               class="control_wrap"
             >
               <uk-num-input
-                v-for="row in group.rows"
+                v-for="row in line"
                 v-show="!device.isFixed(row.key)"
                 :key="row.key"
                 :model-value="Math.round(read(row.key) || 0)"
-                :style="{ width: `${row.width}px` }"
+                :style="{ flex: `1 1 ${row.basis}px`, minWidth: `${row.basis}px` }"
                 :label="row.label"
                 :precision="0"
                 :min="row.min"
@@ -300,6 +306,12 @@
                 :disabled="device.isDriven(row.key)"
                 @update:model-value="writeDevice(row.key, $event)"
               />
+            </uk-flex>
+            <uk-flex
+              v-if="group.shutter || (group.toggles || []).length"
+              :gap="6"
+              class="control_wrap"
+            >
               <uk-checkbox
                 v-if="group.shutter && !device.isFixed('shutter')"
                 :model-value="!!read('shutter')"
@@ -307,15 +319,24 @@
                 :disabled="device.isDriven('shutter')"
                 @update:model-value="writeDevice('shutter', $event)"
               />
-              <uk-checkbox
+              <!-- A mounting flip is a picture, not a sentence: the icon turns
+                   over with the field it controls, so the button shows what it
+                   does and not merely whether it is on. -->
+              <button
                 v-for="toggle in (group.toggles || [])"
                 v-show="!device.isFixed(toggle.key)"
                 :key="toggle.key"
-                :model-value="!!read(toggle.key)"
-                :label="toggle.label"
+                type="button"
+                class="icon_toggle"
+                :class="[`axis_${toggle.axis}`, { on: !!read(toggle.key) }]"
+                :title="toggle.label"
+                :aria-label="toggle.label"
+                :aria-pressed="!!read(toggle.key)"
                 :disabled="device.isDriven(toggle.key)"
-                @update:model-value="writeDevice(toggle.key, $event)"
-              />
+                @click="writeDevice(toggle.key, !read(toggle.key))"
+              >
+                <uk-icon :name="toggle.icon" />
+              </button>
             </uk-flex>
           </template>
         </template>
@@ -423,26 +444,36 @@ export default {
      * @type {Array}
      */
     laserGroups() {
-      const pct = (key, label, min = 0, width = 92) => ({
-        key, label, min, max: 100, width,
+      // A basis rather than a width: the controls share whatever the widget
+      // is, so three colours fit across one row and four geometry fields fall
+      // into two. Pinned pixel widths were picked for a 230px widget and
+      // simply left a gap when it grew.
+      const pct = (key, label, min = 0, basis = 88) => ({
+        key, label, min, max: 100, basis,
       });
       return [
-        { label: 'Intensity', rows: [pct('dimmer', 'Dimmer %')], shutter: true },
+        { label: 'Intensity', lines: [[pct('dimmer', 'Dimmer %')]], shutter: true },
         {
           label: 'Colour %',
-          rows: [pct('red', 'Red', 0, 62), pct('green', 'Green', 0, 62), pct('blue', 'Blue', 0, 62)],
+          lines: [[
+            pct('red', 'Red', 0, 56), pct('green', 'Green', 0, 56), pct('blue', 'Blue', 0, 56),
+          ]],
         },
         {
           label: 'Geometry %',
-          rows: [
-            pct('xScale', 'X scale'), pct('yScale', 'Y scale'),
-            pct('xPos', 'X pos', -100), pct('yPos', 'Y pos', -100),
+          lines: [
+            [pct('xScale', 'X scale', 0, 80), pct('yScale', 'Y scale', 0, 80)],
+            [pct('xPos', 'X pos', -100, 80), pct('yPos', 'Y pos', -100, 80)],
           ],
           // Mounting flips sit with the geometry because that is what they are:
           // the field turned over, not the content changed.
           toggles: [
-            { key: 'mirrorX', label: 'Mirror X' },
-            { key: 'mirrorY', label: 'Mirror Y' },
+            {
+              key: 'mirrorX', label: 'Mirror X', icon: 'flip_x', axis: 'x',
+            },
+            {
+              key: 'mirrorY', label: 'Mirror Y', icon: 'flip_y', axis: 'y',
+            },
           ],
         },
       ];
@@ -480,6 +511,11 @@ export default {
         yScale: device.value('yScale'),
         xPos: device.value('xPos'),
         yPos: device.value('yPos'),
+        // Absent here, `read('mirrorX')` was undefined: the control never showed
+        // its state and `!undefined` wrote true every time, so it could be
+        // turned on and never off. The checkboxes had it too.
+        mirrorX: device.value('mirrorX'),
+        mirrorY: device.value('mirrorY'),
       };
     },
     /** Every connector in the show, with an unbound entry at the top. */
@@ -903,6 +939,41 @@ export default {
 .control_wrap {
   flex-wrap: wrap;
   align-items: flex-start;
+}
+.icon_toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--primary-dark);
+  border: 1px solid var(--secondary-dark);
+  /* Not `--secondary-light`: that is what the disabled controls use, and it
+     made a perfectly live button read as greyed out. */
+  color: var(--secondary-lighter);
+  cursor: pointer;
+}
+/* The icon turns over with the field it controls, so the button shows what it
+   does rather than only whether it is on. */
+.icon_toggle :deep(.icon) {
+  transition: transform 0.12s ease;
+}
+.icon_toggle.on {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: var(--secondary-lighter);
+}
+.icon_toggle.on.axis_x :deep(.icon) {
+  transform: scaleX(-1);
+}
+.icon_toggle.on.axis_y :deep(.icon) {
+  transform: scaleY(-1);
+}
+.icon_toggle:disabled {
+  background: var(--secondary-darker);
+  color: var(--secondary-dark);
+  cursor: unset;
 }
 .section_label {
   font-family: Roboto-Medium, sans-serif;

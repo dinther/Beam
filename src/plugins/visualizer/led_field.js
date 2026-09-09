@@ -324,7 +324,8 @@ const GLOW_VERTEX = `${SHADER_DEFINES + TEXEL_LOOKUP /* glsl */}
 
 const GLOW_FRAGMENT = `${hazeShaderPrelude()}
   uniform float glowFalloff;
-  uniform float turbulence;
+  uniform float turbulence;  // how deeply the glow is modulated, 0..1
+  uniform float hazeDrift;   // noise units a second, shared by the room
   uniform float hazeScale;
   uniform float time;
 
@@ -356,7 +357,7 @@ const GLOW_FRAGMENT = `${hazeShaderPrelude()}
     // hazeScale is the scene's own.
     if (turbulence > 0.0) {
       vec3 coord = vGlowWorld / max(hazeScale, 0.01);
-      float churn = clamp(fogging(coord, time * turbulence / 15.0), 0.0, 1.0);
+      float churn = clamp(fogging(coord, time * hazeDrift), 0.0, 1.0);
       falloff *= mix(1.0, churn, turbulence);
     }
 
@@ -413,6 +414,7 @@ const GLOW_UNIFORMS = {
   sizeAtZeroHaze: { value: GLOW_SIZE_AT_ZERO_HAZE },
   sizeAtFullHaze: { value: GLOW_SIZE_AT_FULL_HAZE },
   turbulence: { value: SceneEnv.hazeTurbulence },
+  hazeDrift: { value: SceneEnv.hazeDriftRate },
   // The scene's feature size, not a private one -- see the note in GLOW_FRAGMENT.
   hazeScale: { value: SceneEnv.hazeScale },
   time: { value: 0 },
@@ -431,6 +433,7 @@ function syncEnvironment() {
   // drawn and every one of them rasterised black.
   GLOW_UNIFORMS.hazeAmount.value = SceneEnv.hazeAmount;
   GLOW_UNIFORMS.turbulence.value = SceneEnv.hazeTurbulence;
+  GLOW_UNIFORMS.hazeDrift.value = SceneEnv.hazeDriftRate;
   GLOW_UNIFORMS.hazeScale.value = SceneEnv.hazeScale;
 
   if (!field.glow) return;

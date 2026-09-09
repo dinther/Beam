@@ -41,6 +41,15 @@ const DEFAULT_HAZE_SCALE = Preferences.DEFAULTS.globalFoggingScale;
  * Room-sized. Finer grains than this read as noise on the beam rather than as
  * air, and the range was set by eye against real beams a few metres long.
  */
+/**
+ * How fast the haze may travel at turbulence 1, in metres a second.
+ *
+ * Chosen to be plainly too fast for a room, because the range wanted headroom
+ * at the top -- with the square curve above, everything reasonable still lives
+ * in the lower half of the slider.
+ */
+const MAX_HAZE_SPEED = 8;
+
 const MIN_HAZE_SCALE = 2;
 const MAX_HAZE_SCALE = 15;
 
@@ -157,6 +166,35 @@ class SceneEnvironment extends EventEmitter {
 
   get hazeTurbulence() {
     return this._hazeTurbulence;
+  }
+
+  /**
+   * How fast the haze travels, in **noise units a second**.
+   *
+   * Two things were wrong with using turbulence directly, and both are fixed
+   * here rather than in five shaders.
+   *
+   * **It meant different speeds at different haze scales.** Drift is added to
+   * a coordinate already divided by `hazeScale`, so the world speed was
+   * `turbulence x scale`: the same setting moved the air seven times faster in
+   * fine haze than in coarse. Turbulence now names a speed in metres a second
+   * and this converts it, so changing how coarse the air is no longer changes
+   * how fast it moves.
+   *
+   * **And every renderer picked its own divisor** -- beams `/15`, lasers
+   * `/30`, glows `/15` -- so one room's air drifted at two speeds depending on
+   * what was lit by it. They all read this now.
+   *
+   * The curve is square rather than straight: the useful settings for a room
+   * are all at the bottom of the range, and a straight line spends most of the
+   * slider on speeds nobody wants. Squared, half the slider is still a gentle
+   * drift and the top is genuinely fast.
+   *
+   * @type {Number} noise units a second
+   */
+  get hazeDriftRate() {
+    const speed = this._hazeTurbulence * this._hazeTurbulence * MAX_HAZE_SPEED;
+    return speed / Math.max(this._hazeScale, 0.01);
   }
 
   /**

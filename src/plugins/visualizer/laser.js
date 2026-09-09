@@ -292,7 +292,7 @@ function makeBeamMaterial() {
       fogState: { value: SceneEnv.hazeEnabled },
       fogFactor: { value: SceneEnv.hazeAmount },
       fogScale: { value: SceneEnv.hazeScale },
-      fogTurbulence: { value: SceneEnv.hazeTurbulence },
+      fogTurbulence: { value: SceneEnv.hazeDriftRate },
       time: { value: 0.0 },
       scatterGain: { value: scatterGainValue },
       beamTail: { value: beamTailValue },
@@ -426,7 +426,7 @@ function makeBeamMaterial() {
         float falloff = (1.0 - 0.5 * d) * (1.0 - smoothstep(1.0 - tail, 1.0, d));
         // The mover beam's coordinate and drift, so the noise reads at one scale
         // across the scene and a sweeping sheet cuts a live cross-section.
-        float drift = time * fogTurbulence / 30.0;
+        float drift = time * fogTurbulence;
         float field = fogging(vWorld / max(fogScale, 0.01), drift);
         // Base plus variation, never black-to-white.
         float haze = mix(hazeBase, 1.0, clamp(field, 0.0, 1.0));
@@ -1034,7 +1034,7 @@ class Laser {
       u.fogState.value = SceneEnv.hazeEnabled;
       u.fogFactor.value = SceneEnv.hazeAmount;
       u.fogScale.value = SceneEnv.hazeScale;
-      u.fogTurbulence.value = SceneEnv.hazeTurbulence;
+      u.fogTurbulence.value = SceneEnv.hazeDriftRate;
       u.scatterGain.value = scatterGainValue;
       u.beamTail.value = beamTailValue;
       u.scatterAmount.value = scatterAmountValue;

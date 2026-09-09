@@ -271,19 +271,6 @@ function grownAttribute(attribute) {
  * @param {THREE.InstancedMesh} mesh
  * @returns {THREE.InstancedMesh}
  */
-/**
- * What the beam shader multiplies the room's turbulence by.
- *
- * The cone samples the haze field over a shorter distance than the room does,
- * so the same churn reads as half as much inside a beam. Doubling it here is
- * the beam's own convention and the only place it is applied -- it used to be
- * done by whoever happened to be pushing the value in, which meant the number
- * in the panel and the number in the shader were two different quantities
- * wearing one name.
- *
- * @constant {Number}
- */
-const BEAM_TURBULENCE_SCALE = 2;
 
 function grownMesh(mesh) {
   const grown = new THREE.InstancedMesh(mesh.geometry, mesh.material, capacity);
@@ -1455,7 +1442,7 @@ class MovingHead {
         },
         fogTurbulence: {
           type: 'f',
-          value: SceneEnv.hazeTurbulence * BEAM_TURBULENCE_SCALE,
+          value: SceneEnv.hazeDriftRate,
         },
         glowFactor: {
           type: 'f',
@@ -1740,7 +1727,7 @@ function syncEnvironment() {
   uniforms.fogState.value = SceneEnv.hazeEnabled;
   uniforms.fogFactor.value = SceneEnv.hazeAmount;
   uniforms.fogScale.value = SceneEnv.hazeScale;
-  uniforms.fogTurbulence.value = SceneEnv.hazeTurbulence * BEAM_TURBULENCE_SCALE;
+  uniforms.fogTurbulence.value = SceneEnv.hazeDriftRate;
 }
 
 SceneEnv.on('changed', syncEnvironment);

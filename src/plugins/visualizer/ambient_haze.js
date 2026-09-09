@@ -274,7 +274,7 @@ export default class AmbientHazeEffect extends Effect {
 
     uniforms.get('hazeMetres').value = SceneEnv.hazeScale * this.scaleMultiplier;
     // The same drift convention the LED glows use, so the air moves as one.
-    uniforms.get('drift').value = (this.elapsed * SceneEnv.hazeTurbulence) / 15;
+    uniforms.get('drift').value = this.elapsed * SceneEnv.hazeDriftRate;
     // `roomHaze`, not `hazeAmount`: this is the air between fixtures, and it is
     // the thing that goes when the house lights come up. The beams keep theirs.
     uniforms.get('density').value = SceneEnv.roomHaze * AMBIENT_HAZE_DENSITY;

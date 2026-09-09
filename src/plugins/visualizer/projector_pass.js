@@ -642,7 +642,7 @@ class ProjectorEffect extends Effect {
     uniforms.get('hazeDensity').value = SceneEnv.hazeAmount;
     uniforms.get('hazeMetres').value = SceneEnv.hazeScale;
     // The same drift convention the beams and the ambient air use.
-    uniforms.get('drift').value = (this.elapsed * SceneEnv.hazeTurbulence) / 15;
+    uniforms.get('drift').value = this.elapsed * SceneEnv.hazeDriftRate;
 
     const live = this.projections.slice(0, MAX_PROJECTIONS);
     uniforms.get('liveCount').value = live.length;

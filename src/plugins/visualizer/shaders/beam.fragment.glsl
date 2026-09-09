@@ -152,7 +152,10 @@ float computeFog(float minValue) {
   // background fell 56, 30, 10 and then rose back to 17 down the axis. The
   // recovery is the giveaway; the shading either side of the corner is correct
   // and only the corner itself was ever wrong.
-  float drift = time * fogTurbulence / 30.0;
+  // `fogTurbulence` is a rate in noise units a second now, worked out once in
+  // `SceneEnv.hazeDriftRate` -- scale-corrected, and the same for every
+  // renderer that reads this field.
+  float drift = time * fogTurbulence;
   vec3 fogCoord = vAbsoluteWorldPosition.xyz / max(fogScale, 0.01);
   float field = fogging(fogCoord, drift);
 

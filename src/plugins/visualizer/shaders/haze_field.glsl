@@ -47,11 +47,36 @@ float noiseAt(vec3 coord) {
  * @param drift how far the haze has travelled, in the same units
  */
 float fogging(vec3 coord, float drift) {
+  // Each octave travels its own way, and reads the volume through its own axis
+  // order.
+  //
+  // All four used to drift along +X at 1.0/1.2/2.0/2.8, which is four copies of
+  // one pattern sliding in step: the field translated past you rather than
+  // turning over. Giving each a direction of its own makes them shear against
+  // one another, which is the motion air actually has, and swizzling the
+  // coordinate puts each octave's lattice on a different set of axes so they
+  // stop reinforcing at the same places.
+  //
+  // **Both are free.** A swizzle is register selection, not arithmetic, and a
+  // direction is the same multiply-add the old +X drift was. Neither changes an
+  // octave's value distribution -- same volume, same trilinear fetch, read
+  // somewhere else -- so `HAZE_FIELD_GAIN` still holds; checked, not assumed.
+  //
+  // Directions are unit length, so the turbulence control means the same speed
+  // it did, and mostly horizontal with a little vertical: air in a room moves
+  // across it, and haze that rises visibly reads as smoke.
   float fog = 0.0;
-  fog += abs(noiseAt((coord + vec3(drift * 1.0, 0.0, 0.0)) * 1.0)) * 1.0;
-  fog += abs(noiseAt((coord + vec3(drift * 1.2, 0.0, 0.0)) * 2.0 + vec3(17.3, 5.1, 29.7))) * 0.5;
-  fog += abs(noiseAt((coord + vec3(drift * 2.0, 0.0, 0.0)) * 4.0 + vec3(41.9, 23.4, 7.8))) * 0.25;
-  fog += abs(noiseAt((coord + vec3(drift * 2.8, 0.0, 0.0)) * 8.0 + vec3(3.2, 37.6, 15.5))) * 0.125;
+  fog += abs(noiseAt(
+    (coord + vec3(1.000, 0.000, 0.000) * (drift * 1.0)) * 1.0)) * 1.0;
+  fog += abs(noiseAt(
+    (coord + vec3(0.620, 0.780, 0.080) * (drift * 1.2)).yzx * 2.0
+    + vec3(17.3, 5.1, 29.7))) * 0.5;
+  fog += abs(noiseAt(
+    (coord + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)).zxy * 4.0
+    + vec3(41.9, 23.4, 7.8))) * 0.25;
+  fog += abs(noiseAt(
+    (coord + vec3(0.281, -0.954, 0.100) * (drift * 2.8)).yxz * 8.0
+    + vec3(3.2, 37.6, 15.5))) * 0.125;
   fog *= HAZE_FIELD_GAIN;
 
   // Contour cycling: the field stays put and the transfer function moves, so
