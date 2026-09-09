@@ -44,19 +44,23 @@ export const POINT_STRIDE = 6;
 const RING_POINTS = 8192;
 
 /**
- * One stream per protocol, and per *service* where a protocol has them.
+ * One stream per protocol, per *address*, and per *service* where a protocol
+ * has them.
  *
- * IDN offers a named service per laser in the show and says which one each
- * message feeds, so two lasers on one unit are two separate streams rather than
- * two fixtures drawing the same figure. Protocols without services (Ether
- * Dream, LaserCube) keep a single stream under their own name.
+ * A laser says how it wants to be fed -- protocol and address -- so two Ether
+ * Dreams at two addresses are two streams, which is the only way that protocol
+ * can tell one laser from another. IDN adds a named service per laser, so a
+ * whole rig fits at one address. See `electron/laser_hub.js`.
  *
  * @param {String} protocol
+ * @param {String|null} address
  * @param {Number|null} service
  * @returns {String}
  */
-function streamKey(protocol, service) {
-  return service === null || service === undefined ? protocol : `${protocol}#${service}`;
+function streamKey(protocol, address, service) {
+  const at = address ? `@${address}` : '';
+  const svc = service === null || service === undefined ? '' : `#${service}`;
+  return `${protocol}${at}${svc}`;
 }
 
 /** Handed back for a dead stream, so blanking allocates nothing. */
@@ -104,9 +108,10 @@ function now() {
  * so the renderer draws a segment between each consecutive pair.
  */
 class ProtocolBuffer {
-  constructor(protocol = null, service = null) {
+  constructor(protocol = null, service = null, address = null) {
     this.protocol = protocol;
     this.service = service;
+    this.address = address;
     this.ring = new Uint16Array(RING_POINTS * POINT_STRIDE);
     this.head = 0; // where the next point is written
     this.count = 0; // points currently held, up to RING_POINTS
@@ -236,15 +241,27 @@ class LaserStream {
   }
 
   /**
-   * Tells the DACs which lasers the show holds, so a protocol that names its
-   * services offers them under the show's own names.
+   * Tells the main process how every laser wants to be fed, so it starts and
+   * stops devices to match.
    *
    * @public
-   * @param {Array} services each `{ id, name }`
+   * @param {Array} inputs each `{ uid, name, protocol, address, service }`
+   * @returns {Promise<Array>} one `{ uid, ok, reason }` per input
    */
-  publishServices(services) {
-    if (!this.available || !window.laser.services) return;
-    window.laser.services(services);
+  configure(inputs) {
+    if (!this.available || !window.laser.configure) return Promise.resolve([]);
+    return window.laser.configure(inputs);
+  }
+
+  /**
+   * The addresses a laser device may be bound to.
+   *
+   * @public
+   * @returns {Promise<Array>} each `{ address, label, internal, primary }`
+   */
+  addresses() {
+    if (!this.available || !window.laser.addresses) return Promise.resolve([]);
+    return window.laser.addresses();
   }
 
   /** Whether a native laser bridge is present (i.e. running under Electron). */
@@ -292,10 +309,11 @@ class LaserStream {
     }
     if (!batch.points) return;
     const service = batch.service === undefined ? null : batch.service;
-    const key = streamKey(batch.protocol, service);
+    const address = batch.address || null;
+    const key = streamKey(batch.protocol, address, service);
     let buffer = this.buffers.get(key);
     if (!buffer) {
-      buffer = new ProtocolBuffer(batch.protocol, service);
+      buffer = new ProtocolBuffer(batch.protocol, service, address);
       this.buffers.set(key, buffer);
     }
     buffer.push(batch.rate || 0, batch.points);
@@ -356,8 +374,8 @@ class LaserStream {
    * @returns {{ rate: Number, points: Uint16Array, count: Number }} an empty
    *   frame if that protocol has sent nothing
    */
-  frame(protocol, windowMs = 50, service = null) {
-    const buffer = this.buffers.get(streamKey(protocol, service));
+  frame(protocol, windowMs = 50, service = null, address = null) {
+    const buffer = this.buffers.get(streamKey(protocol, address, service));
     if (!buffer) return { rate: 0, points: new Uint16Array(0), count: 0 };
     return buffer.frame(windowMs);
   }
@@ -371,6 +389,7 @@ class LaserStream {
     const rings = [...this.buffers].map(([, buffer]) => ({
       protocol: buffer.protocol,
       service: buffer.service,
+      address: buffer.address,
       rate: buffer.rate,
       // A dead stream holds nothing worth drawing, whatever is still in
       // its ring -- so a fixture picking a source by itself does not settle on

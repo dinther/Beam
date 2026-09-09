@@ -89,6 +89,45 @@ const mirror = {
   fromLevel: (level) => level >= 0.5,
 };
 
+/** Every protocol a laser may be fed by, in the order the dropdown offers. */
+export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube'];
+
+/** What each protocol is called on screen. */
+export const PROTOCOL_LABELS = {
+  ponk: 'Ponk',
+  idn: 'IDN',
+  etherdream: 'Ether Dream',
+  lasercube: 'LaserCube',
+};
+
+/**
+ * How this laser is fed. Ponk by default: it is the one route that needs
+ * nothing of the user's network and can carry a whole rig.
+ *
+ * @constant {Object}
+ */
+const protocolAttribute = {
+  initial: () => 'ponk',
+  coerce: (value) => (LASER_PROTOCOLS.includes(value) ? value : 'ponk'),
+  fromLevel: () => 'ponk',
+};
+
+/**
+ * Which of the machine's addresses this laser's device is bound to.
+ *
+ * Null means "whatever Beam decides is primary", which is what every laser
+ * gets until someone has a reason to say otherwise -- and the reason is
+ * always the same one: a second Ether Dream or LaserCube needs a second
+ * address, because those protocols name a device by nothing else.
+ *
+ * @constant {Object}
+ */
+const addressAttribute = {
+  initial: () => null,
+  coerce: (value) => (typeof value === 'string' && value ? value : null),
+  fromLevel: () => null,
+};
+
 /**
  * What a laser can be told to do.
  *
@@ -106,9 +145,19 @@ export const LASER_SPEC = {
   [LASER_ATTRIBUTES.Y_POS]: offset,
   [LASER_ATTRIBUTES.MIRROR_X]: mirror,
   [LASER_ATTRIBUTES.MIRROR_Y]: mirror,
-  // In the spec but not in CHANNEL_ORDER, so it is never driven: a hand-set
-  // choice of which DAC stream to show. Same shape as the projector's source
-  // (an id by hand), minus the one-based DMX reading it will never get.
+  // The three below are in the spec but not in CHANNEL_ORDER, so they are never
+  // driven: how this laser is fed is a fact about the rig, not something a
+  // console rides. Same shape as the projector's source (an id by hand), minus
+  // the one-based DMX reading it will never get.
+  //
+  // `protocol` is how the laser presents itself -- a real one has a DAC in it,
+  // so "this is a LaserCube" belongs to the fixture. `address` is which of the
+  // machine's addresses it lives at, which is what decides how many lasers a
+  // protocol can carry: Ether Dream and LaserCube name a device only by its
+  // address, so one laser each, while IDN offers a named service per laser at
+  // one address. `source` holds the chosen Ponk stream, and nothing else.
+  protocol: protocolAttribute,
+  address: addressAttribute,
   source: COMMON_ATTRIBUTES.source,
 };
 

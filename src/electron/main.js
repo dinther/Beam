@@ -21,10 +21,7 @@ import path from 'path';
 import icon from '../assets/images/beam_logo.png?asset';
 import artnet from './artnet';
 import sacn from './sacn';
-import EtherDreamDac from './etherdream';
-import LaserCubeDac from './lasercube';
-import IdnDac from './idn';
-import PonkReceiver from './ponk';
+import LaserHub, { addresses as laserAddresses } from './laser_hub';
 import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
@@ -383,96 +380,33 @@ function setupArtnet() {
 }
 
 /**
- * The virtual laser DACs, one per protocol.
+ * The laser inputs, one device per protocol and address the show asks for.
  *
  * Laser software finds a DAC on the network and streams galvo points to it;
- * Beam answers as one so the software needs nothing installed. Ether Dream
- * for MadLaser and everything else that speaks the open protocol; LaserCube
- * for LaserOS, which speaks to nothing else. Both are receive-only.
+ * Beam answers as one so the software needs nothing installed. Which protocol,
+ * and at which address, is a per-fixture setting now rather than an
+ * application-wide switch -- a real laser has a DAC in it, and the address is
+ * what decides how many of them one protocol can carry. See `laser_hub.js`.
+ * Everything here is receive-only.
  */
-/**
- * The DACs Beam answers as, and which of them are switched on.
- *
- * **IDN is the one that runs.** It is the only protocol of the three that can
- * say its own name: its discovery answers carry a host name and its service map
- * a service name, both set to "Beam", which is what a producer then shows in its
- * device list. Ether Dream's beacon has nowhere to put a string at all, so it
- * can only ever appear as "Etherdream" -- it works perfectly well and is a
- * better-specified protocol, but a rig with one virtual laser in it should say
- * what that laser is. Switched off rather than deleted: flip the flag if a
- * producer turns up that speaks Ether Dream and nothing else.
- *
- * **The LaserCube is built and kept, but off.** It works -- it answers a real
- * LaserCube's discovery and carries its point format -- but the only software
- * that would talk to it here is LaserOS, and LaserOS gates its DACs behind an
- * ATSHA204 challenge Beam cannot answer. Rather than delete a working
- * implementation of a protocol that is a day's work to write, it stays here
- * unstarted: flip the flag and it listens again. Nothing binds its ports while
- * it is off, which also leaves them free for LaserOS itself.
- */
-const LASER_ENABLED = {
-  etherdream: false,
-  lasercube: false,
-  idn: true,
-  ponk: true,
-};
-
-/**
- * Ponk is not a DAC and is the one that matters: MadMapper publishes each
- * laser output as its own named stream, so a fixture picks its laser by name
- * -- the identity no DAC protocol could carry. See `ponk.js`.
- */
-const lasers = {
-  etherdream: new EtherDreamDac(),
-  lasercube: new LaserCubeDac(),
-  idn: new IdnDac(),
-  ponk: new PonkReceiver(),
-};
+const laserHub = new LaserHub();
 
 function setupLaser() {
   // A laser batch is ~24 KB a flush, a thirtieth of what a big DMX rig
   // sends, so it takes the plain IPC path rather than a transferred port.
-  const forward = (kind) => (batch) => {
+  laserHub.start((batch) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('laser:frames', { protocol: kind, ...batch });
+      mainWindow.webContents.send('laser:frames', batch);
     }
-  };
-
-  // Starting is a promise because binding can fail, and for the LaserCube it
-  // fails for one specific reason worth naming: LaserOS on this machine
-  // holds the same ports. A DAC that cannot bind is reported as not
-  // listening rather than crashing the app.
-  const startLaser = async (kind) => {
-    const dac = lasers[kind];
-    if (!dac) return false;
-    if (!LASER_ENABLED[kind]) return false;
-    try {
-      await dac.start(forward(kind));
-    } catch (err) {
-      console.error(`[laser] ${kind} did not start:`, err.message);
-    }
-    return dac.listening;
-  };
-
-  ipcMain.handle('laser:start', (_event, kind) => startLaser(kind));
-  ipcMain.handle('laser:stop', (_event, kind) => {
-    const dac = lasers[kind];
-    if (dac) dac.stop();
-    return dac ? dac.listening : false;
-  });
-  ipcMain.handle('laser:report', () => Object.values(lasers).map((dac) => dac.report()));
-
-  // The show's own lasers, so IDN can offer one named service per fixture.
-  // Only IDN carries names among the DACs; the others have nowhere to put one.
-  ipcMain.handle('laser:services', (_event, services) => {
-    if (lasers.idn && lasers.idn.setServices) lasers.idn.setServices(services);
-    return true;
   });
 
-  // Whatever is switched on, from the start, like the DMX receivers: a
-  // visualizer's job is to receive, and the software on the other end is
-  // looking for a device the moment it opens.
-  Object.keys(lasers).filter((kind) => LASER_ENABLED[kind]).forEach(startLaser);
+  // The show's lasers, each saying how it wants to be fed. Sent whenever the
+  // patch changes; the hub starts and stops devices to match and answers with
+  // what it could not do -- a second laser asking for an Ether Dream that
+  // another already holds, say.
+  ipcMain.handle('laser:configure', (_event, inputs) => laserHub.configure(inputs));
+  ipcMain.handle('laser:addresses', () => laserAddresses());
+  ipcMain.handle('laser:report', () => laserHub.report());
 }
 
 /**
@@ -718,6 +652,6 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => {
   artnet.stop();
   sacn.stop();
-  Object.values(lasers).forEach((dac) => dac.stop());
+  laserHub.stop();
   app.quit();
 });

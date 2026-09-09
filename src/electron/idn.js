@@ -315,6 +315,16 @@ class IdnDac extends LaserDac {
     this.channels = new Map();
     this.host = null;
     /**
+     * Whether a producer has addressed a service by number.
+     *
+     * MadMapper sends service 0 for every output whatever destination the user
+     * picked, so a unit offering several lasers routes them all to the first
+     * one. That is worth telling the user rather than mis-routing quietly, so
+     * it is counted here and surfaced in `report()`.
+     */
+    this.namedStreams = 0;
+    this.anonymousStreams = 0;
+    /**
      * One service per laser in the show, by service ID.
      *
      * IDN units offer *named services* and channel messages name the one they
@@ -654,6 +664,7 @@ class IdnDac extends LaserDac {
       && (chunkType === CHUNK.WAVE_SAMPLES
         || chunkType === CHUNK.FRAME_SAMPLES
         || chunkType === CHUNK.FRAME_FIRST_FRAGMENT)) {
+      if (decoder.serviceId > 0) this.namedStreams += 1; else this.anonymousStreams += 1;
       const dac = this.serviceDac(decoder.serviceId, channelId);
       if (dac) this.samples(msg, at, end, decoder, chunkType, dac);
     }
@@ -766,6 +777,11 @@ class IdnDac extends LaserDac {
       protocol: 'idn',
       hostName: this.hostName,
       host: this.host,
+      // A producer sending service 0 has not said which laser it means, so a
+      // unit offering several sends them all to the first. Reported so the
+      // user is told, rather than left wondering why one laser has everything.
+      namedStreams: this.namedStreams,
+      anonymousStreams: this.anonymousStreams,
       services: [...this.services.entries()].map(([id, service]) => ({
         id,
         name: service.name,

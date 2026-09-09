@@ -94,7 +94,7 @@ const instances = new Set();
 const MAX_SERVICES = 16;
 
 /** The service list last sent, so an unchanged patch is not republished. */
-let lastServices = '';
+let lastInputs = '';
 
 /** Unit body, scaled per laser. */
 const BOX_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
@@ -178,28 +178,19 @@ let beamTailValue = 0.7;
 // everywhere rather than missing the shapes that did not fit.
 const MAX_POINTS = 8192;
 
-/** Every DAC protocol, tried in this order when a source is unset. */
-// IDN first: it is the one that runs, so a fixture left on auto finds it
-// without walking past two protocols that are switched off. Ponk is not in
-// this list -- it is streams, not a protocol, and comes before all of them.
-const PROTOCOLS = ['idn', 'etherdream', 'lasercube'];
-
 /**
- * A stored source, decoded.
+ * A stored Ponk source, decoded.
  *
- * A DAC protocol is its name; a Ponk stream is `ponk:<sender id>` -- the
- * 32-bit identifier MadMapper keeps across project reloads, which is what
- * makes the binding survive a rename on either side.
+ * `ponk:<sender id>` -- the 32-bit identifier MadMapper keeps across project
+ * reloads, which is what makes the binding survive a rename on either side.
  *
  * @param {*} value
- * @returns {{ protocol: String, service: Number|null }|null}
+ * @returns {Number|null}
  */
-function parseSource(value) {
+function parsePonkStream(value) {
   if (typeof value !== 'string') return null;
-  if (PROTOCOLS.includes(value)) return { protocol: value, service: null };
   const m = /^ponk:(\d+)$/.exec(value);
-  if (m) return { protocol: 'ponk', service: Number(m[1]) };
-  return null;
+  return m ? Number(m[1]) : null;
 }
 
 /**
@@ -553,6 +544,10 @@ class Laser {
     this._aperturePos = new THREE.Vector3();
     /** Which named IDN service feeds this laser. */
     this._serviceId = 1;
+    /** Which address this laser's device is bound to, from `publishInputs`. */
+    this._address = null;
+    /** Why it has no device, when another laser holds the one it asked for. */
+    this._inputError = null;
     FIGURE_ATLAS.attach(this._figure);
 
     // The aperture camera the depth atlas draws from, and the fixed basis that
@@ -630,32 +625,33 @@ class Laser {
   }
 
   /**
-   * Which DAC stream this laser draws.
+   * Which stream this laser draws.
    *
-   * The placement's chosen source when it names a real protocol; otherwise the
-   * first protocol that has points, so a freshly placed laser shows something
-   * the moment a sender appears rather than staying dark until its source is
-   * picked by hand.
+   * The fixture says how it is fed -- its protocol, and for a DAC the address
+   * its device is bound to. Ponk is the one that needs a further choice, since
+   * one machine receives every MadMapper output at once; on Ponk with no
+   * stream picked, the first live one is taken so a freshly placed laser shows
+   * something rather than staying dark.
    *
    * @param {Object} settings the placement's LaserSettings, or null
-   * @returns {{ protocol: String, service: Number|null }|null}
+   * @returns {Object|null} `{ protocol, service, address }`
    */
   resolveSource(settings) {
-    const chosen = parseSource(settings ? settings.value('source') : null);
-    if (chosen) return chosen;
-    // On auto, a laser looks for points meant for *it*. A Ponk stream is a
-    // named MadMapper output and the first live one is taken; an IDN unit
-    // offers a service per fixture, so another laser's stream is not this
-    // one's. Two lasers on auto will show the same stream -- picking a Source
-    // is how they are told apart, and that is the point of Ponk.
-    const report = LaserStream.report();
-    const ponk = report.find((r) => r.protocol === 'ponk' && r.held > 0);
-    if (ponk) return { protocol: 'ponk', service: ponk.service };
-    const protocol = PROTOCOLS.find((p) => report.some((r) => r.protocol === p
-      && (p !== 'idn' || r.service === this._serviceId)
-      && r.held > 0)) || null;
-    if (!protocol) return null;
-    return { protocol, service: protocol === 'idn' ? this._serviceId : null };
+    const protocol = (settings && settings.value('protocol')) || 'ponk';
+    const address = (settings && settings.value('address')) || this._address || null;
+    if (protocol === 'ponk') {
+      const chosen = parsePonkStream(settings ? settings.value('source') : null);
+      if (chosen !== null) return { protocol: 'ponk', service: chosen, address: null };
+      const live = LaserStream.report().find((r) => r.protocol === 'ponk' && r.held > 0);
+      return live ? { protocol: 'ponk', service: live.service, address: null } : null;
+    }
+    // A DAC's stream is its device: the address it is bound to, and for IDN
+    // the service this laser was given on that unit.
+    return {
+      protocol,
+      address,
+      service: protocol === 'idn' ? this._serviceId : null,
+    };
   }
 
   /**
@@ -693,7 +689,7 @@ class Laser {
         ({ weights } = frame);
       }
     } else if (source) {
-      frame = LaserStream.frame(source.protocol, 50, source.service);
+      frame = LaserStream.frame(source.protocol, 50, source.service, source.address);
     }
     const n = Math.min(frame ? frame.count : 0, MAX_POINTS);
     if (n < 1) {
@@ -1029,7 +1025,7 @@ class Laser {
    */
   static update(t) {
     if (!LaserStream.enabled) LaserStream.enable();
-    Laser.publishServices();
+    Laser.publishInputs();
     instances.forEach((laser) => {
       const u = laser._beamMaterial.uniforms;
       u.time.value = t || 0;
@@ -1089,30 +1085,81 @@ class Laser {
   }
 
   /**
-   * Offers the show's lasers as named IDN services.
+   * Tells the main process how every laser in the show wants to be fed.
    *
-   * A producer then sees "Beam high" rather than a protocol name, and routes
-   * content to each laser by name -- which is what the service map is for.
-   * Sent only when the patch actually changes, since this runs every frame.
+   * The show is the source of truth: each laser names its protocol and, for a
+   * DAC, the address its device lives at, and the hub starts and stops devices
+   * to match. IDN services are numbered per unit, so a rig sharing one IDN
+   * address gets one named service each -- the arrangement worth having, and
+   * the one MadMapper cannot yet address (see
+   * `docs/madmapper-idn-service-map.md`).
+   *
+   * Sent only when the answer actually changes, since this runs every frame.
    *
    * @public
    */
-  static publishServices() {
+  static publishInputs() {
     const list = [];
+    /** Service numbering restarts per IDN unit, so each unit counts its own. */
+    const perUnit = new Map();
     [...instances].forEach((laser, i) => {
-      if (i >= MAX_SERVICES) {
-        laser._serviceId = -1;
-        return;
-      }
-      const id = i + 1;
-      laser._serviceId = id;
       const handle = laser.fixtureHandle;
-      list.push({ id, name: (handle && handle.name) || `Laser ${id}` });
+      const settings = laser._settingsAt();
+      const protocol = (settings && settings.value('protocol')) || 'ponk';
+      const address = (settings && settings.value('address')) || null;
+      const name = (handle && handle.name) || `Laser ${i + 1}`;
+      let service = null;
+      if (protocol === 'idn') {
+        const unit = `idn@${address || 'default'}`;
+        const at = (perUnit.get(unit) || 0) + 1;
+        perUnit.set(unit, at);
+        service = at > MAX_SERVICES ? -1 : at;
+      }
+      laser._serviceId = service === null ? 1 : service;
+      laser._address = address;
+      list.push({
+        uid: (handle && handle.uid) || `laser-${i}`, name, protocol, address, service,
+      });
     });
     const signature = JSON.stringify(list);
-    if (signature === lastServices) return;
-    lastServices = signature;
-    LaserStream.publishServices(list);
+    if (signature === lastInputs) return;
+    lastInputs = signature;
+    Promise.resolve(LaserStream.configure(list)).then((results) => {
+      // What the hub could not do -- a second laser asking for an Ether Dream
+      // another already holds -- so the fixture can say so rather than sit dark.
+      const byUid = new Map((results || []).map((r) => [r.uid, r]));
+      [...instances].forEach((laser, i) => {
+        const handle = laser.fixtureHandle;
+        const uid = (handle && handle.uid) || `laser-${i}`;
+        const result = byUid.get(uid);
+        laser._inputError = result && result.ok === false ? result.reason : null;
+      });
+    });
+  }
+
+  /**
+   * Why this laser has no device of its own, if it has none.
+   *
+   * @public
+   * @returns {String|null}
+   */
+  inputError() {
+    return this._inputError || null;
+  }
+
+  /**
+   * The same, for a fixture handle, so the settings widget can ask without
+   * holding a renderer instance.
+   *
+   * @static
+   * @param {Object} fixture
+   * @returns {String|null}
+   */
+  static inputErrorFor(fixture) {
+    if (!fixture) return null;
+    const laser = [...instances].find((l) => l.fixtureHandle === fixture
+      || (l.fixtureHandle && fixture.uid && l.fixtureHandle.uid === fixture.uid));
+    return laser ? laser.inputError() : null;
   }
 
   /**

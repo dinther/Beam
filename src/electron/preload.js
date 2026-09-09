@@ -88,10 +88,13 @@ contextBridge.exposeInMainWorld('laser', {
     ipcRenderer.on('laser:frames', listener);
     return () => ipcRenderer.removeListener('laser:frames', listener);
   },
-  /** Start one DAC by protocol name: 'etherdream' or 'lasercube'. */
-  start: (protocol) => ipcRenderer.invoke('laser:start', protocol),
-  /** Stop one DAC by protocol name. */
-  stop: (protocol) => ipcRenderer.invoke('laser:stop', protocol),
+  /**
+   * The addresses a laser device may be bound to: this machine's real IPv4
+   * interface addresses, routable ones first.
+   *
+   * @returns {Promise<Array>} each `{ address, label, internal, primary }`
+   */
+  addresses: () => ipcRenderer.invoke('laser:addresses'),
   /**
    * What each DAC is doing: whether it is listening, who is sending, the
    * rate, and how full its buffer is.
@@ -101,12 +104,14 @@ contextBridge.exposeInMainWorld('laser', {
   report: () => ipcRenderer.invoke('laser:report'),
 
   /**
-   * Publishes the lasers in the show, so a DAC that names its services (IDN)
-   * offers them under the names the show gave them.
+   * Tells the main process how every laser in the show wants to be fed, so it
+   * can start and stop the devices to match.
    *
-   * @param {Array} services each `{ id, name }`
+   * @param {Array} inputs each `{ uid, name, protocol, address, service }`
+   * @returns {Promise<Array>} one `{ uid, ok, reason }` per input -- `ok`
+   *   false when another laser already holds that device
    */
-  services: (services) => ipcRenderer.invoke('laser:services', services),
+  configure: (inputs) => ipcRenderer.invoke('laser:configure', inputs),
 });
 
 /**

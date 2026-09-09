@@ -179,8 +179,53 @@
           </uk-flex>
         </template>
 
-        <span class="section_label">Output</span>
+        <span class="section_label">{{ isLaser ? 'Input' : 'Output' }}</span>
+
+        <!-- A laser says how it is fed: which protocol it presents itself as,
+             and for a DAC which of the machine's addresses it lives at. That
+             pair is what decides how many lasers a protocol can carry -- Ether
+             Dream and LaserCube name a device by its address alone, so one
+             laser each, while IDN offers a named service per laser at one
+             address. -->
+        <template v-if="isLaser">
+          <uk-flex
+            :gap="8"
+            class="row"
+          >
+            <uk-select-input
+              :model-value="protocolIndex"
+              style="flex: 1"
+              label="Protocol"
+              :options="protocolOptions"
+              @input="pickProtocol"
+            />
+            <uk-select-input
+              v-if="usesAddress"
+              :model-value="addressIndex"
+              style="flex: 1"
+              label="Address"
+              :options="addressOptions"
+              @input="pickAddress"
+            />
+          </uk-flex>
+          <uk-flex
+            v-if="usesStream"
+            :gap="8"
+            class="row"
+          >
+            <uk-select-input
+              :model-value="sourceIndex"
+              style="flex: 1"
+              label="Stream"
+              :options="sourceOptions"
+              @input="pickSource"
+            />
+          </uk-flex>
+          <span class="hint">{{ inputStatus }}</span>
+        </template>
+
         <uk-flex
+          v-if="!isLaser"
           :gap="8"
           class="row"
         >
@@ -285,22 +330,17 @@ import { MAX_SHADOW_CASTERS } from '@/plugins/visualizer/moving_head';
 import { imageSizeAt } from '@/models/DMX/generic/projector';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 import LaserStream from '@/plugins/laser_stream';
+import Laser from '@/plugins/visualizer/laser';
+import { LASER_PROTOCOLS, PROTOCOL_LABELS } from '@/models/DMX/laser_settings';
 
 /**
- * A laser's fixed source options, in dropdown order: auto, then each DAC
- * protocol. The Ponk streams MadMapper is publishing are appended live, by
- * name -- see `laserSources`.
- *
- * One list rather than a list of values beside a list of labels. They were two,
- * and adding IDN to the values while the labels stayed as they were is exactly
- * the drift that produces a protocol which works but cannot be chosen.
+ * The Ponk stream list always begins with "first live one", so a laser that
+ * has never been pointed at anything still shows something.
  */
-const LASER_SOURCES = [
-  { value: null, label: '— auto —' },
-  { value: 'etherdream', label: 'Ether Dream' },
-  { value: 'lasercube', label: 'LaserCube' },
-  { value: 'idn', label: 'Beam' },
-];
+const PONK_AUTO = { value: null, label: '— first live stream —' };
+
+/** Protocols that advertise a device, and so need an address to live at. */
+const ADDRESSED = ['idn', 'etherdream', 'lasercube'];
 
 /** How often the Ponk stream list is re-read while a laser is shown, in ms. */
 const STREAM_POLL_MS = 1000;
@@ -328,6 +368,8 @@ export default {
        */
       streamTick: 0,
       streamTimer: null,
+      /** The machine's bindable addresses, read once from the main process. */
+      laserAddresses: [],
       /**
        * Widget header data
        */
@@ -438,19 +480,64 @@ export default {
     connectors() {
       return (this.$show && this.$show.videoConnectors) || [];
     },
+    /** How this laser is fed. */
+    protocol() {
+      return (this.isLaser && this.read('protocol')) || 'ponk';
+    },
+    /** Only a laser advertising a device needs an address. */
+    usesAddress() {
+      return this.isLaser && ADDRESSED.includes(this.protocol);
+    },
+    /** Only Ponk has several streams arriving at once to choose between. */
+    usesStream() {
+      return this.isLaser && this.protocol === 'ponk';
+    },
+    protocolOptions() {
+      return LASER_PROTOCOLS.map((key) => PROTOCOL_LABELS[key] || key);
+    },
+    protocolIndex() {
+      const at = LASER_PROTOCOLS.indexOf(this.protocol);
+      return at < 0 ? 0 : at;
+    },
     /**
-     * The fixed sources, then every Ponk stream heard -- MadMapper's laser
-     * outputs by their own names -- and, if the show binds this laser to a
-     * stream nobody is sending right now, that one too, marked, so the binding
-     * is visible rather than silently reading as auto.
+     * The addresses this laser's device may be bound to.
+     *
+     * An address being listed is not a promise that a producer will find it --
+     * MadMapper's discovery reached this machine's Ethernet address but not its
+     * Wi-Fi one. The status line below is what tells the truth about that.
+     */
+    addressChoices() {
+      const list = this.laserAddresses.map((a) => ({
+        value: a.address,
+        label: a.primary ? `${a.label} — default` : a.label,
+      }));
+      const bound = this.read('address');
+      if (bound && !list.some((a) => a.value === bound)) {
+        list.push({ value: bound, label: `${bound} (not on this machine)` });
+      }
+      return list;
+    },
+    addressOptions() {
+      return this.addressChoices.map((a) => a.label);
+    },
+    addressIndex() {
+      const bound = this.read('address');
+      if (!bound) return 0;
+      const at = this.addressChoices.findIndex((a) => a.value === bound);
+      return at < 0 ? 0 : at;
+    },
+    /**
+     * Every Ponk stream heard -- MadMapper's laser outputs by their own names
+     * -- and, if the show binds this laser to a stream nobody is sending right
+     * now, that one too, marked, so the binding is visible rather than
+     * silently reading as the first live one.
      */
     laserSources() {
       // Read so a tick re-evaluates this; the stream list is not reactive.
       void this.streamTick; // eslint-disable-line no-void
-      const streams = LaserStream.ponkStreams();
       const list = [
-        ...LASER_SOURCES,
-        ...streams.map((s) => ({
+        PONK_AUTO,
+        ...LaserStream.ponkStreams().map((s) => ({
           value: `ponk:${s.id}`,
           label: s.live ? s.name : `${s.name} (quiet)`,
         })),
@@ -462,8 +549,35 @@ export default {
       }
       return list;
     },
+    /**
+     * What this laser's input is actually doing -- which is the question a
+     * "scan" button would have been pressed to ask, answered without one.
+     */
+    inputStatus() {
+      void this.streamTick; // eslint-disable-line no-void
+      if (!this.isLaser) return '';
+      const held = Laser.inputErrorFor && this.fixture
+        ? Laser.inputErrorFor(this.fixture) : null;
+      if (held) return `Not connected — ${held}.`;
+      const report = LaserStream.report();
+      if (this.protocol === 'ponk') {
+        const bound = this.read('source');
+        const id = typeof bound === 'string' && bound.startsWith('ponk:')
+          ? Number(bound.slice(5)) : null;
+        const stream = report.find((r) => r.protocol === 'ponk'
+          && (id === null ? r.held > 0 : r.service === id));
+        if (!stream) return 'Waiting — no Ponk stream. Turn on "Publish to PONK" in MadMapper.';
+        return stream.live
+          ? `Receiving from "${stream.name}".`
+          : `"${stream.name}" has stopped sending.`;
+      }
+      const live = report.find((r) => r.protocol === this.protocol && r.live);
+      const where = this.read('address') || 'the default address';
+      if (!live) return `Listening on ${where} — nothing has connected yet.`;
+      return `Receiving${live.rate ? ` at ${Math.round(live.rate / 1000)} kpps` : ''}.`;
+    },
     sourceOptions() {
-      // A laser's source is which DAC stream feeds it, not a video connector.
+      // A laser's source is which Ponk stream feeds it, not a video connector.
       if (this.isLaser) return this.laserSources.map((source) => source.label);
       return ['— none —', ...this.connectors.map((c) => c.name)];
     },
@@ -622,6 +736,7 @@ export default {
     // The Ponk stream list lives outside Vue; a timer is what makes a new
     // MadMapper output show up in the Source dropdown while it is open.
     this.streamTimer = setInterval(() => { this.streamTick += 1; }, STREAM_POLL_MS);
+    LaserStream.addresses().then((list) => { this.laserAddresses = list || []; });
   },
   beforeUnmount() {
     if (this.streamTimer) clearInterval(this.streamTimer);
@@ -673,8 +788,7 @@ export default {
     pickSource(index) {
       if (!this.device) return;
       if (this.isLaser) {
-        // Index 0 is auto (null); the renderer then shows whichever stream is
-        // live. Otherwise the chosen protocol or Ponk stream.
+        // Index 0 is the first live stream (null); otherwise the chosen one.
         this.writeDevice('source', (this.laserSources[index] || {}).value || null);
         return;
       }
@@ -685,6 +799,30 @@ export default {
       // paths differing in what each remembered to do -- the exact shape that
       // has bitten this app before.
       this.writeDevice('source', connector ? connector.id : null);
+    },
+    /**
+     * Sets how this laser is fed.
+     *
+     * @public
+     * @param {Number} index into `protocolOptions`
+     */
+    pickProtocol(index) {
+      const protocol = LASER_PROTOCOLS[index];
+      if (!protocol || protocol === this.protocol) return;
+      this.writeDevice('protocol', protocol);
+      // A stream belongs to Ponk, so leaving one bound while the laser is fed
+      // by a DAC would be a setting that says something untrue.
+      if (protocol !== 'ponk' && this.read('source')) this.writeDevice('source', null);
+    },
+    /**
+     * Binds this laser's device to one of the machine's addresses.
+     *
+     * @public
+     * @param {Number} index into `addressOptions`
+     */
+    pickAddress(index) {
+      const choice = this.addressChoices[index];
+      this.writeDevice('address', choice ? choice.value : null);
     },
   },
 };
