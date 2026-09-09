@@ -7,6 +7,7 @@ import Perf from './perf_overlay';
 import SceneEnv from './scene_env';
 import { ambientCeiling } from './ambient';
 import Tuning from './tuning';
+import { hazeWarp, hazeTurn } from './haze_noise';
 
 /**
  * @file Debug panel for the LED bar proof of concept.
@@ -80,6 +81,8 @@ export default function createLEDDebugPanel(visualizer, host) {
     hazeEnabled: !!visualizer.globalFoggingState,
     turbulence: visualizer.globalFoggingTurbulences,
     hazeCycle: visualizer.globalHazeCycle,
+    hazeWarp: Math.round(hazeWarp() * 100),
+    hazeTurn: Math.round(hazeTurn() * 100),
     ambient: ambientCeiling(),
     airHaze: visualizer.ambientHaze ? visualizer.ambientHaze.ceiling : 0,
     airGrain: visualizer.ambientHaze ? visualizer.ambientHaze.fieldDepth() : 0,
@@ -252,6 +255,16 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => {
       Tuning.write('hazeCycle', v, visualizer);
     });
+
+  // The field folded around its own coarse structure, and the curl in each
+  // octave's travel. Both were constants in the shader until somebody had to
+  // sit and look at them, which is what makes a number a control.
+  tuning.add(state, 'hazeWarp', 0, 200, 1)
+    .name('swirl %')
+    .onChange((v) => Tuning.write('hazeWarp', v, visualizer));
+  tuning.add(state, 'hazeTurn', 0, 150, 1)
+    .name('curl %')
+    .onChange((v) => Tuning.write('hazeTurn', v, visualizer));
 
   // Environment fill at full house lights. The scene had none until
   // 2026-08-28: one directional light meant every surface facing away from it

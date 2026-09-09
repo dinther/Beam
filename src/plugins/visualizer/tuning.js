@@ -19,6 +19,7 @@
  */
 
 import Preferences from './preferences';
+import { setHazeWarp, setHazeTurn } from './haze_noise';
 import { EMITTER_UNIFORMS, GLOW_UNIFORMS } from './led_field';
 import LEDPanel from './led_panel';
 import Laser from './laser';
@@ -66,6 +67,8 @@ const CONTROLS = {
   // Room
   roomAir: (value) => setAmbientCeiling(value),
   hazeCycle: (value, vis) => { vis.globalHazeCycle = value; },
+  hazeWarp: (value) => setHazeWarp(value / 100),
+  hazeTurn: (value) => setHazeTurn(value / 100),
   airHaze: (value, vis) => { if (vis.ambientHaze) vis.ambientHaze.setCeiling(value); },
   airGrain: (value, vis) => { if (vis.ambientHaze) vis.ambientHaze.setFieldDepth(value); },
   airScale: (value, vis) => {

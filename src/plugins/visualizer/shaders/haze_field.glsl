@@ -17,6 +17,11 @@ uniform sampler3D hazeVolume;
 
 uniform float hazeCycle;
 
+// How far the field folds around itself, and how far its travel curls. Live,
+// because they are numbers to be looked at while they are set.
+uniform float hazeWarp;
+uniform float hazeTurn;
+
 /**
  * One octave of noise, read from the baked volume.
  *
@@ -77,22 +82,45 @@ float fogging(vec3 coord, float drift) {
   // turbulence control that drives it and still air stays still. Nothing here
   // moves the sample any *further*, so the field's statistics are untouched.
   float turnPhase = drift * HAZE_TURN_RATE;
-  vec2 turn = vec2(sin(turnPhase), cos(turnPhase)) * HAZE_TURN_RADIUS;
+  vec2 turn = vec2(sin(turnPhase), cos(turnPhase)) * hazeTurn;
+
+  // The field folds around its own coarse structure before it is read.
+  //
+  // Domain warping: displace the sampling coordinate by a low-frequency read of
+  // the same volume, and the octave stack that follows curls along that shape
+  // instead of lying in flat scrolling layers. It is what an analytic vortex is
+  // reaching for, without a centre and an axis anchored somewhere in the room --
+  // the swirl is everywhere the field has structure, which is everywhere.
+  //
+  // **Three fetches, no trig, and that is the cheap direction on this engine**:
+  // four fetches were measured costing what one did, so bandwidth is where the
+  // headroom is and arithmetic is what the baked volume was bought to avoid.
+  // The three reads are the same volume at one coarse scale, offset far enough
+  // apart to be independent.
+  //
+  // The warp travels with the air, so it folds *and* moves rather than sitting
+  // still while the haze slides through it.
+  vec3 warpAt = coord * HAZE_WARP_SCALE + vec3(drift * 0.35, 0.0, 0.0);
+  vec3 warp = vec3(
+    noiseAt(warpAt),
+    noiseAt(warpAt + vec3(31.4, 11.7, 53.2)),
+    noiseAt(warpAt + vec3(7.9, 61.3, 23.8))
+  ) * hazeWarp;
 
   float fog = 0.0;
   fog += abs(noiseAt(
-    (coord + vec3(1.000, 0.000, 0.000) * (drift * 1.0)
+    (coord + warp + vec3(1.000, 0.000, 0.000) * (drift * 1.0)
      + vec3(turn.x, turn.y, 0.0)) * 1.0)) * 1.0;
   fog += abs(noiseAt(
-    (coord + vec3(0.620, 0.780, 0.080) * (drift * 1.2)
+    (coord + warp + vec3(0.620, 0.780, 0.080) * (drift * 1.2)
      + vec3(turn.y, -turn.x, 0.0)).yzx * 2.0
     + vec3(17.3, 5.1, 29.7))) * 0.5;
   fog += abs(noiseAt(
-    (coord + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)
+    (coord + warp + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)
      + vec3(-turn.x, turn.y, 0.0)).zxy * 4.0
     + vec3(41.9, 23.4, 7.8))) * 0.25;
   fog += abs(noiseAt(
-    (coord + vec3(0.281, -0.954, 0.100) * (drift * 2.8)
+    (coord + warp + vec3(0.281, -0.954, 0.100) * (drift * 2.8)
      + vec3(turn.y, turn.x, 0.0)).yxz * 8.0
     + vec3(3.2, 37.6, 15.5))) * 0.125;
   fog *= HAZE_FIELD_GAIN;

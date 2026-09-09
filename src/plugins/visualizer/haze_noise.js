@@ -133,6 +133,24 @@ export const TURN_RATE = 0.11;
 export const TURN_RADIUS = 0.35;
 
 /**
+ * How far the field warps itself, in noise units.
+ *
+ * The coordinate is displaced by a coarse read of the volume before the octave
+ * stack samples it, so the field folds and curls around its own low-frequency
+ * structure instead of being a straight stack of scrolling layers. This is
+ * domain warping, and it is the one place worth spending here: **on this
+ * engine a fetch is nearly free where arithmetic is not** -- four fetches were
+ * measured costing what one did -- so a warp made of fetches beats an analytic
+ * vortex made of trig.
+ *
+ * Zero switches it off, which is how it is priced.
+ */
+export const WARP_AMOUNT = 0.55;
+
+/** How coarse the warping read is, relative to the base octave. */
+export const WARP_SCALE = 0.5;
+
+/**
  * Contour cycling mixed in by default, 0..1.
  *
  * Off. Cycling is the experiment, not the baseline -- mode 1 with the octaves
@@ -162,7 +180,7 @@ export function hazeShaderPrelude() {
     `#define HAZE_CYCLE_BANDS ${CYCLE_BANDS.toFixed(1)}`,
     `#define HAZE_CYCLE_RATE ${CYCLE_RATE.toFixed(4)}`,
     `#define HAZE_TURN_RATE ${TURN_RATE.toFixed(4)}`,
-    `#define HAZE_TURN_RADIUS ${TURN_RADIUS.toFixed(4)}`,
+    `#define HAZE_WARP_SCALE ${WARP_SCALE.toFixed(4)}`,
   ].join('\n');
 
   const field = HAZE_MODE === 0 ? SIMPLEX_NOISE_GLSL : HAZE_FIELD_GLSL;
@@ -419,6 +437,17 @@ export default function hazeVolumeTexture() {
 const CYCLE_UNIFORM = { value: DEFAULT_CYCLE };
 
 /**
+ * How far the field folds around itself, and how fast its travel curls.
+ *
+ * Uniforms rather than `#define`s, because these are numbers somebody has to
+ * *look at* to set: a `#define` is baked when the shader is built, so tuning it
+ * means editing source and restarting, which is not a control at all. Shared by
+ * reference like the volume, so one room has one answer.
+ */
+const WARP_UNIFORM = { value: WARP_AMOUNT };
+const TURN_UNIFORM = { value: TURN_RADIUS };
+
+/**
  * @function hazeUniforms
  * @brief The uniforms `haze_field.glsl` expects, for merging into a material.
  *
@@ -435,6 +464,8 @@ export function hazeUniforms() {
   return {
     hazeVolume: { value: hazeVolumeTexture() },
     hazeCycle: CYCLE_UNIFORM,
+    hazeWarp: WARP_UNIFORM,
+    hazeTurn: TURN_UNIFORM,
   };
 }
 
@@ -452,4 +483,29 @@ export function hazeCycle() {
 
 export function setHazeCycle(value) {
   CYCLE_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 1);
+}
+
+/**
+ * How far the field folds around its own coarse structure, in noise units.
+ *
+ * Zero is the flat stack of scrolling layers it was before; the fetches still
+ * happen, so turning it down costs nothing and proves nothing about its price.
+ *
+ * @type {Number}
+ */
+export function hazeWarp() {
+  return WARP_UNIFORM.value;
+}
+
+export function setHazeWarp(value) {
+  WARP_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 3);
+}
+
+/** How far an octave's travel curls, in noise units. @type {Number} */
+export function hazeTurn() {
+  return TURN_UNIFORM.value;
+}
+
+export function setHazeTurn(value) {
+  TURN_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 2);
 }
