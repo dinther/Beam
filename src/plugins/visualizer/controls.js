@@ -70,11 +70,19 @@ function selectionKey(item) {
  * whole point of one is that it is a single thing to grab -- so a hit on a
  * member resolves upward. A fixture standing on its own resolves to itself.
  *
+ * **Alt reaches past that**, for the case a structure otherwise makes
+ * impossible: reading and setting one member's own settings -- its channels,
+ * its mode -- without breaking it out of the structure first. Alt because it
+ * is the only modifier left; shift, control and command all extend a
+ * selection, the same as they do in the fixture list.
+ *
  * @param {Object} fixture the fixture under the pointer, or null
+ * @param {Boolean} [drill] reach inside a structure rather than resolving up
  * @return {Object} the item that hit selects, or null
  */
-function itemFor(fixture) {
+function itemFor(fixture, drill = false) {
   if (!fixture) return null;
+  if (drill) return fixture;
   return fixture.structure || fixture;
 }
 
@@ -902,9 +910,17 @@ class Controls {
       return;
     }
 
-    const item = itemFor(this.pickFixtureAt(e));
+    const hit = this.pickFixtureAt(e);
+    // Reaching inside a structure selects a member to *look at and set*, and
+    // deliberately not to move: a member holds absolute coordinates but the
+    // structure writes them, so a gizmo on one offers a drag that the
+    // structure would overwrite -- or worse, that would leave the structure
+    // holding a layout nobody arranged. The widgets follow the member; the
+    // handle stays where the authority is.
+    const inside = !!(e.altKey && hit && hit.structure);
+    const item = itemFor(hit, e.altKey);
     if (item) {
-      this.selectItem(item, additive);
+      this.selectItem(item, additive, !inside);
     } else if (!additive) {
       // A modified click that misses keeps whatever is already selected.
       this.deselectAll();
@@ -1099,13 +1115,18 @@ class Controls {
     });
   }
 
-  selectItem(itemHandle, additive = false) {
+  selectItem(itemHandle, additive = false, attach = true) {
     const item = toRaw(itemHandle);
     if (!additive) {
       // Whatever was highlighted before is no longer selected, whichever
       // renderer it belonged to.
       this.clearAllHighlighting();
-      item.highlightSingle(true, true);
+      // Explicitly, because clearing highlights does not move the handle and
+      // `highlightSingle` only detaches when it is switching something *off* --
+      // so without this the previous selection's gizmo would sit on the scene
+      // with nothing selected under it.
+      if (!attach) this.detachAll();
+      item.highlightSingle(true, attach);
       // Only a plain click drives the UI selection; extending the 3D selection
       // must not re-route the list to the item just added.
       this.emitSelection(item);
