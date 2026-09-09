@@ -1,5 +1,165 @@
 # Changelog
 
+## 0.1.0-alpha.10
+
+Lasers arrived. Beam answers on the network as laser hardware, takes the point
+stream MadMapper is already sending, and puts the beams in the room -- in the
+air, and painted on whatever they land on. Each laser says for itself how it is
+fed, and says plainly what it is receiving or why it isn't. Elsewhere: any
+fixture's channels can be set by hand before a console exists, Alt reaches
+inside a structure, and the haze turns over instead of sliding past.
+
+### Lasers
+
+- **A laser fixture is a real projector with no laser in it.** Something else
+  draws the picture; Beam receives the points and shows where they land, what
+  they cross, and who they hit. Nothing to install at the sending end -- Beam
+  advertises itself as hardware the software already knows.
+- **The beam in the air is geometry.** Consecutive lit points sweep a triangle
+  out from the aperture, so a scanned line is one continuous sheet rather than a
+  row of blades, with a jump guard so blanked travel between figures is not
+  bridged and a billboarded ribbon for a point that stands alone. It fades out
+  over its last stretch rather than stopping while still bright, because an edge
+  in mid-air is a thing the eye asks about.
+- **Where the beams land, the figure is painted on the stone.** Each laser
+  rasterises its stream into a tile of a shared atlas and a full-screen pass
+  projects it onto whatever the camera can see, gated on depth so it cannot
+  paint through the building. The strokes are placed by pushing the beams' own
+  far points through the matrix the pass reads the tile with, which gets the
+  tangent curve and the handedness right without anyone writing them down.
+- **Three ways in: Ponk, IDN and Ether Dream.** Ponk is the default and the one
+  that scales -- MadMapper names its outputs, so Beam knows which laser each
+  stream is for and a rig of any size needs nothing of your network. IDN and
+  Ether Dream are the real laser paths at real point rates, and each carries one
+  laser per IP address, because MadMapper sends no IDN service ID and Ether
+  Dream names a device by its address alone.
+- **A frame that fits by design.** Ponk's density is per material, not fixed --
+  a circle arrives eight times finer than a line, and one ring measured 8,146
+  points a frame. Cutting at a capacity kept the first materials whole and
+  dropped the last ones entirely, so layering lost whole shapes. The thinning
+  step now comes from the frame's own length against the budget, floored at
+  about a canvas pixel: a dense frame comes back slightly coarser everywhere and
+  every path survives.
+- **Dwell is modelled, since Ponk is upstream of the rasteriser.** The point
+  budget is spent over the frame's paths by length, dots off the top, MINIPNTS
+  and SNGLPTIN honoured, so brightness follows how long the scanner actually
+  rests somewhere rather than how many points happened to be sent.
+
+### Setting a laser up
+
+- **Protocol and address, per fixture.** A real laser has a DAC in it, so how a
+  laser is fed belongs to the laser. The old Source dropdown mixed protocols
+  Beam advertises as with streams that exist, and offered two that were switched
+  off and not listening -- confusing because it was untrue.
+- **Exclusivity is a property of sharing an address, not of the protocol**, so
+  the address is offered rather than assumed. Two Ether Dreams work: give the
+  second one a second IP. A clash is refused and names the laser that holds it,
+  instead of two lasers silently drawing the same figure.
+- **Devices own their ports.** A `reuseAddr` bind succeeds on a port another
+  program already holds, which let a device report itself listening and then
+  receive nothing. Every device now probes without it before taking a port and
+  refuses to start if it cannot own it, naming the port. This is what MadMapper
+  holding the LaserCube command port looked like from the inside.
+- **A status line that speaks for one laser.** It tells the three cases apart --
+  nothing connected, connected but no points for *this* laser, receiving -- and
+  reports a host that is streaming points at a laser it never armed, which
+  otherwise looks perfectly healthy and draws nothing.
+- **Two devices are two devices.** A host recognises a device by what it
+  advertises, not by the address it answers from, so a rig of two built from the
+  defaults appeared as one device seen twice. Each device's identity is now
+  derived from its address.
+- **LaserCube is withdrawn from the dropdown and the code is kept.** Its host
+  binds the device's own well-known ports, so a host and an emulated cube on one
+  machine want the same UDP port and only one can have it. No address helps. A
+  show already set to it still says so.
+- **The case for MadMapper sending an IDN service ID** is written up in
+  `docs/madmapper-idn-service-map.md`, with the reference producer that proves
+  Beam's half already works: two named lasers through one unit at one address.
+
+### Channels you can set by hand
+
+- **Every fixture's channels are listed in its settings, with a number field
+  each.** Place a light, point it, open its shutter and see it -- no patching,
+  no console. Reversing a decision made early in the project, and the right way
+  round.
+- **Held until DMX arrives, then whatever is driving wins.** An unpatched
+  fixture keeps its hand-set values permanently, since nothing can arrive to
+  override them, and numbers its rows from one because it has no address to
+  offset from.
+- **Only what was touched is saved.** A channel nobody set stays absent rather
+  than becoming a zero over whatever the profile wanted, and what the wire
+  happened to be saying never travels in the show.
+
+### Haze
+
+- **It turns over instead of sliding past.** Four octaves all drifted along the
+  same axis at different speeds, which is four copies of one pattern moving in
+  step, and it read as a sheet going by. Each octave now has a direction of its
+  own and reads the volume through its own axis order, and the directions sweep
+  as they travel, so the displacement is a curve rather than a straight line
+  with a wobble on it.
+- **The whole thing costs one sine and one cosine.** Four headings a quarter
+  turn apart are that pair swizzled and negated, and a swizzle is register
+  selection rather than arithmetic. Brightness measured against the real baked
+  volume rather than assumed: +0.25 %, and again +0.01 % for the headings.
+- **Turbulence has far more range**, and means the same speed whatever the haze
+  is scaled to -- the same setting used to give a different effect at a
+  different scale.
+- **Swirl and heading sweep are controls now**, in the debug panel's Room
+  tuning, having been `#define`s that needed a source edit and a restart.
+
+### Selection
+
+- **Alt+click reaches inside a structure.** A structure exists to be one thing
+  to grab, so a hit on a member resolved upward and a fixture inside a truss
+  could not be selected in the 3D view at all -- which put its channel list out
+  of reach. Alt because it is the only modifier left; shift, control and command
+  all extend a selection.
+- **It selects the member to look at and to set, deliberately not to move.** The
+  widgets follow the member and the handle stays on the structure, which is
+  where the authority over those coordinates is. Band selection is unchanged.
+
+### Look and light
+
+- **A beam pointed at the camera is drawn again.** The cone is an open tube, so
+  a ray entering through its open end -- which is every ray when a beam points
+  at you -- met no face at all and the beam went hollow. It is double-sided now.
+- **Haze scatters light forwards**, so a beam coming at you is far brighter than
+  the same beam crossing your view, with a weaker lobe straight back the way it
+  came. Two Henyey-Greenstein lobes give all three, anchored at the head-on peak
+  so the control can only ever darken rather than lifting the whole scene.
+
+### The settings widget
+
+- **Wider, because a protocol beside an address does not fit in 230 pixels**,
+  and its body follows the width instead of repeating the old number.
+- **Rows are declared rather than left to wrap.** The controls carried pixel
+  widths chosen for the narrow widget, so widening it only left a gap. The two
+  scales share a line, then the two positions, then the flips.
+- **Mirror X and Y are square icon buttons**, and they toggle. Both were missing
+  from the widget's snapshot of device values, so every read came back undefined
+  -- the control never showed its state and writing `!undefined` wrote true
+  every time. The icon turns over with the field it controls, so the button says
+  what it does and not merely whether it is pressed.
+- **An open dropdown tracks its box when anything scrolls**, instead of being
+  placed in viewport coordinates while positioned against the document, and its
+  text stops before the arrow rather than running under it.
+
+### Under it
+
+- **Depth tiles redraw only when their view changes.** The projector atlas was
+  redrawn every frame and the laser's was all-or-nothing, because the pass wiped
+  the whole atlas first. Each tile now carries its own key -- the scene walked
+  once, each lens mixed in, the projection matrix included so a zoom counts --
+  and is cleared inside its own scissor immediately before it is redrawn. One
+  projector zooming among six costs one scene pass.
+- **Every button warned once per render** against a property the component never
+  declared. The stylesheet set the background anyway, which is why it looked
+  correct and only the console knew.
+- **Cut and fly are offered on every camera row**, the live one included:
+  cutting to the camera you are on is how you come back to it after looking
+  around, and live, a button has to be where it was last time.
+
 ## 0.1.0-alpha.9
 
 Cameras became something to run a show from. Each one carries its own cut and

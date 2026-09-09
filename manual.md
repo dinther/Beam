@@ -39,10 +39,12 @@
 - [The patch bay](#the-patch-bay)
 - [Building a generic LED fixture](#building-a-generic-led-fixture)
 - [Addressing](#addressing)
+- [Setting channels by hand](#setting-channels-by-hand)
 - [Placing things](#placing-things)
 - [Groups and structures](#groups-and-structures)
 - [The visualizer](#the-visualizer)
 - [Art-Net input](#art-net-input)
+- [Lasers](#lasers)
 - [The MadMapper export in detail](#the-madmapper-export-in-detail)
 - [Keyboard and mouse](#keyboard-and-mouse)
 - [Menus](#menus)
@@ -121,9 +123,9 @@ The two big ones, both natural extensions of the same idea:
 
 **Video fixtures.** Screens and LED walls as first-class fixtures, rather than approximating them with a dense grid of pixels.
 
-**Laser projectors.** A different beast entirely — vector output rather than pixel output, ILDA rather than DMX — but the same fundamental job: place the device in 3D, see what it does, and get the geometry out in a form the driving software understands.
+**Laser projectors.** A different beast entirely — vector output rather than pixel output, ILDA rather than DMX — but the same fundamental job: place the device in 3D, see what it does, and get the geometry out in a form the driving software understands. **This one has arrived** — see [Lasers](#lasers). As alpha as everything else, but it works: MadMapper drives a laser fixture in Beam and the beams land in the room.
 
-Neither is in this build. They're where this is going.
+Video fixtures aren't in this build. That's where this is going next.
 
 ---
 ---
@@ -441,6 +443,17 @@ Anything arriving above that is dropped, but *says so*: you get one warning per 
 
 **Amount.** Patching several at once addresses them consecutively for you, each starting where the last one ended.
 
+## Setting channels by hand
+
+Select a fixture and its **settings** widget lists every channel its profile declares, with a number field beside each. Type a value, 0–255, and the fixture does what that channel says — no console, no Art-Net, nothing plugged in. This is how you check a rig before anything is driving it: point a mover, open its shutter, put a colour up, and see it in the room.
+
+What happens when DMX does arrive depends on whether the fixture is patched:
+
+- **Patched** — a hand-set value holds until data arrives for that channel, and from then on whatever is driving wins. So the values are defaults for a fixture waiting to be driven, and stop mattering the moment it is.
+- **Not patched** — the hand-set values are the only thing driving the fixture. Nothing can arrive to override them.
+
+The widget says which of the two you're looking at. Each row shows the channel's DMX address, its name from the profile, and a **fine** tag on the low byte of a 16-bit pair; the header shows the fixture's start address when it has one. Values are saved with the show.
+
 ## Placing things
 
 **The gizmo.** Select something and it appears. **T** for translate, **R** for rotate, **H** to hide it, **Escape** to drop the selection and reset the view.
@@ -455,6 +468,8 @@ Fields are **colour-coded by axis**, consistently, so you can see which is which
 
 **Selection.** Left-click for one, left-drag for a rubber band, Shift or Ctrl to add. The band drag survives leaving the canvas, so you can start inside the viewport and finish outside it.
 
+**Alt+click reaches inside.** Clicking a fixture that belongs to a structure selects the whole structure, which is what you want for moving it. Hold **Alt** and the click lands on the individual fixture instead: its widgets open, so you can address it, set its channels or change its settings without breaking the structure up. No handle appears — the structure is still the thing you move.
+
 ## Groups and structures
 
 A group is a named set of fixtures. It gives you:
@@ -464,7 +479,7 @@ A group is a named set of fixtures. It gives you:
 - **save as structure** — stores the arrangement for reuse, and it shows up in the **structures** tab of the patch dialog.
 - **ungroup**
 
-Groups have their own transform handle, so you can move and rotate a whole assembly as one object.
+Groups have their own transform handle, so you can move and rotate a whole assembly as one object. To get at one fixture *inside* a structure, **Alt+click** it — see [Placing things](#placing-things).
 
 Each group owns its mappings independently — one group can go out as a front elevation while another is unrolled around a cylinder, in the same export.
 
@@ -475,7 +490,7 @@ Each group owns its mappings independently — one group can go out as a front e
 **Fogging**
 - **State** — on or off
 - **Density** — 0–100, how thick the haze is
-- **Turbulence** — 0–100, how much it moves over time
+- **Turbulence** — 0–100, how much it moves over time. Far more range than it used to have, and the same setting now means the same speed whatever the haze is scaled to, so changing density no longer changes how fast the air drifts. At the top of the range the room is genuinely churning.
 
 **Lighting**
 - **Global Brightness** — 25–200. Scales the whole scene. Turn it down for a dark rig, up for a bright one.
@@ -485,7 +500,7 @@ Each group owns its mappings independently — one group can go out as a front e
 - **Grid** — the infinite reference grid
 - **Axes** — the origin indicator
 - **Background** — colour behind the scene
-- **Debug** — frame timings and the emitter tuning panel
+- **Debug** — frame timings and the emitter tuning panel. Two haze controls live there: **hazeWarp**, how much the air folds over itself, and **hazeTurn**, how fast the drift changes direction. Both ride the turbulence slider — they set how much of each effect that slider buys. With no turn the haze all moves one way and reads as a sheet sliding past; wound up, it turns over instead.
 
 **The view cube.** Click a face to snap to that elevation. Faster than orbiting when you want a straight-on view — and straight-on views are what you want before exporting a camera projection.
 
@@ -501,6 +516,51 @@ Each group owns its mappings independently — one group can go out as a front e
 - No configuration beyond the switch. No IP to set, no subscription to manage.
 
 Output to hardware is a separate matter and goes via the WSC protocol inherited from ASLS Studio — see the README.
+
+## Lasers
+
+A laser fixture in Beam is a laser projector with no laser in it. Something else draws the picture — MadMapper, or any software that can talk to a laser DAC — and Beam receives the points and puts the beams in the room: where they land, what they cross, who they hit. You aim it before you rig it.
+
+**Beam pretends to be the hardware.** It advertises itself on the network as laser hardware the sending software already knows, so there is nothing to install at the other end. Point your laser software at it as though it were a DAC.
+
+### Choosing how a laser is fed
+
+Select a laser and its **settings** widget has an **Input** section:
+
+- **Protocol** — **Ponk**, **IDN** or **Ether Dream**.
+- **Address** — which of your machine's IP addresses this laser's device is bound to. Left alone it takes the primary one, which is right until you need a second laser on a protocol that can't tell two apart at one address.
+- **Stream** — for Ponk, which of the sender's outputs this fixture shows. *— first live stream —* takes whatever turns up.
+
+Underneath is a line of plain status: what this laser is actually receiving, or why it isn't. It speaks for that laser alone — *"Receiving 1204 points a frame from 'Left'"*, *"Waiting — no Ponk stream"*, or the reason a device could not start, which is most often another program already holding the port.
+
+### Which protocol to pick
+
+| | How many lasers | What it needs of you |
+|---|---|---|
+| **Ponk** | Any number | Nothing. It names its outputs, so Beam can route them |
+| **IDN** | One per IP address | Nothing for one laser; a second address for a second |
+| **Ether Dream** | One per IP address | Nothing for one laser; a second address for a second |
+
+**Ponk** is the default and the one that scales. MadMapper's Ponk stream carries a name per output, so Beam knows which of your lasers each stream is for and you can run as many as you like from one machine with no network setup at all. Turn on **Publish to PONK** in MadMapper's laser preferences. The cost is fidelity: Ponk is the geometry *before* MadMapper's ILDA rasteriser, so it arrives at a punishing point density and carries no dwell information — Beam models the scanner's brightness rather than being told it.
+
+**IDN** and **Ether Dream** are the real laser paths, at real laser point rates, with the scanner's own timing. Both are limited by the protocols as they are sent, not by Beam: MadMapper sends no service ID over IDN, and Ether Dream names a device by its address alone, so on either one an address carries exactly one laser. Two lasers means two addresses — add a second IP to your network adapter and set the second laser to it. Beam refuses a clash rather than half-working, and says which device already holds what.
+
+There is a written case for MadMapper implementing the IDN service map, which would remove the limit entirely and let one address carry a whole rig by name. It's in `docs/madmapper-idn-service-map.md`.
+
+### The laser's own controls
+
+The picture comes from the stream; the fixture only corrects it. Each of these is hand-set until the profile declares a DMX channel for it, at which point a desk drives it in the same units.
+
+- **Dimmer %** and **Shutter open** — master intensity and blanking.
+- **Colour %** — **Red**, **Green**, **Blue** balance.
+- **Geometry %** — **X scale** / **Y scale** and **X pos** / **Y pos**, so a figure sized for one rig lands correctly on another without touching the content. A galvo can't deflect past its own maximum, so 100 % is as large as the picture gets.
+- **Mirror X** and **Mirror Y** — the two icon buttons beside the geometry fields. A mounting flip, for a projector hung upside down or firing into a mirror. The icon turns over with the field it controls, so the button shows what it does rather than merely whether it is on.
+
+### Notes
+
+- **Desktop app only.** All three routes need UDP, which browsers can't do.
+- **Sharing a machine with the sending software works**, with one caveat: a program that binds a device's well-known port for itself leaves nothing for Beam's emulated device. Beam detects that and says so, rather than looking connected and drawing nothing.
+- **Expect some flicker** on a heavy figure. That is the scanner model doing its job — a real laser dims and flickers when asked to draw more than it can scan.
 
 ## The MadMapper export in detail
 
@@ -567,6 +627,7 @@ Treat the warning as a nudge to either place those by hand afterwards, or pick a
 | Left-click | Select |
 | Left-drag | Rubber-band select |
 | Shift / Ctrl + click | Add to selection |
+| Alt + click | Select a fixture inside a structure |
 | Right-drag | Orbit, pivoting on whatever is under the cursor |
 | Middle-drag | Pan |
 | Scroll | Zoom |
