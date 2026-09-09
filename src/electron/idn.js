@@ -345,9 +345,11 @@ class IdnDac extends LaserDac {
      * as disconnected. With a real interface present, that is the one address
      * a unit has; with none, loopback is all there is.
      */
-    this.answerLoopback = answerLoopback === undefined
-      ? !hasRealInterface()
-      : !!answerLoopback;
+    /** Whether the caller decided; otherwise `open` decides from the bind. */
+    this.answerLoopbackFixed = answerLoopback !== undefined;
+    this.answerLoopback = this.answerLoopbackFixed
+      ? !!answerLoopback
+      : !hasRealInterface();
     this.setServices([{ id: SERVICE_ID, name: serviceName }]);
   }
 
@@ -439,6 +441,14 @@ class IdnDac extends LaserDac {
    */
   async open({ bind } = {}) {
     this.bindAddress = bind;
+    // A unit bound to one address only ever hears scans sent to that address,
+    // so the ambiguity the rule above guards against cannot arise: a laser
+    // placed on 127.0.0.1 is *meant* to be found there, and refusing loopback
+    // scans made it invisible while its LAN sibling was listed. The heuristic
+    // still stands for a unit bound to everything.
+    if (!this.answerLoopbackFixed && bind && bind !== '0.0.0.0') {
+      this.answerLoopback = isLoopback(bind);
+    }
     // See `claimPorts`: a `reuseAddr` bind of a port someone else owns
     // succeeds and then hears nothing.
     await claimPorts([this.port], bind || '0.0.0.0', 'another IDN consumer may be running');

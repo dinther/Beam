@@ -571,39 +571,40 @@ export default {
      * What this laser's input is actually doing -- which is the question a
      * "scan" button would have been pressed to ask, answered without one.
      */
+    /**
+     * What this laser's input is doing -- which is the question a "scan"
+     * button would have been pressed to ask, answered without one.
+     *
+     * The renderer answers, from the stream it actually draws: asking here by
+     * protocol alone had every laser on a protocol claim the first live stream
+     * on it, so two of them said they were receiving while one drew nothing.
+     */
     inputStatus() {
       void this.streamTick; // eslint-disable-line no-void
-      if (!this.isLaser) return '';
-      const held = Laser.inputErrorFor && this.fixture
-        ? Laser.inputErrorFor(this.fixture) : null;
-      if (held) return `Not connected — ${held}.`;
+      if (!this.isLaser || !this.fixture || !Laser.inputStateFor) return '';
+      const state = Laser.inputStateFor(this.fixture);
+      if (!state) return '';
       // A device that never started -- a port another program owns, most often
       // -- is the answer whatever else the streams say.
-
-      const report = LaserStream.report();
-      if (this.protocol === 'ponk') {
-        const bound = this.read('source');
-        const id = typeof bound === 'string' && bound.startsWith('ponk:')
-          ? Number(bound.slice(5)) : null;
-        const stream = report.find((r) => r.protocol === 'ponk'
-          && (id === null ? r.held > 0 : r.service === id));
-        if (!stream) return 'Waiting — no Ponk stream. Turn on "Publish to PONK" in MadMapper.';
-        return stream.live
-          ? `Receiving from "${stream.name}".`
-          : `"${stream.name}" has stopped sending.`;
+      if (state.error) return `Not connected — ${state.error}.`;
+      if (state.protocol === 'ponk') {
+        if (!state.live) return 'Waiting — no Ponk stream. Turn on "Publish to PONK" in MadMapper.';
+        return `Receiving ${state.points} points a frame from "${state.name}".`;
       }
-      const where = this.read('address') || 'the default address';
-      // A host can stream points at a LaserCube and never arm it, which leaves
-      // a device that looks perfectly healthy and draws nothing. MadMapper does
-      // exactly that. Say so rather than let the laser sit dark.
-      const device = this.laserDevices.find((d) => d.protocol === this.protocol
-        && (!d.address || d.address === (this.read('address') || d.address)));
+      const where = state.address || 'the default address';
+      // A host can stream points at a device and never arm it, which leaves one
+      // that looks perfectly healthy and draws nothing. Say so.
+      const device = this.laserDevices.find((d) => d.protocol === state.protocol
+        && (d.address || null) === (state.address || null));
       if (device && device.outputEnabled === false && device.host) {
         return `Connected, but ${device.host.split(':')[0]} has not enabled this laser's output.`;
       }
-      const live = report.find((r) => r.protocol === this.protocol && r.live);
-      if (!live) return `Listening on ${where} — nothing has connected yet.`;
-      return `Receiving${live.rate ? ` at ${Math.round(live.rate / 1000)} kpps` : ''}.`;
+      if (!state.live) {
+        return device && device.host
+          ? `${device.host.split(':')[0]} is connected, but no points for this laser yet.`
+          : `Listening on ${where} — nothing has connected yet.`;
+      }
+      return `Receiving${state.rate ? ` at ${Math.round(state.rate / 1000)} kpps` : ''}.`;
     },
     sourceOptions() {
       // A laser's source is which Ponk stream feeds it, not a video connector.

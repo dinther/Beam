@@ -1159,10 +1159,86 @@ class Laser {
    * @param {Object} fixture
    * @returns {String|null}
    */
-  static inputErrorFor(fixture) {
+  /**
+   * What one laser's input is really doing.
+   *
+   * Answered here rather than worked out again in the widget, and from
+   * `resolveSource` -- the same resolution the beam is drawn from. Matching a
+   * report row on protocol alone made every laser on a protocol claim the
+   * first live stream on it, so two lasers both said they were receiving while
+   * one of them drew nothing.
+   *
+   * @static
+   * @param {Object} fixture
+   * @returns {Object|null} `{ protocol, address, service, live, rate, points,
+   *   name, error }`, or null when this fixture has no laser
+   */
+  static inputStateFor(fixture) {
+    const laser = Laser.instanceFor(fixture);
+    if (!laser) return null;
+    const settings = laser._settingsAt();
+    const source = laser.resolveSource(settings);
+    const error = laser.inputError();
+    if (!source) {
+      return {
+        protocol: (settings && settings.value('protocol')) || 'ponk',
+        address: (settings && settings.value('address')) || null,
+        service: null,
+        live: false,
+        rate: 0,
+        points: 0,
+        name: null,
+        error,
+      };
+    }
+    if (source.protocol === 'ponk') {
+      const frame = LaserStream.ponkFrame(source.service);
+      const points = frame
+        ? frame.paths.reduce((n, path) => n + (path.count || 0), 0) : 0;
+      return {
+        protocol: 'ponk',
+        address: null,
+        service: source.service,
+        live: !!frame,
+        rate: 0,
+        points,
+        name: frame ? frame.name : null,
+        error,
+      };
+    }
+    // A DAC stream is its own device: protocol, address and -- for IDN -- the
+    // service this laser was given on that unit. All three, or a laser reads
+    // another one's stream as its own.
+    const row = LaserStream.report().find((r) => r.protocol === source.protocol
+      && (r.address || null) === (source.address || null)
+      && (r.service === undefined ? null : r.service) === source.service);
+    return {
+      protocol: source.protocol,
+      address: source.address,
+      service: source.service,
+      live: !!(row && row.live),
+      rate: row ? row.rate : 0,
+      points: row ? row.held : 0,
+      name: null,
+      error,
+    };
+  }
+
+  /**
+   * The renderer instance a fixture handle belongs to.
+   *
+   * @static
+   * @param {Object} fixture
+   * @returns {Object|null}
+   */
+  static instanceFor(fixture) {
     if (!fixture) return null;
-    const laser = [...instances].find((l) => l.fixtureHandle === fixture
-      || (l.fixtureHandle && fixture.uid && l.fixtureHandle.uid === fixture.uid));
+    return [...instances].find((l) => l.fixtureHandle === fixture
+      || (l.fixtureHandle && fixture.uid && l.fixtureHandle.uid === fixture.uid)) || null;
+  }
+
+  static inputErrorFor(fixture) {
+    const laser = Laser.instanceFor(fixture);
     return laser ? laser.inputError() : null;
   }
 
