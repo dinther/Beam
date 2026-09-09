@@ -65,17 +65,35 @@ float fogging(vec3 coord, float drift) {
   // Directions are unit length, so the turbulence control means the same speed
   // it did, and mostly horizontal with a little vertical: air in a room moves
   // across it, and haze that rises visibly reads as smoke.
+  // And the travel curls rather than running dead straight.
+  //
+  // One sine and one cosine for the whole field, not one per octave: the four
+  // read the same pair back in different combinations, which puts them a
+  // quarter turn apart at no further cost. The offset is applied before each
+  // octave's frequency multiply, so the fine octaves curl proportionally
+  // tighter than the coarse ones -- small eddies inside slow ones.
+  //
+  // The phase comes off `drift`, like the contour cycling below, so it is the
+  // turbulence control that drives it and still air stays still. Nothing here
+  // moves the sample any *further*, so the field's statistics are untouched.
+  float turnPhase = drift * HAZE_TURN_RATE;
+  vec2 turn = vec2(sin(turnPhase), cos(turnPhase)) * HAZE_TURN_RADIUS;
+
   float fog = 0.0;
   fog += abs(noiseAt(
-    (coord + vec3(1.000, 0.000, 0.000) * (drift * 1.0)) * 1.0)) * 1.0;
+    (coord + vec3(1.000, 0.000, 0.000) * (drift * 1.0)
+     + vec3(turn.x, turn.y, 0.0)) * 1.0)) * 1.0;
   fog += abs(noiseAt(
-    (coord + vec3(0.620, 0.780, 0.080) * (drift * 1.2)).yzx * 2.0
+    (coord + vec3(0.620, 0.780, 0.080) * (drift * 1.2)
+     + vec3(turn.y, -turn.x, 0.0)).yzx * 2.0
     + vec3(17.3, 5.1, 29.7))) * 0.5;
   fog += abs(noiseAt(
-    (coord + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)).zxy * 4.0
+    (coord + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)
+     + vec3(-turn.x, turn.y, 0.0)).zxy * 4.0
     + vec3(41.9, 23.4, 7.8))) * 0.25;
   fog += abs(noiseAt(
-    (coord + vec3(0.281, -0.954, 0.100) * (drift * 2.8)).yxz * 8.0
+    (coord + vec3(0.281, -0.954, 0.100) * (drift * 2.8)
+     + vec3(turn.y, turn.x, 0.0)).yxz * 8.0
     + vec3(3.2, 37.6, 15.5))) * 0.125;
   fog *= HAZE_FIELD_GAIN;
 

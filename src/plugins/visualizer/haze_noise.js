@@ -115,6 +115,24 @@ export const CYCLE_BANDS = 1.0;
 export const CYCLE_RATE = 2.0;
 
 /**
+ * How fast an octave's travel curls, in turns per unit of drift.
+ *
+ * The directions are fixed, but the path is not: each octave's offset carries a
+ * slowly turning component, so a stream of haze curves instead of running dead
+ * straight. Small, because a full turn in the time haze crosses a room reads as
+ * a whirlpool rather than as air.
+ */
+export const TURN_RATE = 0.11;
+
+/**
+ * How far that curl carries the sample, in noise units.
+ *
+ * Applied before an octave's frequency multiply, so the finer octaves curl
+ * proportionally tighter -- which is what small eddies do.
+ */
+export const TURN_RADIUS = 0.35;
+
+/**
  * Contour cycling mixed in by default, 0..1.
  *
  * Off. Cycling is the experiment, not the baseline -- mode 1 with the octaves
@@ -143,6 +161,8 @@ export function hazeShaderPrelude() {
     `#define HAZE_FIELD_GAIN ${FIELD_GAIN.toFixed(6)}`,
     `#define HAZE_CYCLE_BANDS ${CYCLE_BANDS.toFixed(1)}`,
     `#define HAZE_CYCLE_RATE ${CYCLE_RATE.toFixed(4)}`,
+    `#define HAZE_TURN_RATE ${TURN_RATE.toFixed(4)}`,
+    `#define HAZE_TURN_RADIUS ${TURN_RADIUS.toFixed(4)}`,
   ].join('\n');
 
   const field = HAZE_MODE === 0 ? SIMPLEX_NOISE_GLSL : HAZE_FIELD_GLSL;
