@@ -1121,12 +1121,15 @@ class Controls {
       // Whatever was highlighted before is no longer selected, whichever
       // renderer it belonged to.
       this.clearAllHighlighting();
-      // Explicitly, because clearing highlights does not move the handle and
-      // `highlightSingle` only detaches when it is switching something *off* --
-      // so without this the previous selection's gizmo would sit on the scene
-      // with nothing selected under it.
-      if (!attach) this.detachAll();
-      item.highlightSingle(true, attach);
+      // Always pooled, even when the handle is not wanted: `attach` is what
+      // puts an item in `pooledInstances`, and that pool is what `Selection`
+      // publishes to the widgets. Asking `highlightSingle` not to centre the
+      // controls skips `attach` altogether, which highlighted the fixture in
+      // the scene and left the panel with nothing selected.
+      item.highlightSingle(true, true);
+      // So the handle comes off afterwards instead. The bounding box stays --
+      // it says what is selected, which is wanted; only the drag goes.
+      if (!attach && this.handle) this.handle.detach();
       // Only a plain click drives the UI selection; extending the 3D selection
       // must not re-route the list to the item just added.
       this.emitSelection(item);

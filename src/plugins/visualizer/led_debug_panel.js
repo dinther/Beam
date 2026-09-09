@@ -262,8 +262,8 @@ export default function createLEDDebugPanel(visualizer, host) {
   tuning.add(state, 'hazeWarp', 0, 200, 1)
     .name('swirl %')
     .onChange((v) => Tuning.write('hazeWarp', v, visualizer));
-  tuning.add(state, 'hazeTurn', 0, 150, 1)
-    .name('curl %')
+  tuning.add(state, 'hazeTurn', 0, 400, 5)
+    .name('heading sweep %')
     .onChange((v) => Tuning.write('hazeTurn', v, visualizer));
 
   // Environment fill at full house lights. The scene had none until

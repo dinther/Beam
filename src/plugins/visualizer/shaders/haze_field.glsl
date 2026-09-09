@@ -70,19 +70,31 @@ float fogging(vec3 coord, float drift) {
   // Directions are unit length, so the turbulence control means the same speed
   // it did, and mostly horizontal with a little vertical: air in a room moves
   // across it, and haze that rises visibly reads as smoke.
-  // And the travel curls rather than running dead straight.
+  // Each octave's *heading* turns, rather than a straight line with a wobble
+  // added to it.
   //
-  // One sine and one cosine for the whole field, not one per octave: the four
-  // read the same pair back in different combinations, which puts them a
-  // quarter turn apart at no further cost. The offset is applied before each
-  // octave's frequency multiply, so the fine octaves curl proportionally
-  // tighter than the coarse ones -- small eddies inside slow ones.
+  // A bounded offset on an unbounded drift is a wiggle on a conveyor: within a
+  // few seconds the travel dwarfs the wobble and the eye reads the conveyor,
+  // which is exactly what it looked like -- Paul: "turbulence has all movement
+  // in the same direction". Rotating the direction instead makes the
+  // displacement the integral of a velocity that changes, which is a curve.
+  //
+  // One sine and one cosine for the whole field. A heading a quarter turn away
+  // is that pair swizzled and negated, so four octaves head four different ways
+  // for no further arithmetic -- and they all sweep together, so no two of them
+  // ever settle into a fixed relationship the eye can latch onto.
   //
   // The phase comes off `drift`, like the contour cycling below, so it is the
-  // turbulence control that drives it and still air stays still. Nothing here
-  // moves the sample any *further*, so the field's statistics are untouched.
-  float turnPhase = drift * HAZE_TURN_RATE;
-  vec2 turn = vec2(sin(turnPhase), cos(turnPhase)) * hazeTurn;
+  // turbulence control that drives it and still air stays still.
+  float turnPhase = drift * HAZE_TURN_RATE * hazeTurn;
+  vec2 tc = vec2(cos(turnPhase), sin(turnPhase));
+  // Mostly horizontal: air crosses a room, and haze that visibly climbs reads
+  // as smoke. The small vertical components differ so the four never lie in
+  // one plane.
+  vec3 head0 = vec3(tc.x, tc.y, 0.06);
+  vec3 head1 = vec3(-tc.y, tc.x, -0.05);
+  vec3 head2 = vec3(-tc.x, -tc.y, 0.07);
+  vec3 head3 = vec3(tc.y, -tc.x, -0.04);
 
   // The field folds around its own coarse structure before it is read.
   //
@@ -100,7 +112,10 @@ float fogging(vec3 coord, float drift) {
   //
   // The warp travels with the air, so it folds *and* moves rather than sitting
   // still while the haze slides through it.
-  vec3 warpAt = coord * HAZE_WARP_SCALE + vec3(drift * 0.35, 0.0, 0.0);
+  // The warp travels along a heading of its own, and a turning one: it used to
+  // slide along +X like everything else, which is half of why the whole field
+  // looked like it was on rails.
+  vec3 warpAt = coord * HAZE_WARP_SCALE + head1 * (drift * 0.35);
   vec3 warp = vec3(
     noiseAt(warpAt),
     noiseAt(warpAt + vec3(31.4, 11.7, 53.2)),
@@ -109,19 +124,15 @@ float fogging(vec3 coord, float drift) {
 
   float fog = 0.0;
   fog += abs(noiseAt(
-    (coord + warp + vec3(1.000, 0.000, 0.000) * (drift * 1.0)
-     + vec3(turn.x, turn.y, 0.0)) * 1.0)) * 1.0;
+    (coord + warp + head0 * (drift * 1.0)) * 1.0)) * 1.0;
   fog += abs(noiseAt(
-    (coord + warp + vec3(0.620, 0.780, 0.080) * (drift * 1.2)
-     + vec3(turn.y, -turn.x, 0.0)).yzx * 2.0
+    (coord + warp + head1 * (drift * 1.2)).yzx * 2.0
     + vec3(17.3, 5.1, 29.7))) * 0.5;
   fog += abs(noiseAt(
-    (coord + warp + vec3(-0.480, 0.869, 0.120) * (drift * 2.0)
-     + vec3(-turn.x, turn.y, 0.0)).zxy * 4.0
+    (coord + warp + head2 * (drift * 2.0)).zxy * 4.0
     + vec3(41.9, 23.4, 7.8))) * 0.25;
   fog += abs(noiseAt(
-    (coord + warp + vec3(0.281, -0.954, 0.100) * (drift * 2.8)
-     + vec3(turn.y, turn.x, 0.0)).yxz * 8.0
+    (coord + warp + head3 * (drift * 2.8)).yxz * 8.0
     + vec3(3.2, 37.6, 15.5))) * 0.125;
   fog *= HAZE_FIELD_GAIN;
 

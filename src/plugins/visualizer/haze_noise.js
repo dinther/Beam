@@ -125,12 +125,13 @@ export const CYCLE_RATE = 2.0;
 export const TURN_RATE = 0.11;
 
 /**
- * How far that curl carries the sample, in noise units.
+ * How fast each octave's heading sweeps, as a multiple of `TURN_RATE`.
  *
- * Applied before an octave's frequency multiply, so the finer octaves curl
- * proportionally tighter -- which is what small eddies do.
+ * One is the rate above; zero pins every heading and the field goes back to
+ * travelling in fixed directions, which is a conveyor however many directions
+ * there are.
  */
-export const TURN_RADIUS = 0.35;
+export const TURN_RADIUS = 1.0;
 
 /**
  * How far the field warps itself, in noise units.
@@ -501,11 +502,11 @@ export function setHazeWarp(value) {
   WARP_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 3);
 }
 
-/** How far an octave's travel curls, in noise units. @type {Number} */
+/** How fast an octave's heading sweeps, 1 being `TURN_RATE`. @type {Number} */
 export function hazeTurn() {
   return TURN_UNIFORM.value;
 }
 
 export function setHazeTurn(value) {
-  TURN_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 2);
+  TURN_UNIFORM.value = Math.min(Math.max(Number(value) || 0, 0), 4);
 }
