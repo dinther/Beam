@@ -1,25 +1,22 @@
-import DeviceSettings, { COMMON_ATTRIBUTES, clamp } from './device_settings';
+import DeviceSettings, { FULL } from './device_settings';
+import { ControlDef, PercentType } from './device_control';
 import {
-  PROJECTOR_CHANNELS, CHANNEL_ORDER, throwRange, clampThrow,
+  PROJECTOR_CHANNELS, CONTROL_DEFS, throwRange,
 } from './generic/projector';
 
 /**
  * @file What one projector is set to.
  *
- * The rule -- stored values, with a declared channel taking one over -- lives in
- * `device_settings.js` and is shared with every other device that has both
- * hand-set values and optional DMX. What is here is only what makes a
- * projector a projector: a lens that zooms and optics that shift.
+ * What a projector's parameters *are* -- a lens that zooms, optics that shift --
+ * is declared once in `generic/projector.js`. The rule that decides who owns
+ * each of them lives in `device_settings.js` and is shared with every other
+ * device. What is left here is the install: the soft-edge blend, which belongs
+ * to where the machine was put rather than to the machine.
  *
- * The profile says what the *model* can do -- its zoom range, how far the
- * optics may shift, which channels it has. This says where inside that envelope
- * this particular machine is set. Same split as an LED bar, whose profile says
- * "60 pixels, GRB" while the placement says where it stands and what address it
- * answers to.
- *
- * **The units are the same whether a value is typed or driven**, because the
- * profile defines the range both are expressed in. Patching a projector
- * therefore never changes what it is currently doing.
+ * The profile says what the *model* can do. This says where inside that
+ * envelope this particular machine is set. Same split as an LED bar, whose
+ * profile says "60 pixels, GRB" while the placement says where it stands and
+ * what address it answers to.
  */
 
 /**
@@ -34,33 +31,7 @@ import {
 export const PROJECTOR_ATTRIBUTES = PROJECTOR_CHANNELS;
 
 /**
- * How far the optics may shift, as a percentage of the image.
- *
- * @param {Object} params
- * @param {String} axis 'H' or 'V'
- * @returns {Number}
- */
-function shiftLimit(params, axis) {
-  return Math.abs(Number(params[`shiftLimit${axis}`]) || 0);
-}
-
-/**
- * What a projector can be told to do.
- *
- * @constant {Object}
- */
-/**
  * The soft-edge blend, per edge, as a percentage of the image.
- *
- * Not channels, and deliberately: a blend width is a property of where the
- * machine was installed and what it overlaps, not of the machine. Two
- * projectors covering one facade are set up once and left; nothing on a console
- * wants to ride them, and giving them channels would put four rows in a patch
- * that no desk would ever address.
- *
- * Per edge rather than one number, because the end machine of an array blends
- * on its inner edge only -- ramping both would darken the outside of the
- * picture against nothing.
  *
  * @constant {Object}
  */
@@ -74,47 +45,35 @@ export const PROJECTOR_BLEND = {
 /** A blend wider than this is not a blend, it is a dissolve. */
 const MAX_BLEND = 45;
 
-const blendEdge = {
-  initial: () => 0,
-  coerce: (value) => clamp(value, 0, MAX_BLEND, 0),
-};
+/**
+ * The blend edges, as parameters.
+ *
+ * **Not addressable, and deliberately:** a blend width is a property of where
+ * the machine was installed and what it overlaps, not of the machine. Two
+ * projectors covering one facade are set up once and left; nothing on a console
+ * wants to ride them, and giving them channels would put four rows in a patch
+ * that no desk would ever address.
+ *
+ * Per edge rather than one number, because the end machine of an array blends
+ * on its inner edge only -- ramping both would darken the outside of the
+ * picture against nothing.
+ *
+ * @constant {Array}
+ */
+const BLEND_DEFS = Object.entries({
+  [PROJECTOR_BLEND.LEFT]: 'Blend Left',
+  [PROJECTOR_BLEND.RIGHT]: 'Blend Right',
+  [PROJECTOR_BLEND.TOP]: 'Blend Top',
+  [PROJECTOR_BLEND.BOTTOM]: 'Blend Bottom',
+}).map(([key, label]) => new ControlDef(
+  key,
+  label,
+  new PercentType({ initial: 0, max: MAX_BLEND }),
+  { addressable: false },
+));
 
-export const PROJECTOR_SPEC = {
-  [PROJECTOR_BLEND.LEFT]: blendEdge,
-  [PROJECTOR_BLEND.RIGHT]: blendEdge,
-  [PROJECTOR_BLEND.TOP]: blendEdge,
-  [PROJECTOR_BLEND.BOTTOM]: blendEdge,
-  // Parked at the wide end, which is where a lens sits until someone has a
-  // reason to narrow it, and the end the frustum is drawn at.
-  [PROJECTOR_ATTRIBUTES.ZOOM]: {
-    initial: (params) => throwRange(params).min,
-    coerce: (value, params) => clampThrow(params, value),
-    // Level 0 is the *narrow* end, because the capability writes the narrowest
-    // angle as its start -- and a narrow angle is a long throw ratio. So the
-    // ratio runs from max down to min, not the other way about. Backwards
-    // inverts every projector's zoom, invisibly.
-    fromLevel: (level, params) => {
-      const { min, max } = throwRange(params);
-      const l = Math.min(Math.max(level, 0), 1);
-      return max + (min - max) * l;
-    },
-  },
-  // Centred at half scale, so a console sitting at the middle leaves the image
-  // where the optics put it.
-  [PROJECTOR_ATTRIBUTES.SHIFT_H]: {
-    initial: () => 0,
-    coerce: (value, params) => clamp(value, -shiftLimit(params, 'H'), shiftLimit(params, 'H'), 0),
-    fromLevel: (level, params) => (Math.min(Math.max(level, 0), 1) * 2 - 1) * shiftLimit(params, 'H'),
-  },
-  [PROJECTOR_ATTRIBUTES.SHIFT_V]: {
-    initial: () => 0,
-    coerce: (value, params) => clamp(value, -shiftLimit(params, 'V'), shiftLimit(params, 'V'), 0),
-    fromLevel: (level, params) => (Math.min(Math.max(level, 0), 1) * 2 - 1) * shiftLimit(params, 'V'),
-  },
-  [PROJECTOR_ATTRIBUTES.SOURCE]: COMMON_ATTRIBUTES.source,
-  [PROJECTOR_ATTRIBUTES.DIMMER]: COMMON_ATTRIBUTES.dimmer,
-  [PROJECTOR_ATTRIBUTES.SHUTTER]: COMMON_ATTRIBUTES.shutter,
-};
+/** Every attribute a projector holds: what a desk may drive, plus the install. */
+export const PROJECTOR_DEFS = [...CONTROL_DEFS, ...BLEND_DEFS];
 
 class ProjectorSettings extends DeviceSettings {
   /**
@@ -122,13 +81,13 @@ class ProjectorSettings extends DeviceSettings {
    * @param {Object} [data] stored values from the show
    */
   constructor(params, data = {}) {
-    super(PROJECTOR_SPEC, params, data, CHANNEL_ORDER);
+    super(PROJECTOR_DEFS, params, data);
   }
 
   /** How far the optics may shift, as a percentage of the image. */
-  get shiftLimitH() { return shiftLimit(this._params, 'H'); }
+  get shiftLimitH() { return Math.abs(Number(this._params.shiftLimitH) || 0); }
 
-  get shiftLimitV() { return shiftLimit(this._params, 'V'); }
+  get shiftLimitV() { return Math.abs(Number(this._params.shiftLimitV) || 0); }
 
   /** The zoom range the profile allows. */
   get range() { return throwRange(this._params); }
@@ -137,6 +96,18 @@ class ProjectorSettings extends DeviceSettings {
   get zooms() {
     const { min, max } = this.range;
     return max - min > 1e-9;
+  }
+
+  /**
+   * What to multiply the projector's lumens by: the dimmer, gated by the
+   * shutter. A closed dowser is nothing on the wall, not a dark picture.
+   *
+   * @readonly
+   * @type {Number}
+   */
+  get gain() {
+    if (!this.value('shutter')) return 0;
+    return Math.min(Math.max(Number(this.value('dimmer')) || 0, 0), FULL) / FULL;
   }
 }
 

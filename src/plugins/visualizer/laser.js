@@ -10,6 +10,7 @@ import { flattenPaths } from './laser_dwell';
 import FIGURE_ATLAS, { LaserFigure, setLineWidth, lineWidth } from './laser_figure';
 import LaserStream, { POINT_STRIDE } from '../laser_stream';
 import { apertureOrigin, scanHalfAngles } from '../../models/DMX/generic/laser';
+import { castsContactShadow } from './contact_shadows';
 
 /**
  * The lasers' own depth atlas, so a beam can stop at the first surface each ray
@@ -493,6 +494,7 @@ class Laser {
     this._body = new THREE.Mesh(BOX_GEOMETRY, BODY_MATERIAL);
     this._body.userData.pickOwner = this;
     this._dummy.add(this._body);
+    castsContactShadow(this._body);
 
     this._aperture = new THREE.Mesh(APERTURE_GEOMETRY, APERTURE_MATERIAL);
     this._aperture.userData.pickOwner = this;

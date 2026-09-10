@@ -1,3 +1,8 @@
+import { COMMON_CONTROLS } from '../device_settings';
+import {
+  ControlSet, ControlDef, PercentType, RatioType, orderOf, labelsOf,
+} from '../device_control';
+
 /**
  * @file Generic projector: a lens throwing a rectangular image into a room.
  *
@@ -30,6 +35,17 @@
 const DEG = 180 / Math.PI;
 
 /**
+ * How far the optics may shift, as a percentage of the image.
+ *
+ * @param {Object} params
+ * @param {String} axis 'H' or 'V'
+ * @returns {Number}
+ */
+function shiftLimit(params, axis) {
+  return Math.abs(Number(params[`shiftLimit${axis}`]) || 0);
+}
+
+/**
  * The channels a projector may expose.
  *
  * Keys rather than labels, because they are stored in the profile and have to
@@ -55,24 +71,6 @@ export const PROJECTOR_CHANNELS = {
  *
  * @constant {Array}
  */
-export const CHANNEL_ORDER = [
-  PROJECTOR_CHANNELS.DIMMER,
-  PROJECTOR_CHANNELS.SHUTTER,
-  PROJECTOR_CHANNELS.ZOOM,
-  PROJECTOR_CHANNELS.SHIFT_H,
-  PROJECTOR_CHANNELS.SHIFT_V,
-  PROJECTOR_CHANNELS.SOURCE,
-];
-
-/** What each channel is called on a patch sheet. */
-export const CHANNEL_LABELS = {
-  [PROJECTOR_CHANNELS.DIMMER]: 'Dimmer',
-  [PROJECTOR_CHANNELS.SHUTTER]: 'Shutter',
-  [PROJECTOR_CHANNELS.ZOOM]: 'Zoom',
-  [PROJECTOR_CHANNELS.SHIFT_H]: 'Lens Shift H',
-  [PROJECTOR_CHANNELS.SHIFT_V]: 'Lens Shift V',
-  [PROJECTOR_CHANNELS.SOURCE]: 'Source Select',
-};
 
 /**
  * A mid-sized installation projector: WUXGA, a standard zoom, ten thousand
@@ -385,6 +383,46 @@ export function illuminanceAt(distance, ratio, params) {
   return area > 0 ? lumens / area : 0;
 }
 
+export const CONTROL_DEFS = [
+  COMMON_CONTROLS.dimmer(),
+  COMMON_CONTROLS.shutter('Shutter', 'Open'),
+  // Zoom is the throw ratio seen from the other end, and its range is this
+  // lens's rather than a unit interval -- a prime lens is the case where the
+  // two ends meet.
+  new ControlDef(PROJECTOR_CHANNELS.ZOOM, 'Zoom', new RatioType({
+    bounds: throwRange, parks: 'min',
+  }), {
+    // Written as the angles it spans so that anything already reading a Zoom
+    // channel -- the movers do -- gets a number in the units it expects.
+    capability: (params) => {
+      const { min, max } = throwRange(params);
+      return {
+        type: 'Zoom',
+        angleStart: `${throwAngles(max, params).horizontal.toFixed(1)}deg`,
+        angleEnd: `${throwAngles(min, params).horizontal.toFixed(1)}deg`,
+      };
+    },
+  }),
+  // Lens shift is bounded by the optics, not by the units, so the limit is a
+  // question asked of the profile.
+  // OFL has no lens shift. BeamPosition is the nearest true thing -- the beam
+  // moving within the fixture's own output -- and the range it covers is in
+  // asls.projector, in per cent, where the renderer looks for it.
+  new ControlDef(PROJECTOR_CHANNELS.SHIFT_H, 'Lens Shift H', new PercentType({
+    initial: 0, limit: (params) => shiftLimit(params, 'H'),
+  }), { capability: { type: 'BeamPosition' } }),
+  new ControlDef(PROJECTOR_CHANNELS.SHIFT_V, 'Lens Shift V', new PercentType({
+    initial: 0, limit: (params) => shiftLimit(params, 'V'),
+  }), { capability: { type: 'BeamPosition' } }),
+  COMMON_CONTROLS.source('Source Select', 'connectors'),
+];
+
+/** Derived, so a parameter cannot be in one of these and missing from another. */
+export const CHANNEL_ORDER = orderOf(CONTROL_DEFS);
+
+/** What each channel is called on a patch sheet. */
+export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
+
 /**
  * The channels this projector declares, in OFL's vocabulary.
  *
@@ -396,52 +434,7 @@ export function illuminanceAt(distance, ratio, params) {
  * @returns {Object} `{ availableChannels, modes }`
  */
 export function projectorChannels(params) {
-  const wanted = Array.isArray(params.channels) ? params.channels : [];
-  const { min, max } = throwRange(params);
-  const widest = throwAngles(min, params).horizontal;
-  const narrowest = throwAngles(max, params).horizontal;
-
-  // A capability per channel, keyed the way `led_bar.js` keys its own: one
-  // `capability` object rather than a range list, which is all the parser reads.
-  const capabilities = {
-    [PROJECTOR_CHANNELS.DIMMER]: {
-      type: 'Intensity',
-      brightnessStart: '0%',
-      brightnessEnd: '100%',
-    },
-    [PROJECTOR_CHANNELS.SHUTTER]: {
-      type: 'ShutterStrobe',
-      shutterEffect: 'Open',
-    },
-    // Zoom is the throw ratio seen from the other end. Written as the angles it
-    // spans so that anything already reading a `Zoom` channel -- the movers do
-    // -- gets a number in the units it expects.
-    [PROJECTOR_CHANNELS.ZOOM]: {
-      type: 'Zoom',
-      angleStart: `${narrowest.toFixed(1)}deg`,
-      angleEnd: `${widest.toFixed(1)}deg`,
-    },
-    // OFL has no lens shift. `BeamPosition` is the nearest true thing -- the
-    // beam moving within the fixture's own output -- and the range it covers is
-    // in `asls.projector`, in per cent, where the renderer will look for it.
-    [PROJECTOR_CHANNELS.SHIFT_H]: { type: 'BeamPosition' },
-    [PROJECTOR_CHANNELS.SHIFT_V]: { type: 'BeamPosition' },
-    // Picks a video connector by index, so `Source Select = 1` is HDMI 1. OFL
-    // has nothing for it; `Maintenance` is its catch-all for a channel that
-    // does something to the machine rather than to the light.
-    [PROJECTOR_CHANNELS.SOURCE]: { type: 'Maintenance' },
-  };
-
-  const availableChannels = {};
-  const channels = [];
-  CHANNEL_ORDER.forEach((key) => {
-    if (!wanted.includes(key)) return;
-    const name = CHANNEL_LABELS[key];
-    availableChannels[name] = { capability: capabilities[key] };
-    channels.push(name);
-  });
-
-  return { availableChannels, modes: [{ name: 'Default', channels }] };
+  return ControlSet.fromProfile(CONTROL_DEFS, params).buildChannels();
 }
 
 /**
@@ -502,6 +495,7 @@ export function buildProjectorProfile(overrides = {}) {
 }
 
 export default {
+  CONTROL_DEFS,
   PROJECTOR_CHANNELS,
   CHANNEL_ORDER,
   CHANNEL_LABELS,

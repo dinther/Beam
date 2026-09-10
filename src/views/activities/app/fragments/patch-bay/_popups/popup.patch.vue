@@ -1118,9 +1118,9 @@ export default {
       if (!item || !item.manufacturer || !item.fixture) return;
       const { manufacturer } = item;
       const { fixture } = item;
-      // Generated profiles are built in the app, not served: there is no file
-      // to fetch, and asking for one would 404.
-      const generated = this.$show.generatedProfiles[`${manufacturer.name}/${fixture}`];
+      // Profiles the app made -- this show's own, or the library's -- are not
+      // served: there is no file to fetch, and asking for one would 404.
+      const generated = this.$show.localProfile(`${manufacturer.name}/${fixture}`);
       // Fetched here rather than through `fetchProfile`, so the grid a matrix
       // profile only *describes* has to be written out here too -- otherwise
       // the channel counts below would size the patch from an insert that
@@ -1246,7 +1246,9 @@ export default {
           // addresses, but draw nothing; the icon says which is which.
           icon: this.entryIcon(entry),
           more: entry.supported ? entry.category : `${entry.category} (not rendered)`,
-          manufacturer,
+          // An entry under "This show" is not filed under a manufacturer folder
+          // and carries its own; everything else takes the folder's.
+          manufacturer: entry.manufacturer ? { name: entry.manufacturer } : manufacturer,
           fixture: entry.file,
         })),
       }));

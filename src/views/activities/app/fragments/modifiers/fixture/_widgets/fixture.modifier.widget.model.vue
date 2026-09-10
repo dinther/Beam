@@ -19,6 +19,37 @@
         >&nbsp;in the show.
       </p>
 
+      <!-- A definition made in this show and not yet in the library. It lives
+           with the show and goes when its last instance does; saving it is
+           the deliberate act that makes it a library reference -- the same
+           bargain a structure and an inline object make. -->
+      <uk-flex
+        v-if="isShowDefinition"
+        col
+        :gap="6"
+        class="definition_home"
+      >
+        <span class="scope_note">
+          Defined in this show, not in the library. It goes when its last
+          instance does.
+        </span>
+        <uk-flex :gap="8">
+          <uk-button
+            icon="export"
+            label="save to library"
+            :disabled="saving"
+            title="Move this definition into the library, to place in other shows"
+            @click="saveToLibrary"
+          />
+        </uk-flex>
+      </uk-flex>
+      <p
+        v-if="saveMessage"
+        :class="saveFailed ? 'definition_warning' : 'definition_ok'"
+      >
+        {{ saveMessage }}
+      </p>
+
       <template v-if="hasHead">
         <uk-flex :gap="8">
           <uk-num-input
@@ -205,7 +236,7 @@ import {
   throwRange, throwAngles, imageSizeAt, illuminanceAt,
 } from '@/models/DMX/generic/projector';
 import { DEFAULT_PAN_SPEED, DEFAULT_TILT_SPEED } from '@/models/DMX/fixture.model';
-import { fixtureIcon } from '@/models/DMX/generic/kinds';
+import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
 
 /** How long the copy button confirms for, in ms. */
 const COPY_FEEDBACK_MS = 1500;
@@ -234,9 +265,20 @@ export default {
        * forever; this gives those computeds something reactive to depend on.
        */
       revision: 0,
+      saving: false,
+      saveMessage: '',
+      saveFailed: false,
     };
   },
   computed: {
+    /**
+     * Whether this fixture's definition belongs to the show rather than the
+     * library. Reads `revision` so it re-evaluates after a save: the show is a
+     * plain class and Vue cannot see its store change.
+     */
+    isShowDefinition() {
+      return this.revision >= 0 && this.$show.isShowDefinition(this.profileKey);
+    },
     /**
      * What this model is, for a projector or a display.
      *
@@ -428,6 +470,29 @@ export default {
   },
   methods: {
     /**
+     * Moves this show's definition into the library.
+     *
+     * @public
+     * @async
+     */
+    async saveToLibrary() {
+      if (!this.fixture) return;
+      this.saving = true;
+      this.saveMessage = '';
+      let result;
+      try {
+        result = await this.$show.saveDefinitionToLibrary(this.profileKey);
+      } catch (err) {
+        result = { ok: false, reason: err.message };
+      }
+      this.saving = false;
+      this.saveFailed = !result.ok;
+      this.saveMessage = result.ok
+        ? `Saved "${this.profileKey}" to the library.`
+        : result.reason || 'Could not save to the library.';
+      this.revision += 1;
+    },
+    /**
      * A display's specification, in the order someone reads one.
      *
      * @public
@@ -590,6 +655,21 @@ export default {
 </script>
 
 <style scoped>
+.definition_home {
+  padding: 6px 0 2px;
+}
+.definition_warning {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--accent-red, #d9534f);
+  margin: 0;
+}
+.definition_ok {
+  font-family: Roboto-Regular;
+  font-size: 11px;
+  color: var(--accent-teal);
+  margin: 0;
+}
 /* Laid out like `bar_summary` below, because it answers the same kind of
    question about a different kind of fixture. */
 .device_facts dl {

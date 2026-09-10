@@ -103,6 +103,8 @@
 </template>
 
 <script>
+import { PRIMITIVE_TYPES } from '@/plugins/visualizer/primitive_geometry';
+
 /**
  * @file The fields that define a created object.
  *
@@ -118,7 +120,7 @@
  */
 
 /** The shapes this can describe, in the order they are offered. */
-export const OBJECT_TYPES = ['cube', 'cylinder', 'sphere', 'plane'];
+export const OBJECT_TYPES = PRIMITIVE_TYPES;
 const TYPE_LABELS = ['Cube', 'Cylinder', 'Sphere', 'Plane'];
 
 /** A neutral grey, so a new object reads as geometry rather than as a colour. */

@@ -24,7 +24,10 @@
  * turns each streamed point into a ray from those two angles. Beam width and
  * divergence set how thick that ray is drawn and how it grows with distance.
  */
-import { buildControlChannels } from '../device_settings';
+import { COMMON_CONTROLS } from '../device_settings';
+import {
+  ControlSet, ControlDef, PercentType, SwitchType, orderOf, labelsOf,
+} from '../device_control';
 
 /** Radians to degrees, and back, for the scan-angle maths below. */
 const DEG = 180 / Math.PI;
@@ -70,34 +73,60 @@ export const LASER_CHANNELS = {
  *
  * @constant {Array}
  */
-export const CHANNEL_ORDER = [
-  LASER_CHANNELS.DIMMER,
-  LASER_CHANNELS.SHUTTER,
-  LASER_CHANNELS.RED,
-  LASER_CHANNELS.GREEN,
-  LASER_CHANNELS.BLUE,
-  LASER_CHANNELS.X_SCALE,
-  LASER_CHANNELS.Y_SCALE,
-  LASER_CHANNELS.X_POS,
-  LASER_CHANNELS.Y_POS,
-  LASER_CHANNELS.MIRROR_X,
-  LASER_CHANNELS.MIRROR_Y,
+/**
+ * Sits at full unless driven down: the master and the three colour balances.
+ *
+ * @returns {PercentType}
+ */
+const atFull = () => new PercentType({ initial: 100 });
+
+/**
+ * A galvo cannot deflect past its own maximum, so a laser can only be scaled
+ * *down* from full scan -- 100 % is as large as the picture gets.
+ *
+ * @returns {PercentType}
+ */
+const scale = () => new PercentType({ initial: 100 });
+
+/**
+ * A -100..+100 % offset, centred by default: moves the figure within the scan
+ * field, the same convention as the projector's lens shift.
+ *
+ * @returns {PercentType}
+ */
+const offset = () => new PercentType({ initial: 0, limit: () => 100 });
+
+/**
+ * A mounting flip: off by default.
+ *
+ * Turning the field over rather than moving it, so a laser hung upside down or
+ * bounced off a mirror shows its content the right way round without the
+ * content being re-authored. Drivable, because a console may want to flip a
+ * whole rig at once.
+ *
+ * @returns {SwitchType}
+ */
+const mirror = () => new SwitchType({ initial: false, onLabel: 'Flipped' });
+
+export const CONTROL_DEFS = [
+  COMMON_CONTROLS.dimmer(),
+  COMMON_CONTROLS.shutter('Shutter', 'Open'),
+  new ControlDef(LASER_CHANNELS.RED, 'Red Balance', atFull()),
+  new ControlDef(LASER_CHANNELS.GREEN, 'Green Balance', atFull()),
+  new ControlDef(LASER_CHANNELS.BLUE, 'Blue Balance', atFull()),
+  new ControlDef(LASER_CHANNELS.X_SCALE, 'X Scale', scale()),
+  new ControlDef(LASER_CHANNELS.Y_SCALE, 'Y Scale', scale()),
+  new ControlDef(LASER_CHANNELS.X_POS, 'X Position', offset()),
+  new ControlDef(LASER_CHANNELS.Y_POS, 'Y Position', offset()),
+  new ControlDef(LASER_CHANNELS.MIRROR_X, 'Mirror X', mirror()),
+  new ControlDef(LASER_CHANNELS.MIRROR_Y, 'Mirror Y', mirror()),
 ];
 
+/** Derived, so a parameter cannot be in one of these and missing from another. */
+export const CHANNEL_ORDER = orderOf(CONTROL_DEFS);
+
 /** What each channel is called on a patch sheet. */
-export const CHANNEL_LABELS = {
-  [LASER_CHANNELS.DIMMER]: 'Dimmer',
-  [LASER_CHANNELS.SHUTTER]: 'Shutter',
-  [LASER_CHANNELS.RED]: 'Red Balance',
-  [LASER_CHANNELS.GREEN]: 'Green Balance',
-  [LASER_CHANNELS.BLUE]: 'Blue Balance',
-  [LASER_CHANNELS.X_SCALE]: 'X Scale',
-  [LASER_CHANNELS.Y_SCALE]: 'Y Scale',
-  [LASER_CHANNELS.X_POS]: 'X Position',
-  [LASER_CHANNELS.Y_POS]: 'Y Position',
-  [LASER_CHANNELS.MIRROR_X]: 'Mirror X',
-  [LASER_CHANNELS.MIRROR_Y]: 'Mirror Y',
-};
+export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
 
 /**
  * A mid-sized RGB show laser: a few watts, a wide scan, a fine beam.
@@ -276,7 +305,7 @@ export function isLaserProfile(profile) {
  */
 export function buildLaserProfile(overrides = {}) {
   const params = { ...DEFAULT_LASER_PARAMS, ...overrides };
-  const { availableChannels, modes } = buildControlChannels(params.controls || {}, CHANNEL_LABELS);
+  const { availableChannels, modes } = ControlSet.fromProfile(CONTROL_DEFS, params).buildChannels();
 
   return {
     name: `Laser ${Number(params.power) || 0}W`,
@@ -309,6 +338,7 @@ export function buildLaserProfile(overrides = {}) {
 }
 
 export default {
+  CONTROL_DEFS,
   LASER_CHANNELS,
   CHANNEL_ORDER,
   CHANNEL_LABELS,

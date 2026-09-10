@@ -21,45 +21,50 @@
  * projector, the fault is in the projection.
  */
 
-/**
- * The channels a display may expose.
- *
- * The same three a projector shares, and no more: a screen has no lens to zoom
- * or shift. Most displays have no DMX at all -- a shop monitor certainly does
- * not -- so as with a projector this is a choice, not a consequence of the
- * geometry.
- *
- * @constant {Object}
- */
+import { COMMON_CONTROLS } from '../device_settings';
+import { ControlSet, orderOf, labelsOf } from '../device_control';
+
 /** Radians to degrees. The curve is authored in degrees and built in radians. */
 const DEG = 180 / Math.PI;
 
+/**
+ * The parameters a display carries.
+ *
+ * The same three a projector shares, and no more: a screen has no lens to zoom
+ * or shift. Most displays have no DMX at all -- a shop monitor certainly does
+ * not -- so how each of these is decided is a choice made when the fixture is
+ * defined, not a consequence of the geometry. See `device_control.js`.
+ *
+ * Declared in the order channels are laid out in, which is fixed here rather
+ * than following the order someone filled the rows in, so that two displays
+ * with the same parameters always address alike.
+ *
+ * @constant {Array}
+ */
+export const CONTROL_DEFS = [
+  COMMON_CONTROLS.dimmer(),
+  // Blanking a screen is the same act as closing a dowser: the picture is
+  // there or it is not, so it reads as a shutter rather than a dimmer at nought.
+  COMMON_CONTROLS.shutter('Blank', 'Showing'),
+  COMMON_CONTROLS.source('Source Select', 'connectors'),
+];
+
+/**
+ * The keys, for anything that still asks by key rather than by definition.
+ *
+ * @constant {Object}
+ */
 export const DISPLAY_CHANNELS = {
   DIMMER: 'dimmer',
   SHUTTER: 'shutter',
   SOURCE: 'source',
 };
 
-/**
- * The order channels are laid out in when a display declares several.
- *
- * Fixed here rather than following the order they were ticked, so two displays
- * with the same channels always address alike.
- *
- * @constant {Array}
- */
-export const CHANNEL_ORDER = [
-  DISPLAY_CHANNELS.DIMMER,
-  DISPLAY_CHANNELS.SHUTTER,
-  DISPLAY_CHANNELS.SOURCE,
-];
+/** Derived, so a parameter cannot be in one of these and missing from another. */
+export const CHANNEL_ORDER = orderOf(CONTROL_DEFS);
 
 /** What each channel is called on a patch sheet. */
-export const CHANNEL_LABELS = {
-  [DISPLAY_CHANNELS.DIMMER]: 'Dimmer',
-  [DISPLAY_CHANNELS.SHUTTER]: 'Blank',
-  [DISPLAY_CHANNELS.SOURCE]: 'Source Select',
-};
+export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
 
 /**
  * A 55-inch 16:9 panel: the screen most people picture, and a size that reads
@@ -256,35 +261,7 @@ export function pixelPitch(params) {
  * @returns {Object} `{ availableChannels, modes }`
  */
 export function displayChannels(params) {
-  const wanted = Array.isArray(params.channels) ? params.channels : [];
-  const capabilities = {
-    [DISPLAY_CHANNELS.DIMMER]: {
-      type: 'Intensity',
-      brightnessStart: '0%',
-      brightnessEnd: '100%',
-    },
-    // Blanking a screen is the same act as closing a dowser: the picture is
-    // there or it is not, so it reads as a shutter rather than a dimmer at nought.
-    [DISPLAY_CHANNELS.SHUTTER]: {
-      type: 'ShutterStrobe',
-      shutterEffect: 'Open',
-    },
-    // Picks a video connector by index, so `Source Select = 1` is HDMI 1. OFL
-    // has nothing for it; `Maintenance` is its catch-all for a channel that
-    // does something to the machine rather than to the light.
-    [DISPLAY_CHANNELS.SOURCE]: { type: 'Maintenance' },
-  };
-
-  const availableChannels = {};
-  const channels = [];
-  CHANNEL_ORDER.forEach((key) => {
-    if (!wanted.includes(key)) return;
-    const name = CHANNEL_LABELS[key];
-    availableChannels[name] = { capability: capabilities[key] };
-    channels.push(name);
-  });
-
-  return { availableChannels, modes: [{ name: 'Default', channels }] };
+  return ControlSet.fromProfile(CONTROL_DEFS, params).buildChannels();
 }
 
 /**
@@ -337,6 +314,7 @@ export function buildDisplayProfile(overrides = {}) {
 }
 
 export default {
+  CONTROL_DEFS,
   DISPLAY_CHANNELS,
   CHANNEL_ORDER,
   CHANNEL_LABELS,

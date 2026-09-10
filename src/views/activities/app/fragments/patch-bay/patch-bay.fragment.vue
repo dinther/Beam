@@ -65,7 +65,7 @@ import Controls from '@/plugins/visualizer/controls';
 import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
-import { fixtureIcon } from '@/models/DMX/generic/kinds';
+import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
 import PatchPopup from './_popups/popup.patch.vue';
 
 export default {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import SceneManager from './scene_manager';
 import { PROJECTOR_NEAR, PROJECTOR_FAR } from './projector_depth';
+import { castsContactShadow } from './contact_shadows';
 import {
   lensOrigin, throwAngles, throwFrustum, throwRange,
 } from '../../models/DMX/generic/projector';
@@ -189,6 +190,7 @@ class Projector {
     this._ring = new THREE.Mesh(RING_GEOMETRY, BARREL_MATERIAL);
     this._ring.userData.pickOwner = this;
     this._dummy.add(this._ring);
+    [this._body, this._barrel, this._ring].forEach(castsContactShadow);
 
     this._glass = new THREE.Mesh(GLASS_GEOMETRY, GLASS_MATERIAL);
     this._dummy.add(this._glass);
@@ -505,11 +507,9 @@ class Projector {
 
     const settings = this._settingsAt();
     // A closed shutter is a projector throwing nothing, not a black picture --
-    // a black picture would still wash the wall.
-    let gain = 1;
-    if (settings) {
-      gain = settings.value('shutter') ? (Number(settings.value('dimmer')) || 0) / 100 : 0;
-    }
+    // a black picture would still wash the wall. The rule itself belongs to the
+    // settings, beside the values it reads, so the renderer cannot drift from it.
+    const gain = settings ? settings.gain : 1;
     if (gain <= 0) return null;
 
     const params = this._params || {};

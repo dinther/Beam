@@ -37,6 +37,17 @@
       style="z-index: 1000"
       :error="errPopup.error"
     />
+    <!-- Yes/no questions from anywhere -- see plugins/confirm.js. -->
+    <confirm-popup
+      v-model="confirmation.state"
+      style="z-index: 1000"
+      :title="confirmation.title"
+      :message="confirmation.message"
+      :detail="confirmation.detail"
+      :yes="confirmation.yes"
+      :no="confirmation.no"
+      @answer="answerConfirmation"
+    />
   </uk-flex>
 </template>
 
@@ -50,6 +61,7 @@ import Modifier from './fragments/modifiers/modifier.fragment.vue';
 
 import PopupSplash from './_popups/popup.splash.vue';
 import ErrorPopup from './_popups/popup.error.vue';
+import ConfirmPopup from './_popups/popup.confirm.vue';
 /**
  * Whether the splash is owed an appearance this launch.
  *
@@ -85,6 +97,7 @@ export default {
     Modifier,
     PopupSplash,
     ErrorPopup,
+    ConfirmPopup,
   },
   data() {
     return {
@@ -101,6 +114,18 @@ export default {
       errPopup: {
         error: new Error(),
         state: false,
+      },
+      /**
+       * The question being asked, and who is waiting for the answer.
+       */
+      confirmation: {
+        state: false,
+        title: '',
+        message: '',
+        detail: '',
+        yes: 'yes',
+        no: 'no',
+        resolve: null,
       },
       /**
        * App readyness state
@@ -165,6 +190,7 @@ export default {
     EventBus.on('visualizer_loaded', this.setup);
     EventBus.on('app_error', this.handleAppError);
     EventBus.on('show_about', this.showAbout);
+    EventBus.on('confirm', this.askConfirmation);
     // Someone double-clicked a project while Beam was already running.
     if (window.documentStore) {
       this.stopListeningForDocuments = window.documentStore.onRequested((target) => {
@@ -182,6 +208,7 @@ export default {
     EventBus.off('visualizer_loaded', this.setup);
     EventBus.off('app_error', this.handleAppError);
     EventBus.off('show_about', this.showAbout);
+    EventBus.off('confirm', this.askConfirmation);
     if (this.stopListeningForDocuments) this.stopListeningForDocuments();
   },
   methods: {
@@ -192,6 +219,30 @@ export default {
      */
     showAbout() {
       this.aboutOpen = true;
+    },
+    /**
+     * Asks a yes/no question -- see `plugins/confirm.js`.
+     *
+     * @public
+     * @param {Object} question `{ title, message, detail, yes, no, resolve }`
+     */
+    askConfirmation(question) {
+      // A question still open when another arrives is answered no, rather
+      // than left waiting forever for a popup that has moved on.
+      if (this.confirmation.resolve) this.confirmation.resolve(false);
+      Object.assign(this.confirmation, question, { state: true });
+    },
+    /**
+     * Hands the answer to whoever asked.
+     *
+     * @public
+     * @param {Boolean} yes
+     */
+    answerConfirmation(yes) {
+      const { resolve } = this.confirmation;
+      this.confirmation.resolve = null;
+      this.confirmation.state = false;
+      if (resolve) resolve(yes);
     },
     /**
      * Surfaces a load error in the popup.

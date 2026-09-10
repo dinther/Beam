@@ -459,7 +459,7 @@ function list() {
  * @param {String} [folder] a category under Objects, or null for the root
  * @returns {Object} `{ ok, name, file, key }` or `{ ok: false, reason }`
  */
-function writePrimitive(name, primitive, folder = null) {
+function writePrimitive(name, primitive, folder = null, { overwrite = false } = {}) {
   const safe = safeName(name);
   if (!safe) return { ok: false, reason: 'That name cannot be used as a file name.' };
   if (!primitive || !PRIMITIVE_TYPES.includes(primitive.type)) {
@@ -491,11 +491,30 @@ function writePrimitive(name, primitive, folder = null) {
 
   const file = `${safe}.json`;
   const target = path.join(dir, file);
-  const taken = fs.existsSync(target)
-    || MODEL_EXTENSIONS.some((ext) => fs.existsSync(path.join(dir, `${safe}${ext}`)));
-  if (taken) {
-    const where = safeFolder ? `${safeFolder}/${safe}` : safe;
-    return { ok: false, reason: `${where} already exists in the object library.` };
+  const where = safeFolder ? `${safeFolder}/${safe}` : safe;
+  // An imported model is a file the user brought, and a shape cannot stand in
+  // for it -- refused whatever the caller asked, overwrite or not.
+  if (MODEL_EXTENSIONS.some((ext) => fs.existsSync(path.join(dir, `${safe}${ext}`)))) {
+    return { ok: false, reason: `${where} is an imported model and cannot be replaced by a shape.` };
+  }
+  // A shape of the same name is only replaced when the caller says so, which
+  // the widget does after asking. `exists` tells it that asking is the thing
+  // to do, rather than reporting a failure.
+  let previous = null;
+  if (fs.existsSync(target)) {
+    if (!overwrite) {
+      return { ok: false, exists: true, reason: `${where} already exists in the object library.` };
+    }
+    try {
+      previous = JSON.parse(fs.readFileSync(target, 'utf8'));
+    } catch (err) {
+      previous = null;
+    }
+    // Only a shape's descriptor is ours to replace. Anything else under that
+    // name is left exactly as it is.
+    if (!previous || previous.kind !== PRIMITIVE_KIND) {
+      return { ok: false, reason: `${where} is not a shape and cannot be overwritten.` };
+    }
   }
 
   const record = {
@@ -506,7 +525,9 @@ function writePrimitive(name, primitive, folder = null) {
     type: primitive.type,
     size: primitive.size,
     color: primitive.color,
-    created: new Date().toISOString(),
+    // An overwrite keeps the entry's birth date and says when it changed.
+    created: (previous && previous.created) || new Date().toISOString(),
+    ...(previous ? { modified: new Date().toISOString() } : {}),
   };
 
   // Written beside the target and renamed over it, so a failure part-way

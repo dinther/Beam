@@ -5,6 +5,8 @@ import LightField from './light_field';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import SceneManager from './scene_manager';
+import primitiveGeometry from './primitive_geometry';
+import { castsContactShadow, standsUp } from './contact_shadows';
 
 /**
  * @file Library models placed in the scene, drawn instanced.
@@ -176,6 +178,13 @@ function buildMeshes(primitives, capacity, key) {
     mesh.userData.sceneObjectModel = key;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Contact shadows from anything that stands up. A flat mesh -- the floor,
+    // a ground plane inside an imported model -- would be a caster at height
+    // zero across its whole area and stain everything under it black. Asked
+    // per primitive, so a model's walls cast while its ground does not. And
+    // because `grow` rebuilds through here, a model past its capacity keeps
+    // casting.
+    if (standsUp(geometry)) castsContactShadow(mesh);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Culling is per mesh, not per instance, and the bounds of the set are not
     // the bounds of any one of them. Placements are few and cheap; a wrongly
@@ -184,54 +193,6 @@ function buildMeshes(primitives, capacity, key) {
     SceneManager.add(mesh);
     return mesh;
   });
-}
-
-/**
- * Geometry for a shape the user built, in metres and Z up.
- *
- * Built rather than loaded: a created object is stored as the numbers the user
- * chose, so there is no file to fetch and nothing to correct for. Every shape
- * is centred on its own origin except the plane, which sits on the floor --
- * a plane is a floor, and burying half of it is never what was wanted.
- *
- * @param {Object} primitive `{ type, size }` from the descriptor
- * @returns {THREE.BufferGeometry}
- */
-function primitiveGeometry(primitive) {
-  const size = primitive.size || {};
-  const metre = (value, fallback) => {
-    const number = Number(value);
-    return Number.isFinite(number) && number > 0 ? number : fallback;
-  };
-
-  switch (primitive.type) {
-    case 'cylinder': {
-      const radius = metre(size.radius, 0.5);
-      const geometry = new THREE.CylinderGeometry(radius, radius, metre(size.height, 1), 32);
-      // three builds a cylinder around Y; this scene is Z up.
-      geometry.rotateX(Math.PI / 2);
-      return geometry;
-    }
-    case 'sphere':
-      return new THREE.SphereGeometry(metre(size.radius, 0.5), 32, 16);
-    case 'plane': {
-      // `PlaneGeometry` lies in XY with its normal along +Z, which in this
-      // Z-up scene is already flat and already facing up -- so there is
-      // nothing to rotate, and it is left at z = 0 as a floor. (The comment
-      // here used to describe standing it up from a Y-up world, which this is
-      // not, and a rotation the code has never performed.)
-      return new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
-    }
-    case 'cube':
-    default: {
-      const geometry = new THREE.BoxGeometry(
-        metre(size.x, 1),
-        metre(size.y, 1),
-        metre(size.z, 1),
-      );
-      return geometry;
-    }
-  }
 }
 
 /**

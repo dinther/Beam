@@ -79,6 +79,7 @@ import VideoRouter from './video_router';
 import VideoDecode from './video_decode';
 import ProjectorDepth from './projector_depth';
 import ProjectorEffect from './projector_pass';
+import ContactShadows from './contact_shadows';
 import LaserEffect from './laser_pass';
 import {
   EffectComposer,
@@ -1047,6 +1048,10 @@ class Visualizer {
       // After the heads have moved, so what is packed is where they now point
       // rather than where they were a frame ago.
       LightField.update();
+      // The floor's contact shadows, after anything that moves casters has had
+      // its turn this frame. Redraws only when a caster has moved, and only
+      // with the house lights up: they are a placing aid, not part of the show.
+      ContactShadows.update(this.renderer, SceneManager, SceneEnv.houseLights);
       // Once per drawn frame, not once per frame received: a 60 fps sender
       // into a busy renderer would otherwise pay for uploads nobody sees.
       VideoFeed.updateAll();

@@ -8,16 +8,10 @@ import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.mod
 import MovingHead from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
 import Projector from '../../plugins/visualizer/projector';
-import ProjectorSettings from './projector_settings';
-import { isProjectorProfile } from './generic/projector';
 import Display from '../../plugins/visualizer/display';
 import VideoRouter from '../../plugins/visualizer/video_router';
-import DisplaySettings from './display_settings';
-import { isDisplayProfile } from './generic/display';
 import Laser from '../../plugins/visualizer/laser';
-import LaserSettings from './laser_settings';
-import { isLaserProfile } from './generic/laser';
-import { GENERIC_KINDS } from './generic/kinds';
+import { kindOf } from './generic/fixture_kind';
 import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS } from './scene_item';
@@ -284,15 +278,12 @@ class Fixture extends withTransform(Proxify) {
       // under before displays existed. Two lines, against silently losing every
       // projector's zoom and source on the first load after this change.
       const deviceData = data.device || data.projector;
-      if (isProjectorProfile(this.OFLData)) {
-        this.device = new ProjectorSettings(this.OFLData.asls.projector, deviceData);
-        this.deviceKind = GENERIC_KINDS.PROJECTOR;
-      } else if (isDisplayProfile(this.OFLData)) {
-        this.device = new DisplaySettings(this.OFLData.asls.display, deviceData);
-        this.deviceKind = GENERIC_KINDS.DISPLAY;
-      } else if (isLaserProfile(this.OFLData)) {
-        this.device = new LaserSettings(this.OFLData.asls.laser, deviceData);
-        this.deviceKind = GENERIC_KINDS.LASER;
+      // The kind that made the profile says which Settings hold its
+      // parameters; a library profile was made by none and has no device.
+      const kind = kindOf(this.OFLData);
+      if (kind && kind.hasDevice) {
+        this.device = kind.settingsFor(this.OFLData, deviceData);
+        this.deviceKind = kind.id;
       }
       /** Transform relative to that group or structure, held by the owner. */
       this.localTransform = null;

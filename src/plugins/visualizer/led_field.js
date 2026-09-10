@@ -3,6 +3,7 @@ import DMXStore from './dmx_store';
 import SceneEnv from './scene_env';
 // eslint-disable-next-line import/no-unresolved, import/extensions
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
+import { castsContactShadow } from './contact_shadows';
 
 /**
  * @file Every LED strip in the scene, drawn as three meshes.
@@ -473,6 +474,7 @@ function buildProfiles(maxBars) {
   // expensive.
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  castsContactShadow(mesh);
   return mesh;
 }
 

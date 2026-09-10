@@ -4,21 +4,14 @@
 /**
  * @file What one device is currently doing, and who decides it.
  *
- * Every controllable parameter of a generic fixture is one of three things,
- * chosen when the fixture is defined:
+ * A generic fixture's parameters are declared once, as {@link ControlDef}s, in
+ * the file that defines the kind -- see `device_control.js` for what a
+ * parameter *is*. This file is the other half: what one *placed* machine is
+ * currently set to, given those declarations and whatever the wire is saying.
  *
- * - **Fixed** -- a value baked into the profile. Not shown per placement, never
- *   driven. A prime lens's zoom, a laser with no dimmer.
- * - **Adjustable** -- hand-set per placement and stored in the show. The state
- *   *is* the stored value, and the panel lets you edit it. Most projectors and
- *   displays, which have no DMX socket at all.
- * - **DMX** -- driven from a console. The definition gives a **relative
- *   channel** (a 1-based offset within the fixture) and a **bit depth**
- *   (8/16/24), and the channel owns the row: the stored value becomes a parked
- *   default the device falls back to.
- *
- * One panel and one rule serve all three, and nothing about the panel changes
- * shape when a fixture is patched. Three consequences, each easy to get wrong:
+ * One panel and one rule serve all three modes, and nothing about the panel
+ * changes shape when a fixture is patched. Three consequences, each easy to get
+ * wrong:
  *
  * - **Ownership is asked of the definition, not of whether a frame has landed.**
  *   A row that became editable whenever a console paused would be a race.
@@ -27,19 +20,15 @@
  *   there is no telling a stopped console from a slow one.
  * - **Only non-fixed values travel in the show.** A fixed value lives in the
  *   profile; what DMX is saying is a fact about one machine at one moment.
- *
- * A device supplies a **spec**: one entry per attribute saying what it is worth
- * initially, how to keep a hand-set value legal, and how to read a level off
- * the wire. The three modes and the multi-byte assembly are then the same code
- * for every device.
- *
- * **Controls, and the older tick-list.** A profile carries a `controls` block
- * -- `{ key: { mode, value, channel, bits } }` -- built by the create dialog.
- * Profiles made before this existed carry a `channels` array of the keys that
- * were ticked; those are read through a compatibility path that treats each as
- * DMX, 8-bit, addressed in the kind's fixed order, which is exactly what the
- * tick-list meant. So nothing made before this change loses its patch.
  */
+
+import {
+  ControlSet, ControlDef, PercentType, SwitchType, ChoiceType, clamp, BIT_DEPTHS,
+} from './device_control';
+
+export {
+  clamp, BIT_DEPTHS, ControlSet, ControlDef,
+};
 
 /** Percent, for the attributes measured in it. */
 export const FULL = 100;
@@ -47,145 +36,55 @@ export const FULL = 100;
 /** Above this fraction a shutter reads as open. Half scale, the usual place. */
 export const SHUTTER_OPEN_AT = 0.5;
 
-/** The bit depths a DMX channel may declare. */
-export const BIT_DEPTHS = [8, 16, 24];
-
 /**
- * Keeps a number inside a range.
- *
- * @param {*} value
- * @param {Number} low
- * @param {Number} high
- * @param {Number} fallback used when the value is not a number at all
- * @returns {Number}
- */
-export function clamp(value, low, high, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.min(Math.max(number, low), high);
-}
-
-/**
- * Spec entries the common attributes share, so a device that wants an ordinary
+ * The parameters most video devices share, so a kind that wants an ordinary
  * dimmer does not describe one again.
  *
- * `fromLevel` takes a normalised 0..1 -- the assembled channel value over its
- * full range, whatever the bit depth -- so the same entry serves an 8-bit and
- * a 16-bit dimmer without knowing which it is.
- *
- * @constant {Object}
+ * These are factories rather than shared instances because a definition carries
+ * its own label -- a display's blade is called Blank where a projector's is
+ * called Shutter, and a laser's Source picks a DAC stream where a projector's
+ * picks a video connector.
  */
-export const COMMON_ATTRIBUTES = {
+export const COMMON_CONTROLS = {
   /** 0-100 %, full by default -- a device nobody has dimmed is on. */
-  dimmer: {
-    initial: () => FULL,
-    coerce: (value) => clamp(value, 0, FULL, FULL),
-    fromLevel: (level) => clamp(level, 0, 1, 1) * FULL,
-  },
+  dimmer: (label = 'Dimmer') => new ControlDef('dimmer', label, new PercentType({ initial: FULL }), {
+    capability: { type: 'Intensity', brightnessStart: '0%', brightnessEnd: '100%' },
+  }),
   /** Open or shut. A dowser is a blade, not a fader. */
-  shutter: {
-    initial: () => true,
-    coerce: (value) => !!value,
-    fromLevel: (level) => level >= SHUTTER_OPEN_AT,
-  },
+  shutter: (label = 'Shutter', onLabel = 'Open') => new ControlDef('shutter', label, new SwitchType({ initial: true, onLabel }), {
+    capability: { type: 'ShutterStrobe', shutterEffect: 'Open' },
+  }),
   /**
-   * Which video connector, as an **id** when set by hand and a **one-based
-   * position** when driven. An id survives connectors being reordered where an
-   * index would re-point; a channel has only a number to give.
+   * Which feed, as an **id** when set by hand and a **one-based position** when
+   * driven -- see {@link ChoiceType}.
    */
-  source: {
-    initial: () => null,
-    coerce: (value) => (value === null || value === undefined ? null : value),
-    fromLevel: (level) => Math.round(clamp(level, 0, 1, 0) * 255) || null,
-  },
+  source: (label = 'Source Select', source = 'connectors') => new ControlDef('source', label, new ChoiceType({ source }), { fixable: false }),
 };
-
-/**
- * Builds the OFL channels a `controls` block implies, at the offsets it names.
- *
- * The fixture is drawn by other machinery from a mode's ordered channel list,
- * and `setChannel` routes each byte to `writeChannel` by its position in that
- * list. So a DMX parameter at relative channel 3, 16-bit, has to leave a
- * channel entry at offsets 3 and 4, and any offset nothing uses has to be a
- * real (do-nothing) channel so the ones after it keep their numbers. The
- * capability types are cosmetic here -- routing is by position, in
- * `DeviceSettings.writeChannel` -- so every slot is a plain Maintenance
- * channel, which is OFL's catch-all for a channel that acts on the machine.
- *
- * @public
- * @param {Object} controls `{ key: { mode, channel, bits } }`
- * @param {Object} labels `{ key: 'Human Name' }`
- * @returns {Object} `{ availableChannels, modes, footprint }`
- */
-export function buildControlChannels(controls, labels) {
-  const driven = Object.keys(controls || {})
-    .filter((key) => controls[key] && controls[key].mode === 'dmx')
-    .map((key) => ({
-      key,
-      channel: Math.max(1, Math.round(Number(controls[key].channel) || 1)),
-      bytes: Math.max(1, Math.round((Number(controls[key].bits) || 8) / 8)),
-    }))
-    .sort((a, b) => a.channel - b.channel);
-
-  let footprint = 0;
-  driven.forEach((d) => { footprint = Math.max(footprint, d.channel - 1 + d.bytes); });
-
-  const slots = new Array(footprint).fill(null);
-  driven.forEach((d) => {
-    const label = labels[d.key] || d.key;
-    for (let i = 0; i < d.bytes; i += 1) {
-      const offset = d.channel - 1 + i;
-      // Overlap: two parameters claiming the same byte. Left to the last one
-      // written; the create dialog is what refuses it, this only lays it out.
-      //
-      // The extra bytes are numbered, never called "fine": the fixture parser
-      // treats any channel whose name contains " fine" as a native 16-bit fine
-      // channel and links it to a coarse one, which doubles and reorders these.
-      // Routing here is purely by position, so each byte is its own plain
-      // channel -- "Dimmer", "Dimmer 2", "Dimmer 3".
-      slots[offset] = d.bytes > 1 && i > 0 ? `${label} ${i + 1}` : label;
-    }
-  });
-
-  const availableChannels = {};
-  const channels = slots.map((name, offset) => {
-    const resolved = name || `Reserved ${offset + 1}`;
-    availableChannels[resolved] = { capability: { type: 'Maintenance' } };
-    return resolved;
-  });
-
-  return { availableChannels, modes: [{ name: 'Default', channels }], footprint };
-}
 
 class DeviceSettings {
   /**
-   * @param {Object} spec `{ key: { initial, coerce, fromLevel } }`
+   * @param {Array} defs the kind's parameter declarations, in addressing order
    * @param {Object} params the profile's `asls.*` block -- the envelope, and
-   *   the source of `controls` (or the legacy `channels`)
+   *   the source of `controls` (or the legacy `channels` tick-list)
    * @param {Object} [data] stored values from the show
-   * @param {Array} [order] every key this kind may declare, in the order the
-   *   legacy tick-list addressed them -- used only to read old profiles
    */
-  constructor(spec, params, data = {}, order = null) {
-    this._spec = spec;
+  constructor(defs, params, data = {}) {
+    this._defs = defs;
     this._params = params || {};
-    this._order = order || Object.keys(spec);
-    this._controls = this.resolveControls();
+    this._controls = ControlSet.fromProfile(defs, this._params);
     const stored = data || {};
 
+    /**
+     * The parked value per attribute: what the profile bakes in for a fixed
+     * one, what the show carries for anything else, and the definition's own
+     * default when the show says nothing.
+     */
     this._stored = {};
-    Object.keys(spec).forEach((key) => {
-      const entry = spec[key];
-      const ctrl = this._controls[key];
-      if (ctrl && ctrl.mode === 'fixed') {
-        // Baked in the profile, not the show.
-        this._stored[key] = entry.coerce(ctrl.value, this._params);
-      } else if (stored[key] !== undefined) {
-        this._stored[key] = entry.coerce(stored[key], this._params);
-      } else if (ctrl && ctrl.value !== undefined) {
-        this._stored[key] = entry.coerce(ctrl.value, this._params);
+    this._controls.controls.forEach((control) => {
+      if (control.isFixed || stored[control.key] === undefined) {
+        this._stored[control.key] = control.value;
       } else {
-        this._stored[key] = entry.initial(this._params);
+        this._stored[control.key] = control.type.coerce(stored[control.key], this._params);
       }
     });
 
@@ -193,63 +92,24 @@ class DeviceSettings {
     this._live = {};
     /** The assembled raw integer per driven attribute, across its bytes. */
     this._raw = {};
-    this._byteMap = this.buildByteMap();
+    this._byteMap = this._controls.byteMap();
   }
 
   /**
-   * The controls block, from the profile or reconstructed from a legacy
-   * `channels` tick-list.
+   * The parameters this device declares, as objects.
    *
-   * @returns {Object} `{ key: { mode, value, channel, bits } }`
+   * @readonly
+   * @type {ControlSet}
    */
-  resolveControls() {
-    if (this._params.controls) return this._params.controls;
-    // Legacy: a ticked channel was DMX, 8-bit, addressed in the kind's order.
-    const declared = this._params.channels || [];
-    const controls = {};
-    let channel = 1;
-    this._order.forEach((key) => {
-      if (declared.includes(key)) {
-        controls[key] = { mode: 'dmx', channel, bits: 8 };
-        channel += 1;
-      }
-    });
-    return controls;
-  }
+  get controls() { return this._controls; }
 
   /**
-   * offset (0-based) -> `{ key, byteIndex, bytes }` for every driven byte.
-   *
-   * @returns {Object}
-   */
-  buildByteMap() {
-    const map = {};
-    Object.keys(this._controls).forEach((key) => {
-      const ctrl = this._controls[key];
-      if (!ctrl || ctrl.mode !== 'dmx' || !this._spec[key]) return;
-      const channel = Math.max(1, Math.round(Number(ctrl.channel) || 1));
-      const bytes = Math.max(1, Math.round((Number(ctrl.bits) || 8) / 8));
-      for (let i = 0; i < bytes; i += 1) {
-        map[channel - 1 + i] = { key, byteIndex: i, bytes };
-      }
-    });
-    return map;
-  }
-
-  /**
-   * How many DMX channels this fixture occupies: the furthest byte any driven
-   * parameter reaches.
+   * How many DMX channels this fixture occupies.
    *
    * @readonly
    * @type {Number}
    */
-  get footprint() {
-    let footprint = 0;
-    Object.keys(this._byteMap).forEach((offset) => {
-      footprint = Math.max(footprint, Number(offset) + 1);
-    });
-    return footprint;
-  }
+  get footprint() { return this._controls.footprint; }
 
   /**
    * The keys this fixture drives over DMX.
@@ -257,22 +117,16 @@ class DeviceSettings {
    * @readonly
    * @type {Array}
    */
-  get channels() {
-    return Object.keys(this._controls).filter((key) => this._controls[key].mode === 'dmx');
-  }
+  get channels() { return this._controls.drivenKeys; }
 
   /**
-   * The mode of a parameter: 'fixed', 'dmx' or 'adjustable' (the default for a
-   * spec key no control names).
+   * The mode of a parameter: 'fixed', 'dmx' or 'adjustable'.
    *
    * @public
    * @param {String} key
    * @returns {String}
    */
-  mode(key) {
-    const ctrl = this._controls[key];
-    return ctrl && ctrl.mode ? ctrl.mode : 'adjustable';
-  }
+  mode(key) { return this._controls.modeOf(key); }
 
   /**
    * Whether a channel drives this attribute -- what decides whether the panel
@@ -282,9 +136,7 @@ class DeviceSettings {
    * @param {String} key
    * @returns {Boolean}
    */
-  isDriven(key) {
-    return this.mode(key) === 'dmx';
-  }
+  isDriven(key) { return this.mode(key) === 'dmx'; }
 
   /**
    * Whether this attribute is baked in the profile and not shown per placement.
@@ -293,13 +145,11 @@ class DeviceSettings {
    * @param {String} key
    * @returns {Boolean}
    */
-  isFixed(key) {
-    return this.mode(key) === 'fixed';
-  }
+  isFixed(key) { return this.mode(key) === 'fixed'; }
 
   /**
    * What the device is actually doing: the live value if one has arrived,
-   * otherwise the stored one.
+   * otherwise the parked one.
    *
    * @public
    * @param {String} key
@@ -317,12 +167,10 @@ class DeviceSettings {
    * @param {String} key
    * @returns {*}
    */
-  stored(key) {
-    return this._stored[key];
-  }
+  stored(key) { return this._stored[key]; }
 
   /**
-   * Sets the stored value, keeping it inside what the profile allows. Refused
+   * Sets the parked value, keeping it inside what the profile allows. Refused
    * for a fixed attribute, whose value belongs to the profile.
    *
    * @public
@@ -330,9 +178,9 @@ class DeviceSettings {
    * @param {*} value
    */
   set(key, value) {
-    const entry = this._spec[key];
-    if (!entry || this.isFixed(key)) return;
-    this._stored[key] = entry.coerce(value, this._params);
+    const control = this._controls.get(key);
+    if (!control || control.isFixed) return;
+    this._stored[key] = control.type.coerce(value, this._params);
   }
 
   /**
@@ -349,8 +197,8 @@ class DeviceSettings {
   writeChannel(index, dmx) {
     const entry = this._byteMap[index];
     if (!entry) return;
-    const spec = this._spec[entry.key];
-    if (!spec) return;
+    const control = this._controls.get(entry.key);
+    if (!control) return;
     const shift = (entry.bytes - 1 - entry.byteIndex) * 8;
     const raw = this._raw[entry.key] || 0;
     // Replace just this byte, leave the others.
@@ -360,7 +208,7 @@ class DeviceSettings {
     // 16 places is well within 32 bits, but bitwise ops otherwise sign it.
     this._raw[entry.key] = next >>> 0;
     const max = (2 ** (entry.bytes * 8)) - 1;
-    this._live[entry.key] = spec.fromLevel(this._raw[entry.key] / max, this._params);
+    this._live[entry.key] = control.type.fromLevel(this._raw[entry.key] / max, this._params);
   }
 
   /**
@@ -370,9 +218,7 @@ class DeviceSettings {
    * @param {String} key
    * @returns {Boolean}
    */
-  hasLive(key) {
-    return this._live[key] !== undefined;
-  }
+  hasLive(key) { return this._live[key] !== undefined; }
 
   /**
    * Only the non-fixed values travel in the show; a fixed value is in the
@@ -383,8 +229,8 @@ class DeviceSettings {
    */
   get showData() {
     const data = {};
-    Object.keys(this._spec).forEach((key) => {
-      if (!this.isFixed(key)) data[key] = this._stored[key];
+    this._controls.controls.forEach((control) => {
+      if (!control.isFixed) data[control.key] = this._stored[control.key];
     });
     return data;
   }

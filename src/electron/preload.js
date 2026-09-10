@@ -201,7 +201,7 @@ contextBridge.exposeInMainWorld('library', {
    * @param {Object} primitive `{ type, size, color }`
    * @returns {Promise<Object>} `{ ok, name, file }` or `{ ok: false, reason }`
    */
-  createObject: (name, primitive) => ipcRenderer.invoke('library:createObject', name, primitive),
+  createObject: (name, primitive, options) => ipcRenderer.invoke('library:createObject', name, primitive, options),
   /**
    * Stores a rendered preview beside the model it pictures.
    *

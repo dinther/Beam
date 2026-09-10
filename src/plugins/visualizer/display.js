@@ -3,6 +3,7 @@ import SceneManager from './scene_manager';
 import VideoRouter from './video_router';
 import { createPanelMaterial } from './video_material';
 import { pixelFill, displayCurve } from '../../models/DMX/generic/display';
+import { castsContactShadow } from './contact_shadows';
 
 /**
  * @file Renderer for a generic display: a bezelled box with a picture on it.
@@ -313,6 +314,7 @@ class Display {
     this._body = new THREE.Mesh(new THREE.BufferGeometry(), BODY_MATERIAL);
     this._body.userData.pickOwner = this;
     this._dummy.add(this._body);
+    castsContactShadow(this._body);
 
     // Its own geometry, not the shared one: the UVs are per connector, so two
     // displays showing different slices cannot share a buffer.

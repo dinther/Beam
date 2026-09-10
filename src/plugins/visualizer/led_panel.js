@@ -11,6 +11,7 @@ import {
 } from '../../models/DMX/generic/led_bar';
 // eslint-disable-next-line import/no-unresolved, import/extensions
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
+import { castsContactShadow } from './contact_shadows';
 
 /**
  * @file Grid LED fixtures, drawn as surfaces rather than as swarms.
@@ -869,6 +870,8 @@ function createPanel(params) {
   });
 
   const mesh = new THREE.Mesh(PANEL_GEOMETRY, material);
+  // The panel casts; its glow is light, not a thing.
+  castsContactShadow(mesh);
   const glow = new THREE.Mesh(GLOW_GEOMETRY, glowMaterial);
   // Scattered light needs something to scatter off: in clear air this
   // rasterises to black, and it is larger than the tile.

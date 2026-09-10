@@ -17,15 +17,13 @@ import Structure from './structure.model';
 import SceneObject from './object.model';
 import Live from './live.model';
 import {
-  buildLedBarProfile, expandLedBarProfile, withoutLedBarChannels,
+  expandLedBarProfile, withoutLedBarChannels,
 } from './generic/led_bar';
-import { buildProjectorProfile } from './generic/projector';
-import { buildDisplayProfile } from './generic/display';
-import { buildLaserProfile } from './generic/laser';
+import { kindById } from './generic/fixture_kind';
+import DefinitionStore from './definition_store';
 import VideoRouter from '../../plugins/visualizer/video_router';
 import SceneObjects from '../../plugins/visualizer/scene_objects';
 import Studio from './studio';
-import { GENERIC_KINDS } from './generic/kinds';
 import { normaliseMatrixProfile } from './ofl_matrix';
 import { MAX_SHADOW_CASTERS } from '../../plugins/visualizer/moving_head';
 
@@ -146,6 +144,12 @@ class Show extends EventEmitter {
      * user chose, and saved beside the show.
      */
     this.generatedProfiles = {};
+    /**
+     * Fixture definitions that belong to this show and not (yet) to the
+     * library -- see `definition_store.js`. Resolved ahead of the library, so a
+     * show's own definition wins over a library entry of the same name.
+     */
+    this.definitions = new DefinitionStore();
     this.fixturePool = new FixturePool();
     /** Groups, in list order. Membership is exclusive. */
     this.groups = [];
@@ -271,6 +275,10 @@ class Show extends EventEmitter {
       // Keys and transforms. The geometry stays in the library until an export
       // collects it, which is the same bargain profiles make.
       objects: this.objects.map((object) => object.showData),
+      // The show's own fixture definitions travel with it, so it opens on a
+      // machine whose library has never seen them. Pruned first: a definition
+      // nothing references any more is not part of this show.
+      definitions: this.pruneDefinitions().toJSON(),
       fixtures: this.fixturePool.fixtures.map((f) => f.showData),
       // The rectangles, and deliberately not which sender fills them: that is
       // a fact about one machine, and this file opens on others.
@@ -403,6 +411,8 @@ class Show extends EventEmitter {
     if (fixtureHandle) {
       PatchSingleton.unpatchFixture(fixtureHandle);
       this.fixturePool.delete(fixtureHandle, true);
+      // The last instance takes its definition with it.
+      this.pruneDefinitions();
     }
   }
 
@@ -430,6 +440,7 @@ class Show extends EventEmitter {
     // Nothing to dispose: a connector holds no scene node and no GPU
     // resource, only numbers.
     this.videoConnectors = [];
+    this.definitions = new DefinitionStore();
     this.isSaved = true;
   }
 
@@ -659,6 +670,9 @@ class Show extends EventEmitter {
     await this.preloadFixtureList();
     await this.preloadFixtureOverrides();
 
+    // Before the fixtures, which resolve their profiles through it.
+    this.definitions = DefinitionStore.fromJSON(showData.definitions);
+
     this.loading.message = 'Setting up show fixtures';
     this.loading.percentage = 60;
     await this.prepareFixtures(showData);
@@ -731,8 +745,9 @@ class Show extends EventEmitter {
     for (let i = 0; i < showData.fixtures.length; i++) {
       const fixtureData = showData.fixtures[i];
       const profileKey = `${fixtureData.manufacturer}/${fixtureData.model}`;
-      fixtureData.OFLData = this.generatedProfiles[profileKey]
-        ? JSON.parse(JSON.stringify(this.generatedProfiles[profileKey]))
+      const local = this.localProfile(profileKey);
+      fixtureData.OFLData = local
+        ? JSON.parse(JSON.stringify(local))
         : JSON.parse(fixtureDataCache[profileKey] || null);
       if (!fixtureData.OFLData) {
         // A profile the user has since deleted is an ordinary thing to meet in
@@ -1170,9 +1185,8 @@ class Show extends EventEmitter {
    */
   async resolveProfile(manufacturer, model) {
     const key = `${manufacturer}/${model}`;
-    if (this.generatedProfiles[key]) {
-      return JSON.parse(JSON.stringify(this.generatedProfiles[key]));
-    }
+    const local = this.localProfile(key);
+    if (local) return JSON.parse(JSON.stringify(local));
     // The same cache the load path fills, for a reason that has nothing to do
     // with the cost of a fetch. A profile is ~0.5 ms to fetch; what it costs
     // is the *await*. An await on real I/O is a macrotask, so the renderer
@@ -1305,12 +1319,20 @@ class Show extends EventEmitter {
    * @param {Object} [transform] `{ position, rotation, scale }`
    * @returns {Promise<Object>} the object
    */
-  async placeObject(descriptor, transform = {}) {
+  async placeObject(descriptor, transform = {}, { inline: created = false } = {}) {
     // Two kinds of thing arrive here. A **library entry** is referenced by
-    // name and shares its geometry with every other placement of it. A
-    // **created** object arrives as parameters and carries them itself, so it
-    // stays editable and belongs to this show alone -- see `SceneObject`.
-    const inline = descriptor && descriptor.primitive
+    // key and shares its geometry with every other placement of it; its
+    // shape is a definition and a placement cannot change it. A **created**
+    // object arrives from the create dialog as parameters and carries them
+    // itself, so it stays editable and belongs to this show alone -- see
+    // `SceneObject`.
+    //
+    // Which one it is has to be said by the caller, not read off the data.
+    // A saved primitive's library entry carries its type, size and colour
+    // too, so "has parameters" once made every Stage Table placed from the
+    // library an editable cube that happened to start at the saved size --
+    // the opposite of what saving it had just promised.
+    const inline = created && descriptor && descriptor.primitive
       ? { ...descriptor.primitive, type: descriptor.primitive.type || descriptor.type }
       : null;
     const object = new SceneObject({
@@ -1345,7 +1367,68 @@ class Show extends EventEmitter {
       size: { ...(params.size || {}) },
       color: params.color,
     };
-    return this.placeObject({ name: params.name, primitive }, transform);
+    return this.placeObject({ name: params.name, primitive }, transform, { inline: true });
+  }
+
+  /**
+   * Makes a created object a reference to the library entry it was just saved
+   * as.
+   *
+   * The library is re-read first, because the entry did not exist when the
+   * catalogue was last listed, and the object is then re-pointed at it -- see
+   * `SceneObject.adoptLibraryModel` for what that means for its parameters.
+   *
+   * @public
+   * @async
+   * @param {SceneObject} object the created object that was saved
+   * @param {String} key the library key it was saved under
+   * @returns {Promise<Boolean>} whether the object now draws from the library
+   */
+  async adoptObjectIntoLibrary(object, key) {
+    await this.preloadObjectLibrary();
+    const descriptor = this.objectLibrary[foldModelKey(key)] || null;
+    if (!descriptor) return false;
+    // The entry may have just been overwritten. Its old build is cached under
+    // the same key, and the renderer answers a key from its cache -- so every
+    // placement of it, this object included, would go on drawing the old shape
+    // until a restart. Dropped, and every other placement of it redrawn from
+    // the entry as it now is. For a brand new entry nothing is cached and no
+    // placement references it, so this does nothing.
+    SceneObjects.forget(descriptor.key || key);
+    const others = this.objects.filter((item) => item !== object && !item.isInline
+      && foldModelKey(item.model) === foldModelKey(key));
+    await Promise.all(others.map((item) => item.reattach(descriptor)));
+    return object.adoptLibraryModel(key, descriptor);
+  }
+
+  /**
+   * The library entry a placed object references, or null for a created
+   * object or one whose entry is missing.
+   *
+   * @public
+   * @param {SceneObject} object
+   * @returns {Object|null}
+   */
+  objectLibraryEntry(object) {
+    if (!object || object.isInline || !object.model) return null;
+    return this.objectLibrary[foldModelKey(object.model)] || null;
+  }
+
+  /**
+   * Makes a placement of a library shape into a created object of this show.
+   *
+   * The opposite of `adoptObjectIntoLibrary`. See
+   * `SceneObject.makeUnique`.
+   *
+   * @public
+   * @async
+   * @param {SceneObject} object
+   * @returns {Promise<Boolean>} whether the object is now its own
+   */
+  async makeObjectUnique(object) {
+    const entry = this.objectLibraryEntry(object);
+    if (!entry || !entry.primitive) return false;
+    return object.makeUnique(entry);
   }
 
   /**
@@ -1676,39 +1759,110 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Builds a generic fixture profile and adds it to the library.
+   * A profile the app made, wherever it lives: this show's own definitions
+   * first, then the library's generated profiles. Null for a shipped OFL
+   * profile, which is fetched.
+   *
+   * The one lookup both the load path and the Add-to-Show list use, so the
+   * two cannot disagree about which wins when a show and the library both
+   * hold a definition of the same name -- the show does.
+   *
+   * @public
+   * @param {String} key `manufacturer/model`
+   * @returns {Object|null}
+   */
+  localProfile(key) {
+    return this.definitions.get(key) || this.generatedProfiles[key] || null;
+  }
+
+  /**
+   * Whether a definition belongs to this show rather than the library.
+   *
+   * @public
+   * @param {String} key
+   * @returns {Boolean}
+   */
+  isShowDefinition(key) {
+    return this.definitions.has(key);
+  }
+
+  /**
+   * Builds a generic fixture definition and adds it to **this show**.
+   *
+   * Nothing is written to the library. A definition lives with the show until
+   * the user saves it from the fixture's Model widget, and disappears when the
+   * last fixture using it does -- see `definition_store.js`. That is the same
+   * bargain a structure makes, and the opposite of what this used to do, which
+   * was to mint a permanent library entry for every experiment.
+   *
+   * @public
+   * @param {String} manufacturer name the user chose
+   * @param {String} model name the user chose
+   * @param {Object} params geometry, wiring and controls
+   * @param {String} kindId which kind builds it -- see `generic/fixture_kind.js`
+   * @returns {String} the definition's key
+   */
+  createDefinition(manufacturer, model, params, kindId) {
+    const kind = kindById(kindId);
+    if (!kind) throw new Error(`No fixture kind called "${kindId}"`);
+    const key = `${manufacturer}/${model}`;
+    const profile = kind.buildProfile(params);
+    profile.name = model;
+    this.definitions.add(key, profile);
+    this.refreshFixtureList();
+    return key;
+  }
+
+  /**
+   * Drops the show's definitions nothing places any more.
+   *
+   * Called before the show is written and after a fixture is deleted, so a
+   * definition created and never placed, or whose last instance was removed,
+   * does not outlive its use.
+   *
+   * @public
+   * @returns {DefinitionStore} the store, for chaining into `toJSON`
+   */
+  pruneDefinitions() {
+    const inUse = this.fixturePool.fixtures.map((f) => `${f.manufacturer}/${f.model}`);
+    if (this.definitions.prune(inUse).length) this.refreshFixtureList();
+    return this.definitions;
+  }
+
+  /**
+   * Moves one of this show's definitions into the library.
+   *
+   * The deliberate act. Afterwards the show is in the state it would be in had
+   * the fixture been placed from the library: the definition is gone from the
+   * show, the library has it, and every instance carries on under the same
+   * key as a library reference. A library entry of that name already existing
+   * is refused rather than overwritten -- the library is keyed by name and a
+   * silent overwrite would change fixtures in other shows.
    *
    * @public
    * @async
-   * @param {String} manufacturer name the user chose
-   * @param {String} model name the user chose
-   * @param {Object} params geometry and wiring
-   * @param {String} [kind] which builder to use -- see `generic/kinds.js`
-   * @returns {String} the profile's key
+   * @param {String} key `manufacturer/model`
+   * @returns {Object} `{ ok, reason }`
    */
-  async createGeneratedProfile(manufacturer, model, params, kind = GENERIC_KINDS.BAR) {
-    const key = `${manufacturer}/${model}`;
-    let profile;
-    if (kind === GENERIC_KINDS.PROJECTOR) profile = buildProjectorProfile(params);
-    else if (kind === GENERIC_KINDS.DISPLAY) profile = buildDisplayProfile(params);
-    else if (kind === GENERIC_KINDS.LASER) profile = buildLaserProfile(params);
-    else profile = buildLedBarProfile(params);
-    profile.name = model;
-    this.generatedProfiles[key] = profile;
+  async saveDefinitionToLibrary(key) {
+    const profile = this.definitions.get(key);
+    if (!profile) return { ok: false, reason: 'This fixture is not a definition of this show.' };
+    if (this.generatedProfiles[key]) {
+      return { ok: false, reason: `The library already has a "${key}". Recreate this fixture under another name to save it.` };
+    }
     if (typeof window !== 'undefined' && window.library) {
-      // A bar is written without its channel list. Every entry is the same
-      // capability under a different name, and `asls.bar` already says what
-      // they are: a 256 x 256 tile is 196,608 of them, which is 33 MB of file
-      // saying nothing the geometry has not said already. A projector has at
-      // most six, all different, so `withoutLedBarChannels` passes it through.
+      // A bar is written without its channel list, as the store does -- see
+      // `definition_store.js` for why.
       await window.library.write(
         'profiles',
         key,
         JSON.stringify(withoutLedBarChannels(profile), null, 2),
       );
     }
+    this.generatedProfiles[key] = profile;
+    this.definitions.remove(key);
     this.refreshFixtureList();
-    return key;
+    return { ok: true };
   }
 
   /**
@@ -1718,7 +1872,13 @@ class Show extends EventEmitter {
    */
   refreshFixtureList() {
     const library = this.rawOFLFixtures.filter((entry) => !entry.generated);
-    this.rawOFLFixtures = [...this.generatedFixtureList(), ...library];
+    // This show's own definitions first -- they are what the user just made --
+    // then the library's, then the shipped profiles.
+    this.rawOFLFixtures = [
+      ...this.definitions.list(),
+      ...this.generatedFixtureList(),
+      ...library,
+    ];
   }
 
   /**

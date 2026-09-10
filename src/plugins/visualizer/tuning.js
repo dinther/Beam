@@ -24,6 +24,7 @@ import { EMITTER_UNIFORMS, GLOW_UNIFORMS } from './led_field';
 import LEDPanel from './led_panel';
 import Laser from './laser';
 import { setAmbientCeiling } from './ambient';
+import ContactShadows from './contact_shadows';
 
 const PREFIX = 'tune.';
 
@@ -71,6 +72,10 @@ const CONTROLS = {
   hazeTurn: (value) => setHazeTurn(value / 100),
   airHaze: (value, vis) => { if (vis.ambientHaze) vis.ambientHaze.setCeiling(value); },
   airGrain: (value, vis) => { if (vis.ambientHaze) vis.ambientHaze.setFieldDepth(value); },
+  // Contact shadows. The toggle is also the rollback: off, nothing is drawn.
+  contactShadows: (value) => ContactShadows.setEnabled(value),
+  contactStrength: (value) => ContactShadows.setStrength(value),
+  contactReach: (value) => ContactShadows.setReach(value),
   airScale: (value, vis) => {
     if (vis.ambientHaze) vis.ambientHaze.setScaleMultiplier(value);
   },

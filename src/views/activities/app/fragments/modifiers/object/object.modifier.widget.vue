@@ -22,9 +22,36 @@
       <span class="object_widget_note">
         {{ object.model }}
       </span>
+      <!-- A definition, not a parameter set: what a library model is made of is
+           what it is. An imported one is changed in the file it came from; a
+           saved shape is changed by making it again under another name. -->
       <span class="object_widget_note">
-        Imported models are edited in the file they came from, not here.
+        A library model is a definition and is not edited here. Make it
+        unique to change this one, or edit an imported model in its file.
       </span>
+      <!-- The inverse of Save to library, the way un-structure is the inverse
+           of making a structure: this placement takes the shape's parameters
+           as its own and stops referencing the library. Only for a shape --
+           an imported model has only a file, nothing to hand back. -->
+      <uk-flex
+        v-if="canMakeUnique"
+        :gap="8"
+      >
+        <uk-button
+          icon="copy"
+          label="make unique"
+          title="Detach this one from the library, as if you had just created it"
+          @click="makeUnique"
+        />
+      </uk-flex>
+      <!-- Here as well as below: a failed make-unique leaves the widget on this
+           view, and the reason has to be somewhere it can be read. -->
+      <p
+        v-if="message"
+        :class="failed ? 'object_widget_warning' : 'object_widget_ok'"
+      >
+        {{ message }}
+      </p>
     </uk-flex>
 
     <uk-flex
@@ -44,7 +71,7 @@
           icon="export"
           label="save to library"
           :disabled="saving"
-          title="Store these parameters as a template to place again later"
+          title="Save this shape to the library under its name; it becomes a library model"
           @click="saveToLibrary"
         />
       </uk-flex>
@@ -60,6 +87,7 @@
 </template>
 
 <script>
+import confirm from '@/plugins/confirm';
 import ObjectParamsForm from './object.params.form.vue';
 
 /**
@@ -70,7 +98,19 @@ import ObjectParamsForm from './object.params.form.vue';
  * creating one wrote a library entry and froze it, so a wider cube meant a
  * second cube and a library full of near duplicates.
  *
- * **Save to library copies the parameters out; it does not turn this object
+ * **Save to library turns this object into a library reference.** Until then
+ * it is a bare placement of its kind, and its size and colour are its own to
+ * change; saved as "Stage Table", those numbers become part of a definition
+ * and the placement can no longer change them -- a definition is never edited,
+ * only made again. This replaced the earlier bargain, described below for the
+ * record, in which the object stayed inline after saving.
+ *
+ * **Make unique is the way back** (2026-09-10), for a placement of a library
+ * shape: it takes the shape's parameters as its own and is editable again, as
+ * if just created, while the library entry stays as it was. The same relation
+ * un-structure has to making a structure.
+ *
+ * **(Superseded) Save to library copies the parameters out; it does not turn this object
  * into a reference to them.** Paul's call, and the same rule structures follow:
  * a stamp, not a block. The alternative would mean clicking Save quietly
  * changed what this object *is*, so that recolouring it afterwards recoloured
@@ -102,6 +142,11 @@ export default {
     };
   },
   computed: {
+    /** Whether the library model behind this object is a shape it could own. */
+    canMakeUnique() {
+      const entry = this.$show.objectLibraryEntry(this.object);
+      return !!(entry && entry.primitive);
+    },
     /**
      * The object's parameters, written straight through on every change.
      *
@@ -147,6 +192,22 @@ export default {
   },
   methods: {
     /**
+     * Detaches this placement from its library shape. The widget then shows the
+     * editable view on its own, because the object is now inline.
+     *
+     * @public
+     * @async
+     */
+    async makeUnique() {
+      if (!this.object) return;
+      this.message = '';
+      this.failed = false;
+      if (!await this.$show.makeObjectUnique(this.object)) {
+        this.failed = true;
+        this.message = 'The library entry for this object could not be found.';
+      }
+    },
+    /**
      * Writes these parameters into the object library as a template.
      *
      * @public
@@ -172,9 +233,29 @@ export default {
         color: this.object.primitive.color,
       }));
 
+      const name = String(this.object.name);
       let result = null;
       try {
-        result = await window.library.createObject(String(this.object.name), primitive);
+        result = await window.library.createObject(name, primitive);
+        // A shape of this name is already in the library. Asked, not refused:
+        // replacing it is a real thing to want -- make a library shape unique,
+        // change it, save it back -- but it changes every placement of it, in
+        // this show and in every other that uses it, so it is never done
+        // without a yes.
+        if (result && result.exists) {
+          const yes = await confirm({
+            title: 'Overwrite library entry?',
+            message: `"${name}" is already in the object library. Overwrite it with this shape?`,
+            detail: `Every placement of "${name}" will change -- in this show, and in any other show that uses it.`,
+            yes: 'yes',
+            no: 'no',
+          });
+          if (!yes) {
+            this.saving = false;
+            return;
+          }
+          result = await window.library.createObject(name, primitive, { overwrite: true });
+        }
       } catch (err) {
         // A throw crosses IPC as a rejection, not as a `reason`, and without
         // this the button would stay disabled on a failure nobody explained.
@@ -184,13 +265,23 @@ export default {
         return;
       }
 
-      this.saving = false;
       this.failed = !(result && result.ok);
-      // The reason matters most when it is a name clash, which is the usual
-      // one: the library is keyed by name and will not overwrite silently.
-      this.message = this.failed
-        ? (result && result.reason) || 'Could not save to the library.'
-        : `Saved "${result.name}" to the object library.`;
+      if (this.failed) {
+        this.saving = false;
+        // The reason matters most when it is a name clash, which is the usual
+        // one: the library is keyed by name and will not overwrite silently.
+        this.message = (result && result.reason) || 'Could not save to the library.';
+        return;
+      }
+      // Saved means *is* a library model now: the object stops carrying its
+      // own parameters and references the entry, so this widget flips to the
+      // library view above. The same move a fixture definition makes when it
+      // is saved -- a definition is either the show's or the library's.
+      const adopted = await this.$show.adoptObjectIntoLibrary(this.object, result.key);
+      this.saving = false;
+      this.message = adopted
+        ? `Saved "${result.name}" to the object library.`
+        : `Saved "${result.name}", but the library entry could not be read back.`;
     },
   },
 };

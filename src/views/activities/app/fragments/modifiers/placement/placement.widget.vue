@@ -1,6 +1,6 @@
 <template>
   <uk-widget
-    class="position_tool"
+    class="placement_widget position_tool"
     dockable
     :header="{ title, icon: 'move' }"
   >
@@ -104,7 +104,7 @@ const AXES = {
 };
 
 export default {
-  name: 'FixtureModifierWidgetPositionTool',
+  name: 'PlacementWidget',
   compatConfig: {
     // or, for full vue 3 compat in this component:
     MODE: 3,
@@ -118,23 +118,18 @@ export default {
       default: null,
     },
     /**
-     * Widget title. A structure gets its own, so two of these side by side --
-     * the structure and one of its members -- say which is which.
+     * Widget title. "Placement" for whatever single thing is selected -- a
+     * fixture, an object, a structure -- because it is the same widget doing
+     * the same job for each. Only where two sit side by side does one need a
+     * different name: a structure and the member opened inside it.
      */
     title: {
       type: String,
-      default: 'Position Tool',
+      default: 'Placement',
     },
   },
   data() {
     return {
-      /**
-       * Widget header data
-       */
-      header: {
-        title: 'Fixture Settings',
-        icon: 'move',
-      },
       /**
        * Bumped whenever the gizmo moves something, purely to make the fields
        * re-read. What a drag changes is not reactive -- the model is not

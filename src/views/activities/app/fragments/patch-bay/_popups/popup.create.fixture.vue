@@ -362,18 +362,12 @@
              a shutter and a dimmer and nothing else. So this is a choice rather
              than a consequence of the geometry, and none of them ticked is a
              legitimate projector that you aim by hand. -->
-        <span class="create_section">DMX channels</span>
-        <uk-flex
-          :gap="12"
-          class="ticks"
-        >
-          <uk-checkbox
-            v-for="option in channelOptions"
-            :key="option.key"
-            v-model="channelsOn[option.key]"
-            :label="option.label"
-          />
-        </uk-flex>
+        <span class="create_section">Controls</span>
+        <device-controls-form
+          :defs="projectorControlDefs"
+          :params="projectorEnvelope"
+          :controls="projectorControls"
+        />
 
         <p
           v-if="lensWarning"
@@ -491,18 +485,12 @@
 
         <!-- Same argument as a projector's: most displays have no DMX socket
              at all, and one is still worth placing. -->
-        <span class="create_section">DMX channels</span>
-        <uk-flex
-          :gap="12"
-          class="ticks"
-        >
-          <uk-checkbox
-            v-for="option in displayChannelOptions"
-            :key="option.key"
-            v-model="displayChannelsOn[option.key]"
-            :label="option.label"
-          />
-        </uk-flex>
+        <span class="create_section">Controls</span>
+        <device-controls-form
+          :defs="displayControlDefs"
+          :params="displayEnvelope"
+          :controls="displayControls"
+        />
 
         <p class="create_summary">
           {{ displayChannelSummary }}
@@ -622,43 +610,11 @@
              or DMX (driven, at a relative channel and bit depth). All-Adjustable
              is a laser you correct by hand, the common case. -->
         <span class="create_section">Output stage</span>
-        <uk-flex
-          v-for="option in laserControlOptions"
-          :key="option.key"
-          :gap="8"
-          class="control_row"
-        >
-          <span class="control_label">{{ option.label }}</span>
-          <uk-select-input
-            :model-value="laserControls[option.key].modeIndex"
-            style="width: 120px"
-            :options="controlModeLabels"
-            @update:model-value="(v) => setControlMode(option.key, v)"
-          />
-          <template v-if="laserControls[option.key].modeIndex === 2">
-            <uk-num-input
-              v-model="laserControls[option.key].channel"
-              class="field"
-              label="Rel. channel"
-              :min="1"
-              :max="512"
-            />
-            <uk-select-input
-              v-model="laserControls[option.key].bitsIndex"
-              style="width: 100px"
-              label="Depth"
-              :options="controlBitLabels"
-            />
-          </template>
-          <uk-num-input
-            v-else
-            v-model="laserControls[option.key].value"
-            class="field"
-            label="Value"
-            :min="-100"
-            :max="100"
-          />
-        </uk-flex>
+        <device-controls-form
+          :defs="laserControlDefs"
+          :params="laserEnvelope"
+          :controls="laserControls"
+        />
 
         <p class="create_summary">
           {{ laserSummary }}
@@ -673,22 +629,24 @@ import {
   DEFAULT_BAR_PARAMS, START_CORNERS, SCAN_AXES, BAR_SHAPES,
 } from '@/models/DMX/generic/led_bar';
 import {
-  DEFAULT_PROJECTOR_PARAMS, CHANNEL_ORDER, CHANNEL_LABELS, throwAngles,
+  DEFAULT_PROJECTOR_PARAMS,
+  CONTROL_DEFS as PROJECTOR_CONTROL_DEFS,
+  throwAngles,
 } from '@/models/DMX/generic/projector';
 import {
   DEFAULT_DISPLAY_PARAMS,
-  CHANNEL_ORDER as DISPLAY_CHANNEL_ORDER,
-  CHANNEL_LABELS as DISPLAY_CHANNEL_LABELS,
+  CONTROL_DEFS as DISPLAY_CONTROL_DEFS,
   pixelPitch,
   pixelFill,
 } from '@/models/DMX/generic/display';
 import {
   DEFAULT_LASER_PARAMS,
-  CHANNEL_ORDER as LASER_CHANNEL_ORDER,
-  CHANNEL_LABELS as LASER_CHANNEL_LABELS,
+  CONTROL_DEFS as LASER_CONTROL_DEFS,
   imageSizeAt as laserImageSizeAt,
 } from '@/models/DMX/generic/laser';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
+import { blankRecords, controlSetFromRecords } from '@/models/DMX/device_control';
+import DeviceControlsForm from '../../modifiers/device/device.controls.form.vue';
 
 /** Millimetres per metre: the form talks mm, the model talks metres. */
 const MM = 1000;
@@ -715,32 +673,13 @@ const KIND_BUILDERS = [
 // fixture to match, so the two do not sit there disagreeing -- but only while
 // the name is still the one this dialog chose.
 const KIND_NAMES = ['LED Bar', 'LED Panel', 'Projector', 'Display', 'Laser'];
-// How a generic parameter is decided, and the bit depths a DMX one may use.
-// The selects model an index, so these are the source of both the labels and
-// the value each index maps to.
-const CONTROL_MODES = ['fixed', 'adjustable', 'dmx'];
-const CONTROL_MODE_LABELS = ['Fixed', 'Adjustable', 'DMX'];
-const CONTROL_BITS = [8, 16, 24];
-const CONTROL_BIT_LABELS = ['8-bit', '16-bit', '24-bit'];
-// The value a laser's output-stage parameter parks at: full for the masters
-// and scales, centred for the offsets, open for the shutter.
-const LASER_CONTROL_DEFAULTS = {
-  dimmer: 100,
-  shutter: 100,
-  red: 100,
-  green: 100,
-  blue: 100,
-  xScale: 100,
-  yScale: 100,
-  xPos: 0,
-  yPos: 0,
-};
 const ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR', 'RGBW', 'GRBW', 'BGRW', 'RGBA', 'GRBA'];
 const CORNERS = Object.values(START_CORNERS);
 const AXES = Object.values(SCAN_AXES);
 
 export default {
   name: 'CreateFixturePopup',
+  components: { DeviceControlsForm },
   compatConfig: {
     // or, for full vue 3 compat in this component:
     MODE: 3,
@@ -794,10 +733,16 @@ export default {
       lensY: DEFAULT_PROJECTOR_PARAMS.lensY * MM,
       lensDiameter: DEFAULT_PROJECTOR_PARAMS.lensDiameter * MM,
       lensProtrusion: DEFAULT_PROJECTOR_PARAMS.lensProtrusion * MM,
-      /** Ticked channels, keyed the way the profile stores them. */
-      channelsOn: Object.fromEntries(CHANNEL_ORDER.map(
-        (key) => [key, DEFAULT_PROJECTOR_PARAMS.channels.includes(key)],
-      )),
+      /**
+       * One record per controllable parameter: how it is decided, its parked
+       * or baked value, and -- when driven -- its relative channel and depth.
+       * The same shape for every kind, because every kind is defined the same
+       * way; see `device_control.js`.
+       */
+      projectorControls: blankRecords(
+        PROJECTOR_CONTROL_DEFS,
+        DEFAULT_PROJECTOR_PARAMS,
+      ),
       // Display. Kept apart from the projector's for the same reason that is:
       // switching type back and forth must not carry one machine's dimensions
       // onto another and quietly keep them.
@@ -810,9 +755,10 @@ export default {
       pixelSize: DEFAULT_DISPLAY_PARAMS.pixelSize * MM,
       screenCurveAngle: DEFAULT_DISPLAY_PARAMS.curveAngle,
       nits: DEFAULT_DISPLAY_PARAMS.nits,
-      displayChannelsOn: Object.fromEntries(DISPLAY_CHANNEL_ORDER.map(
-        (key) => [key, DEFAULT_DISPLAY_PARAMS.channels.includes(key)],
-      )),
+      displayControls: blankRecords(
+        DISPLAY_CONTROL_DEFS,
+        DEFAULT_DISPLAY_PARAMS,
+      ),
       // Laser. Kept apart from the others for the same reason they are kept
       // apart from each other: switching type must not carry one machine's
       // numbers onto another and quietly keep them.
@@ -828,16 +774,7 @@ export default {
       apertureX: DEFAULT_LASER_PARAMS.apertureX * MM,
       apertureY: DEFAULT_LASER_PARAMS.apertureY * MM,
       apertureDiameter: DEFAULT_LASER_PARAMS.apertureDiameter * MM,
-      // One row per output-stage parameter: how it is decided, its parked or
-      // baked value, and -- when DMX -- its relative channel and bit depth.
-      // Everything starts Adjustable at its default, channels numbered in order
-      // so a run of DMX ticks lands contiguously without thinking about it.
-      laserControls: Object.fromEntries(LASER_CHANNEL_ORDER.map((key, i) => [key, {
-        modeIndex: 1,
-        value: LASER_CONTROL_DEFAULTS[key],
-        channel: i + 1,
-        bitsIndex: 0,
-      }])),
+      laserControls: blankRecords(LASER_CONTROL_DEFS, DEFAULT_LASER_PARAMS),
     };
   },
   computed: {
@@ -866,34 +803,36 @@ export default {
     isLaser() {
       return this.builder === GENERIC_KINDS.LASER;
     },
-    /** One control row per output-stage parameter, in addressing order. */
-    laserControlOptions() {
-      return LASER_CHANNEL_ORDER.map((key) => ({ key, label: LASER_CHANNEL_LABELS[key] }));
-    },
-    /** Labels for the mode and bit-depth selects. */
-    controlModeLabels() {
-      return CONTROL_MODE_LABELS;
-    },
-    controlBitLabels() {
-      return CONTROL_BIT_LABELS;
-    },
+    /** The parameter declarations each kind's rows are drawn from. */
+    projectorControlDefs() { return PROJECTOR_CONTROL_DEFS; },
+    displayControlDefs() { return DISPLAY_CONTROL_DEFS; },
+    laserControlDefs() { return LASER_CONTROL_DEFS; },
     /**
-     * The controls block, in the shape the model stores: one entry per
-     * parameter with its mode, its parked/baked value, and -- for DMX -- the
-     * relative channel and bit depth.
+     * Each kind's records as a set -- what knows the footprint, the overlaps
+     * and the block the profile stores.
      *
-     * @type {Object}
+     * Built from the envelope rather than from the whole parameter block,
+     * because the parameter block *contains* the controls: asking the set for
+     * them through it would be circular.
+     *
+     * @type {ControlSet}
      */
-    laserControlsOut() {
-      return Object.fromEntries(LASER_CHANNEL_ORDER.map((key) => {
-        const c = this.laserControls[key];
-        return [key, {
-          mode: CONTROL_MODES[c.modeIndex] || 'adjustable',
-          value: c.value,
-          channel: Math.max(1, Math.round(c.channel) || 1),
-          bits: CONTROL_BITS[c.bitsIndex] || 8,
-        }];
-      }));
+    projectorControlSet() {
+      return controlSetFromRecords(
+        PROJECTOR_CONTROL_DEFS,
+        this.projectorControls,
+        this.projectorEnvelope,
+      );
+    },
+    displayControlSet() {
+      return controlSetFromRecords(
+        DISPLAY_CONTROL_DEFS,
+        this.displayControls,
+        this.displayEnvelope,
+      );
+    },
+    laserControlSet() {
+      return controlSetFromRecords(LASER_CONTROL_DEFS, this.laserControls, this.laserEnvelope);
     },
     /**
      * The laser's parameters, as the model wants them. One place rather than
@@ -902,7 +841,7 @@ export default {
      *
      * @type {Object}
      */
-    laserParams() {
+    laserEnvelope() {
       return {
         power: this.power,
         scanAngleH: this.scanAngleH,
@@ -916,8 +855,15 @@ export default {
         apertureX: this.apertureX / MM,
         apertureY: this.apertureY / MM,
         apertureDiameter: this.apertureDiameter / MM,
-        controls: this.laserControlsOut,
       };
+    },
+    /**
+     * The laser's parameters, as the model wants them.
+     *
+     * @type {Object}
+     */
+    laserParams() {
+      return { ...this.laserEnvelope, controls: this.laserControlSet.toJSON() };
     },
     /**
      * How many DMX channels the laser occupies: the furthest byte any driven
@@ -926,15 +872,7 @@ export default {
      * @type {Number}
      */
     laserFootprint() {
-      let footprint = 0;
-      LASER_CHANNEL_ORDER.forEach((key) => {
-        const c = this.laserControls[key];
-        if (CONTROL_MODES[c.modeIndex] !== 'dmx') return;
-        const channel = Math.max(1, Math.round(c.channel) || 1);
-        const bytes = (CONTROL_BITS[c.bitsIndex] || 8) / 8;
-        footprint = Math.max(footprint, channel - 1 + bytes);
-      });
-      return footprint;
+      return this.laserControlSet.footprint;
     },
     /**
      * What the scan comes to, in the terms someone aiming it thinks in: the
@@ -949,19 +887,12 @@ export default {
         + ` · at 10 m fills ${at10.width.toFixed(1)} × ${at10.height.toFixed(1)} m`
         + ` · ${n} DMX channel${n === 1 ? '' : 's'}`;
     },
-    /** The tick boxes, in the order the profile addresses them. */
-    displayChannelOptions() {
-      return DISPLAY_CHANNEL_ORDER.map((key) => ({ key, label: DISPLAY_CHANNEL_LABELS[key] }));
-    },
-    displayChannelKeys() {
-      return DISPLAY_CHANNEL_ORDER.filter((key) => this.displayChannelsOn[key]);
-    },
     /**
-     * The display's parameters, as the model wants them.
+     * The display's envelope: everything except how its parameters are decided.
      *
      * @type {Object}
      */
-    displayParams() {
+    displayEnvelope() {
       return {
         width: this.screenWidth / MM,
         height: this.screenHeight / MM,
@@ -972,8 +903,15 @@ export default {
         pixelSize: this.pixelSize / MM,
         curveAngle: this.screenCurveAngle,
         nits: this.nits,
-        channels: this.displayChannelKeys,
       };
+    },
+    /**
+     * The display's parameters, as the model wants them.
+     *
+     * @type {Object}
+     */
+    displayParams() {
+      return { ...this.displayEnvelope, controls: this.displayControlSet.toJSON() };
     },
     /**
      * What to feed it: the size of picture this panel wants, in pixels.
@@ -1035,26 +973,18 @@ export default {
       return `${lit} — the rest is dark ground between the pixels.`;
     },
     displayChannelSummary() {
-      const count = this.displayChannelKeys.length;
-      if (!count) return 'No DMX — set by hand';
-      return `${count} channel${count === 1 ? '' : 's'}`;
-    },
-    /** The tick boxes, in the order the profile addresses them. */
-    channelOptions() {
-      return CHANNEL_ORDER.map((key) => ({ key, label: CHANNEL_LABELS[key] }));
-    },
-    projectorChannelKeys() {
-      return CHANNEL_ORDER.filter((key) => this.channelsOn[key]);
+      return this.footprintSummary(this.displayControlSet);
     },
     /**
-     * The projector's parameters, as the model wants them.
+     * The projector's envelope: everything except how its parameters are
+     * decided.
      *
      * One place rather than spelled out again in `create`, so the summary
      * below the form and the profile that gets written cannot disagree.
      *
      * @type {Object}
      */
-    projectorParams() {
+    projectorEnvelope() {
       return {
         pixelsWide: this.pixelsWide,
         pixelsHigh: this.pixelsHigh,
@@ -1071,8 +1001,15 @@ export default {
         lensY: this.lensY / MM,
         lensDiameter: this.lensDiameter / MM,
         lensProtrusion: this.lensProtrusion / MM,
-        channels: this.projectorChannelKeys,
       };
+    },
+    /**
+     * The projector's parameters, as the model wants them.
+     *
+     * @type {Object}
+     */
+    projectorParams() {
+      return { ...this.projectorEnvelope, controls: this.projectorControlSet.toJSON() };
     },
     /**
      * What the lens comes to, in the terms someone aiming it thinks in.
@@ -1189,9 +1126,7 @@ export default {
       return '';
     },
     channelSummary() {
-      const count = this.projectorChannelKeys.length;
-      if (!count) return 'No DMX — set by hand';
-      return `${count} channel${count === 1 ? '' : 's'}`;
+      return this.footprintSummary(this.projectorControlSet);
     },
     startCorner() {
       return CORNERS[this.startCornerIndex] || CORNERS[0];
@@ -1227,38 +1162,85 @@ export default {
     },
     nameTaken() {
       const key = `${this.manufacturer.trim()}/${this.model.trim()}`;
-      return !!this.$show.generatedProfiles[key];
+      // Taken by this show or by the library: a show definition wins over a
+      // library entry on load, so making one under a library name would hide
+      // that entry for as long as this show is open.
+      return !!this.$show.localProfile(key);
+    },
+    /**
+     * The bar's parameters, as the model wants them. The other kinds have had
+     * one of these all along; the bar's were spelled out in `create`.
+     *
+     * @type {Object}
+     */
+    barParams() {
+      return {
+        length: this.length / MM,
+        width: this.width / MM,
+        height: this.height / MM,
+        marginEnds: this.marginEnds / MM,
+        marginSides: this.marginSides / MM,
+        columns: this.columns,
+        rows: this.rows,
+        emitterSize: this.emitterSize / MM,
+        beamAngle: this.beamAngle,
+        order: this.order,
+        startCorner: this.startCorner,
+        scanAxis: this.scanAxis,
+        serpentine: this.serpentine,
+        universeAligned: this.universeAligned,
+        shape: this.shape,
+      };
+    },
+    /**
+     * The parameters of whichever kind is selected -- the one thing `create`
+     * needs from the form. Keyed by kind so adding one is a line here, not a
+     * branch there.
+     *
+     * @type {Object}
+     */
+    kindParams() {
+      return {
+        [GENERIC_KINDS.BAR]: this.barParams,
+        [GENERIC_KINDS.PROJECTOR]: this.projectorParams,
+        [GENERIC_KINDS.DISPLAY]: this.displayParams,
+        [GENERIC_KINDS.LASER]: this.laserParams,
+      }[this.builder];
+    },
+    /**
+     * Whether the selected kind's geometry makes sense, by kind. None of them
+     * insists on channels: a projector with no DMX socket is the commonest
+     * projector there is, and the same goes for a display and a laser. What
+     * each refuses is a body with no size or an aperture off the panel it is
+     * measured from.
+     *
+     * @type {Boolean}
+     */
+    kindValid() {
+      return {
+        [GENERIC_KINDS.BAR]: () => this.length > this.marginEnds * 2 && this.channelCount > 0,
+        [GENERIC_KINDS.PROJECTOR]: () => {
+          // A lens has to sit on the front panel it is measured from -- half
+          // the width or height either side of centre, less its own radius.
+          const radius = this.lensDiameter / 2;
+          return this.throwMin > 0 && this.throwMax > 0
+            && Math.abs(this.lensX) + radius <= this.projectorWidth / 2
+            && Math.abs(this.lensY) + radius <= this.projectorHeight / 2;
+        },
+        [GENERIC_KINDS.DISPLAY]: () => this.screenWidth > 0
+          && this.screenHeight > 0 && this.screenDepth > 0,
+        [GENERIC_KINDS.LASER]: () => {
+          const radius = this.apertureDiameter / 2;
+          return this.laserWidth > 0 && this.laserHeight > 0 && this.laserDepth > 0
+            && this.scanAngleH > 0 && this.scanAngleV > 0
+            && Math.abs(this.apertureX) + radius <= this.laserWidth / 2
+            && Math.abs(this.apertureY) + radius <= this.laserHeight / 2;
+        },
+      }[this.builder]();
     },
     valid() {
       const named = !!this.manufacturer.trim() && !!this.model.trim() && !this.nameTaken;
-      if (!named) return false;
-      // A display has no channel rule either -- most have no DMX socket -- and
-      // what it cannot be is a panel with no area.
-      if (this.builder === GENERIC_KINDS.DISPLAY) {
-        return this.screenWidth > 0 && this.screenHeight > 0 && this.screenDepth > 0;
-      }
-      // A laser is allowed no channels, like a projector. What it cannot have
-      // is a body with no size, a scan that makes no picture, or an aperture
-      // off the front panel it is measured from.
-      if (this.isLaser) {
-        const radius = this.apertureDiameter / 2;
-        return this.laserWidth > 0 && this.laserHeight > 0 && this.laserDepth > 0
-          && this.scanAngleH > 0 && this.scanAngleV > 0
-          && Math.abs(this.apertureX) + radius <= this.laserWidth / 2
-          && Math.abs(this.apertureY) + radius <= this.laserHeight / 2;
-      }
-      // A projector is allowed no channels at all, so the bar's "must address
-      // something" rule would refuse the commonest projector there is. What it
-      // cannot have is a lens that makes no picture.
-      if (!this.isBar) {
-        // A lens has to sit on the front panel it is measured from -- half the
-        // width or height either side of centre, less its own radius.
-        const radius = this.lensDiameter / 2;
-        return this.throwMin > 0 && this.throwMax > 0
-          && Math.abs(this.lensX) + radius <= this.projectorWidth / 2
-          && Math.abs(this.lensY) + radius <= this.projectorHeight / 2;
-      }
-      return this.length > this.marginEnds * 2 && this.channelCount > 0;
+      return named && this.kindValid;
     },
   },
   watch: {
@@ -1292,43 +1274,22 @@ export default {
   },
   methods: {
     /**
-     * The first relative channel no other DMX parameter is using.
-     *
-     * A parameter's byte span is its channel through `channel + bits/8 - 1`, so
-     * the next free channel is one past the furthest byte any *other* driven
-     * parameter reaches. Assigned when a parameter is switched to DMX, so a
-     * 16-bit dimmer at channel 1 leaves the next tick landing on channel 3
-     * rather than colliding on channel 2.
+     * What a set of controls comes to on a patch sheet, and a warning when two
+     * of them claim the same byte.
      *
      * @public
-     * @param {String} exceptKey the parameter being placed, left out of the sum
-     * @returns {Number}
+     * @param {ControlSet} set
+     * @returns {String}
      */
-    nextFreeChannel(exceptKey) {
-      let end = 0;
-      LASER_CHANNEL_ORDER.forEach((key) => {
-        if (key === exceptKey) return;
-        const control = this.laserControls[key];
-        if (CONTROL_MODES[control.modeIndex] !== 'dmx') return;
-        const channel = Math.max(1, Math.round(control.channel) || 1);
-        const bytes = (CONTROL_BITS[control.bitsIndex] || 8) / 8;
-        end = Math.max(end, channel - 1 + bytes);
-      });
-      return end + 1;
-    },
-    /**
-     * Changes a parameter's mode, and when it becomes DMX drops it on the next
-     * free channel so a fresh tick never lands on a byte already in use.
-     *
-     * @public
-     * @param {String} key
-     * @param {Number} index into `CONTROL_MODES`
-     */
-    setControlMode(key, index) {
-      this.laserControls[key].modeIndex = index;
-      if (CONTROL_MODES[index] === 'dmx') {
-        this.laserControls[key].channel = this.nextFreeChannel(key);
+    footprintSummary(set) {
+      const clash = set.overlaps;
+      if (clash.length) {
+        const where = clash.map((o) => o.offset + 1).join(', ');
+        return `Two parameters share channel ${where} — the last one written wins.`;
       }
+      const n = set.footprint;
+      if (!n) return 'No DMX — set by hand';
+      return `${n} DMX channel${n === 1 ? '' : 's'}`;
     },
     /**
      * A ratio in the terms people say out loud, when it is one of those.
@@ -1389,62 +1350,19 @@ export default {
      *
      * @public
      */
-    async create() {
-      // Closed before the profile is written, not after. Writing it makes the
-      // name in these very fields taken, so the duplicate warning appeared for
-      // the thing being created -- a red line and a jump as the dialog grew,
-      // in the instant before it went away.
+    create() {
+      // Closed before the definition is made, not after. Making it takes the
+      // name in these very fields, so the duplicate warning appeared for the
+      // thing being created -- a red line and a jump as the dialog grew, in
+      // the instant before it went away.
       this.state = false;
-      if (this.builder === GENERIC_KINDS.DISPLAY) {
-        const made = await this.$show.createGeneratedProfile(
-          this.manufacturer.trim(),
-          this.model.trim(),
-          this.displayParams,
-          this.builder,
-        );
-        this.$emit('created', made);
-        return;
-      }
-      if (this.isLaser) {
-        const made = await this.$show.createGeneratedProfile(
-          this.manufacturer.trim(),
-          this.model.trim(),
-          this.laserParams,
-          this.builder,
-        );
-        this.$emit('created', made);
-        return;
-      }
-      if (!this.isBar) {
-        const made = await this.$show.createGeneratedProfile(
-          this.manufacturer.trim(),
-          this.model.trim(),
-          this.projectorParams,
-          this.builder,
-        );
-        this.$emit('created', made);
-        return;
-      }
-      const key = await this.$show.createGeneratedProfile(
+      // Into the show, not the library: a definition lives with the show until
+      // it is saved from the fixture's Model widget. See
+      // `Show.createDefinition`.
+      const key = this.$show.createDefinition(
         this.manufacturer.trim(),
         this.model.trim(),
-        {
-          length: this.length / MM,
-          width: this.width / MM,
-          height: this.height / MM,
-          marginEnds: this.marginEnds / MM,
-          marginSides: this.marginSides / MM,
-          columns: this.columns,
-          rows: this.rows,
-          emitterSize: this.emitterSize / MM,
-          beamAngle: this.beamAngle,
-          order: this.order,
-          startCorner: this.startCorner,
-          scanAxis: this.scanAxis,
-          serpentine: this.serpentine,
-          universeAligned: this.universeAligned,
-          shape: this.shape,
-        },
+        this.kindParams,
         this.builder,
       );
       // `state` is a computed over the parent's v-model, and its setter above

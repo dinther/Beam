@@ -274,11 +274,20 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // A launch made by tooling rather than by the user -- Claude starting the dev
+  // app to look at a change. Paul, 2026-09-10: "Don't maximize the app when you
+  // start it." Such a launch keeps the saved size and position but never
+  // maximises, and does not take focus: a window that grabs focus while he is
+  // typing in another app sends his keystrokes into Beam. Development only, so
+  // an installed build cannot be put in this state by an environment variable.
+  const backgroundLaunch = !app.isPackaged && process.env.BEAM_BACKGROUND === '1';
+
   mainWindow.on('ready-to-show', () => {
     // Only a window last left maximised reopens maximised; everything else opens
     // at the size and position set in the options above. No forced maximise.
-    if (state && state.maximized) mainWindow.maximize();
-    mainWindow.show();
+    if (state && state.maximized && !backgroundLaunch) mainWindow.maximize();
+    if (backgroundLaunch) mainWindow.showInactive();
+    else mainWindow.show();
   });
 
   mainWindow.on('closed', () => {
@@ -445,7 +454,7 @@ function setupLibrary() {
   // is a handful of numbers, so it stays editable and costs nothing to store.
   ipcMain.handle(
     'library:createObject',
-    (event, name, primitive) => objectstore.writePrimitive(name, primitive),
+    (event, name, primitive, options) => objectstore.writePrimitive(name, primitive, null, options),
   );
   // Previews are rendered in the renderer -- it is the one with a GPU and a
   // loader -- and stored here, beside the model they picture.

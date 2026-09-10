@@ -431,6 +431,97 @@ class SceneObject extends withTransform(Object) {
   }
 
   /**
+   * Turns this created object into a reference to a library model.
+   *
+   * The other half of Save to library. Until it is saved, a created object is
+   * a bare placement of its kind -- a cube whose size and colour are its own
+   * to change. Saving it as "Stage Table" makes those numbers part of a
+   * *definition*: they are what a Stage Table is, and a placement of one can
+   * no longer resize it any more than a display can change its resolution.
+   * So the object stops carrying parameters and points at the library entry
+   * instead, exactly as if it had been placed from the library.
+   *
+   * The geometry itself does not change -- the library entry was written from
+   * these very numbers -- but the cache key does, so the build is remade under
+   * the model's key and the one keyed to this object alone is dropped.
+   *
+   * @public
+   * @async
+   * @param {String} key the library key the object was saved under
+   * @param {Object} descriptor the library entry for that key
+   * @returns {Promise<Boolean>} whether the geometry is drawn
+   */
+  async adoptLibraryModel(key, descriptor) {
+    if (!this.primitive || !key) return false;
+    const was = this.renderKey;
+    if (this._placement) {
+      SceneObjects.remove(this._placement);
+      this._placement = null;
+    }
+    SceneObjects.forget(was);
+    this.primitive = null;
+    this.model = key;
+    const attached = await this.attach(descriptor);
+    Controls.refreshHelpers();
+    return attached;
+  }
+
+  /**
+   * Draws this object again from a library entry that has changed.
+   *
+   * The caller has already dropped the cached build (see
+   * `Show.adoptObjectIntoLibrary`), which took this placement's instance with
+   * it -- so there is nothing to remove, only a stale handle to let go of.
+   *
+   * @public
+   * @async
+   * @param {Object} descriptor the entry as it now is
+   * @returns {Promise<Boolean>} whether the geometry is drawn
+   */
+  async reattach(descriptor) {
+    this._placement = null;
+    const attached = await this.attach(descriptor);
+    return attached;
+  }
+
+  /**
+   * Turns a placement of a library shape back into a created one.
+   *
+   * The inverse of {@link SceneObject#adoptLibraryModel}, and what "make
+   * unique" does: the object takes the library entry's type, size and colour as
+   * its own parameters and stops referencing the entry, so it is in exactly the
+   * state it would be in had it just been made in the create dialog -- editable
+   * again, belonging to this show alone. The library entry is untouched.
+   *
+   * Only for a shape. An imported model has no parameters to hand back, only a
+   * file, so there is nothing for it to become.
+   *
+   * The library model's build is left cached: it is shared with every other
+   * placement of it, and only this placement is leaving.
+   *
+   * @public
+   * @async
+   * @param {Object} descriptor the library entry this object references
+   * @returns {Promise<Boolean>} whether the geometry is drawn
+   */
+  async makeUnique(descriptor) {
+    if (this.primitive || !descriptor || !descriptor.primitive) return false;
+    if (this._placement) {
+      SceneObjects.remove(this._placement);
+      this._placement = null;
+    }
+    this.primitive = {
+      type: descriptor.primitive.type,
+      size: { ...(descriptor.primitive.size || {}) },
+      color: descriptor.primitive.color,
+    };
+    this.model = undefined;
+    const attached = await this.attach(null);
+    Controls.refreshHelpers();
+    return attached;
+  }
+
+  /**
    * Moves what is drawn, without telling the show.
    *
    * The model keeps its own position and rotation untouched, so a preview that

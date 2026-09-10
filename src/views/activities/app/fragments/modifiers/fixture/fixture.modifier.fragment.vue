@@ -11,15 +11,8 @@
       v-if="selectedObject"
       :object="selectedObject"
     />
-    <!-- One tool for whatever single thing is selected, of whatever kind.
-         There were three of these, one per kind, each shown by its own guard;
-         the guards were hardened one at a time and the object one never was. -->
-    <position-tool-widget
-      v-if="selectedItem"
-      ref="positionTool"
-      :fixture="selectedItem"
-      :title="positionTitle"
-    />
+    <!-- High level to detail: what the fixture *is* (its definition), then
+         what this one is set to, then where it stands. -->
     <model-widget
       v-show="editedFixture"
       ref="model"
@@ -30,21 +23,32 @@
       ref="settings"
       :fixture="editedFixture"
     />
+    <!-- One placement widget for whatever single thing is selected, of
+         whatever kind, under one name. There were three of these, one per
+         kind, each shown by its own guard; the guards were hardened one at a
+         time and the object one never was. It was then one component titled
+         three ways -- "Position Tool", "Object Position", "Structure Position"
+         -- which read as three widgets. -->
+    <placement-widget
+      v-if="selectedItem"
+      :fixture="selectedItem"
+    />
     <!-- A structure's member gets its own, beside the structure's: the member
-         is reachable but not movable, and two tools side by side with
-         different titles say which is which. -->
-    <position-tool-widget
+         is reachable but not movable, and the two side by side need different
+         titles to say which is which. -->
+    <placement-widget
       v-if="selectedMember"
       :fixture="selectedMember"
+      title="Member placement"
     />
     <group-widget
       v-show="selectedGroup"
       :group="selectedGroup"
     />
-    <position-tool-widget
+    <placement-widget
       v-if="showsManyItems"
       :fixture="selectionTransform"
-      :title="`${selectionTransform.count} items`"
+      :title="`Placement · ${selectionTransform.count} items`"
     />
     <arrange-widget
       v-if="showsManyItems && arrangeOpen"
@@ -66,7 +70,7 @@ import SelectionTransform from '@/models/DMX/selection_transform';
 import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
 
 import FixtureSettingsWidget from './_widgets/fixture.modifier.widget.settings.vue';
-import PositionToolWidget from './_widgets/fixture.modifier.widget.position.tool.vue';
+import PlacementWidget from '../placement/placement.widget.vue';
 import ModelWidget from './_widgets/fixture.modifier.widget.model.vue';
 import ArrangeWidget from './_widgets/fixture.modifier.widget.arrange.vue';
 import GroupWidget from '../group/group.modifier.widget.vue';
@@ -82,7 +86,7 @@ export default {
   components: {
     ModelWidget,
     FixtureSettingsWidget,
-    PositionToolWidget,
+    PlacementWidget,
     ArrangeWidget,
     GroupWidget,
     StructureWidget,
@@ -170,19 +174,6 @@ export default {
     selectedMember() {
       if (!this.selectedStructure || this.memberId === null) return null;
       return this.$show.fixturePool.findFromId(this.memberId) || null;
-    },
-    /**
-     * What the single-item position tool calls itself, so two of them side by
-     * side -- a structure and one of its members -- say which is which.
-     *
-     * @returns {String}
-     */
-    positionTitle() {
-      switch (kindOf(this.selectedItem)) {
-        case SCENE_ITEM_KINDS.STRUCTURE: return 'Structure Position';
-        case SCENE_ITEM_KINDS.OBJECT: return 'Object Position';
-        default: return 'Position Tool';
-      }
     },
     /**
      * Everything in the selection, of whatever kind.

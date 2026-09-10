@@ -85,7 +85,8 @@ export const DEFAULT_FLOOR = {
   primitive: {
     type: 'plane',
     size: { x: 50, y: 50 },
-    color: '#6e7276',
+    // Paul's pick, 2026-09-10. Light enough for a contact shadow to read on.
+    color: '#b9babb',
   },
   position: { x: 0, y: 0, z: 0 },
   rotation: { x: 0, y: 0, z: 0 },

@@ -6,6 +6,7 @@ import VOLUMETRIC_BEAM_VERTEX_SHADER from './shaders/beam.vertex.glsl?raw';
 import VOLUMETRIC_BEAM_FRAGMENT_SHADER from './shaders/beam.fragment.glsl?raw';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import LightField from './light_field';
+import { castsContactShadow } from './contact_shadows';
 
 const MODEL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x000000,
@@ -281,6 +282,9 @@ function grownMesh(mesh) {
   grown.frustumCulled = mesh.frustumCulled;
   grown.castShadow = mesh.castShadow;
   grown.receiveShadow = mesh.receiveShadow;
+  // Layers too, or a rig that grows past its capacity quietly stops casting
+  // contact shadows at the 129th head.
+  grown.layers.mask = mesh.layers.mask;
   if (scene_handle) {
     scene_handle.remove(mesh);
     scene_handle.add(grown);
@@ -1318,6 +1322,8 @@ class MovingHead {
     baseMesh.receiveShadow = true;
     yokeMesh.receiveShadow = true;
     headMesh.receiveShadow = true;
+    // And stain the floor under them -- see `contact_shadows.js`.
+    [baseMesh, yokeMesh, headMesh].forEach(castsContactShadow);
 
     baseMesh.count = instanceCount;
     yokeMesh.count = instanceCount;

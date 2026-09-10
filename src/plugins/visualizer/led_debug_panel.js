@@ -7,6 +7,7 @@ import Perf from './perf_overlay';
 import SceneEnv from './scene_env';
 import { ambientCeiling } from './ambient';
 import Tuning from './tuning';
+import ContactShadows from './contact_shadows';
 import { hazeWarp, hazeTurn } from './haze_noise';
 
 /**
@@ -87,6 +88,9 @@ export default function createLEDDebugPanel(visualizer, host) {
     airHaze: visualizer.ambientHaze ? visualizer.ambientHaze.ceiling : 0,
     airGrain: visualizer.ambientHaze ? visualizer.ambientHaze.fieldDepth() : 0,
     airScale: visualizer.ambientHaze ? visualizer.ambientHaze.scaleMultiplier : 1,
+    contactShadows: ContactShadows.enabled(),
+    contactStrength: ContactShadows.strength(),
+    contactReach: ContactShadows.reach(),
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -265,6 +269,18 @@ export default function createLEDDebugPanel(visualizer, host) {
   tuning.add(state, 'hazeTurn', 0, 400, 5)
     .name('heading sweep %')
     .onChange((v) => Tuning.write('hazeTurn', v, visualizer));
+
+  // Contact shadows: the stain under anything standing on the floor, so it
+  // reads as touching. The toggle is the rollback and the A/B for gpuMs.
+  tuning.add(state, 'contactShadows')
+    .name('contact shadows')
+    .onChange((v) => Tuning.write('contactShadows', v, visualizer));
+  tuning.add(state, 'contactStrength', 0, 1, 0.01)
+    .name('contact darkness')
+    .onChange((v) => Tuning.write('contactStrength', v, visualizer));
+  tuning.add(state, 'contactReach', 0.05, 20, 0.05)
+    .name('contact reach m')
+    .onChange((v) => Tuning.write('contactReach', v, visualizer));
 
   // Environment fill at full house lights. The scene had none until
   // 2026-08-28: one directional light meant every surface facing away from it
