@@ -19,8 +19,8 @@ import BodyFinish from './body_finish';
  *
  * Nothing here is instanced, unlike the head and the bar. A rig has a handful
  * of projectors where it has two hundred movers, so two draws each is not worth
- * the fixed capacity, the growth logic and the whole class of bug that the
- * hundred-mover ceiling was. Shared unit geometries scaled per instance give
+ * the fixed capacity, the growth logic and the class of bug instancing brings.
+ * Shared unit geometries scaled per instance give
  * most of the saving anyway: no projector allocates geometry of its own except
  * its frustum, which is sixteen vertices.
  *
@@ -31,8 +31,7 @@ import BodyFinish from './body_finish';
  *
  * The bar's +Z is *up*, not "wherever the light goes": it lies flat and emits
  * from its upper face, so the two coincide there and only there. Reading that
- * as a rule and giving the projector a +Z throw is exactly how it ended up
- * pointing at the ceiling once.
+ * as a rule and giving the projector a +Z throw points it at the ceiling.
  */
 
 /** Every projector in the scene, so the statics can sweep them. */
@@ -74,9 +73,9 @@ GLASS_GEOMETRY.rotateX(Math.PI / 2);
  * white or light grey because they hide against a ceiling. And **it is the only
  * way one reads at all**: a mover is legible in a black room because it throws
  * a beam, where a projector showing nothing has only its silhouette, and a dark
- * box on a `#0C0D0A` background has no silhouette. A palette grey was tried
- * first and disappeared -- a lit material in an unlit room reflects nothing, so
- * the colour has to carry it.
+ * box on a `#0C0D0A` background has no silhouette. A dark palette grey
+ * disappears -- a lit material in an unlit room reflects nothing, so the
+ * colour has to carry it.
  *
  * The small emissive `lift` is a floor, not a glow: it stops the unlit faces
  * going to absolute black while leaving the lit ones free to shade normally,
@@ -251,9 +250,9 @@ class Projector {
 
     // The barrel's front is a ring, and the glass is set a little way back
     // inside it -- so the glass reads as glass in a housing, and nothing sits
-    // behind it to punch through at distance. It used to float 1.5 mm proud of
-    // a solid cap, which holds until depth resolution coarsens with distance
-    // and the two land in the same bucket.
+    // behind it to punch through at distance. Glass floating just proud of a
+    // solid cap holds only until depth resolution coarsens with distance and
+    // the two land in the same bucket.
     this._ring.scale.set(diameter, 1, diameter);
     this._ring.position.set(lens.x, lens.y, lens.z);
 
@@ -302,9 +301,8 @@ class Projector {
     // which is what makes it a property of the optics rather than of distance.
     // Negated, because this wireframe is built in the fixture's own frame while
     // shift is quoted from behind the machine -- and from there the viewer's
-    // right is the fixture's -X. Without it the aid drew the picture on one
-    // side and the light landed on the other, which is exactly how the
-    // disagreement was spotted.
+    // right is the fixture's -X. Without it the aid would draw the picture on
+    // one side while the light lands on the other.
     const shiftX = settings ? -(settings.value('shiftH') / 100) * halfWidth * 2 : 0;
     const shiftZ = settings ? (settings.value('shiftV') / 100) * halfHeight * 2 : 0;
     // Forward is -Y, so the picture is further *down* the axis, not up it.
@@ -416,7 +414,7 @@ class Projector {
   /**
    * How far the body reaches below the fixture's origin.
    *
-   * Half its height, and that is now a straight answer rather than a hedge:
+   * Half its height, and that is a straight answer rather than a hedge:
    * local +Z is up, so an unrotated projector's height really is its vertical
    * extent. The bar says the same thing about its own thickness.
    *

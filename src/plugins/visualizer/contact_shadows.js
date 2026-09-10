@@ -4,10 +4,9 @@ import * as THREE from 'three';
  * @file Contact shadows: a soft stain on the floor under anything standing on
  * it, so you can see whether it is touching.
  *
- * Built 2026-09-10 after Paul: *"It is so hard to tell if an object is on the
- * ground or not."* The scene is dark by design and nothing casts a shadow onto
- * the floor unless a mover is asked to, so a box resting at z = 0 and one
- * floating 5 cm above it looked identical.
+ * The scene is dark by design and nothing casts a shadow onto the floor unless
+ * a mover is asked to, so without this a box resting at z = 0 and one floating
+ * 5 cm above it look identical.
  *
  * ## How
  *
@@ -29,20 +28,18 @@ import * as THREE from 'three';
  *    level matching that radius, with a ring of taps round it to smooth the
  *    level's square footprint into a round one.
  *
- * One radius, varying continuously. It replaced a crossfade between a sharp
- * and a wide blur, which Paul called out: at any height in between it showed a
- * faint sharp edge inside a faint wide one -- two shadows rather than one soft
- * one.
+ * One radius, varying continuously, not a crossfade between a sharp and a
+ * wide blur: at any height in between a crossfade shows a faint sharp edge
+ * inside a faint wide one -- two shadows rather than one soft one.
  *
  * ## Only with the house lights up
  *
  * A contact shadow is an editing aid for placing things, and it is drawn only
- * while the house lights are up; the caller says so each frame. It was first
- * argued that none was needed because a stain darkens only what is lit -- but
- * with the house lights down the floor is not black, the room's ambient still
- * lights it a little, and Paul saw the stains in a show-dark scene. While
- * hidden nothing is redrawn; anything that moved meanwhile is caught up the
- * first frame they come back on.
+ * while the house lights are up; the caller says so each frame. A stain
+ * darkens only what is lit, but with the house lights down the floor is not
+ * black -- the room's ambient still lights it a little -- so the stains would
+ * show in a show-dark scene. While hidden nothing is redrawn; anything that
+ * moved meanwhile is caught up the first frame they come back on.
  *
  * ## Cost, and why it is cheap
  *
@@ -54,9 +51,9 @@ import * as THREE from 'three';
  * debug panel's toggle, in one session -- a figure from another launch with
  * other apps open means nothing.
  *
- * Ambient occlusion was the alternative and was turned down: full-screen, per
- * pixel, at 4K; noisy with nothing antialiased; and darkening *ambient* light in
- * a scene that mostly has none.
+ * Not ambient occlusion: that is full-screen, per pixel, at 4K; noisy with
+ * nothing antialiased; and darkens *ambient* light in a scene that mostly has
+ * none.
  *
  * ## Who casts
  *
@@ -66,7 +63,7 @@ import * as THREE from 'three';
  * than by a list of things to hide -- and because no light is on the layer,
  * the pass cannot trigger a re-render of any light's shadow map either.
  *
- * **Floor only** (Paul): the stain lands on z = 0. A box on a stage deck gets
+ * **Floor only**: the stain lands on z = 0. A box on a stage deck gets
  * nothing on the deck; that needs real shadow maps.
  *
  * ## Rolling it back
@@ -113,19 +110,18 @@ export const FLAT_HEIGHT = 0.02;
 /** Where the defaults start. */
 const DEFAULTS = {
   enabled: true,
-  /** 0-1, how dark the stain is right at the floor. Paul's number. */
+  /** 0-1, how dark the stain is right at the floor. Set by eye. */
   strength: 0.66,
   /**
-   * Metres above the floor at which the stain has faded out. Paul's number,
-   * after 0.6 m and then 1.8 m proved too short to see things lifted clear.
+   * Metres above the floor at which the stain has faded out -- far enough to
+   * see things lifted well clear of it.
    */
   reach: 8,
   /**
    * How soft the stain is where something touches, in metres -- the blur
-   * every height starts from. At 3 cm a thing resting on the floor hid its
-   * edge under its own footprint, and only one lifted a little showed the
-   * thin dark line round its base; Paul liked the line and asked for it on
-   * everything, with a slider to find the look.
+   * every height starts from. Wide enough that a thing resting on the floor
+   * shows a thin dark line round its base; at 3 cm the blur hides under its
+   * own footprint. The debug panel's "contact edge blur m" tunes it.
    */
   edge: 0.1,
 };
@@ -234,13 +230,12 @@ void main() {
   // a stain worth seeing. Levels are tried fine to coarse and the first with
   // real darkness in it answers.
   //
-  // One coarse window on its own let area win. A 20 m ceiling at 7.5 m, whose
-  // own stain is invisible, covered thousands of times the area of a fixture
-  // standing on the floor beneath it, so the fixture's height read as 7 m and
-  // its shadow was blurred two metres wide into nothing -- Paul saw it vanish
-  // at a reach of 8 m and come back below 7. Nearest first, the fixture is
-  // found before the ceiling is ever looked at, and a ceiling whose darkness
-  // never reaches the threshold is never found at all.
+  // One coarse window on its own lets area win. A 20 m ceiling at 7.5 m, whose
+  // own stain is invisible, covers thousands of times the area of a fixture
+  // standing on the floor beneath it, so the fixture's height would read as
+  // 7 m and its shadow blur two metres wide into nothing. Nearest first, the
+  // fixture is found before the ceiling is ever looked at, and a ceiling whose
+  // darkness never reaches the threshold is never found at all.
   float rise = -1.0;
   for (int i = 1; i <= 4; i++) {
     vec4 near = textureLod(tHeight, vUv, uBlockerLod * float(i) * 0.25);
@@ -382,12 +377,11 @@ class ContactShadows {
     // render into a target whose texture asks for one.
     //
     // **Half-float, not 8-bit.** The blocker search reads a very coarse level,
-    // where a small object is a sliver of a large average. In 8 bits that sliver
-    // rounded to nothing, the object's height read as zero, and a 0.3 m box
-    // 1 m up was blurred as if it were touching the floor -- 2 cm of edge where
-    // a 6 m deck at the same height got 18. Paul saw exactly that: "the contact
-    // shadow of a big stage is a different blur than a small fixture at the
-    // same height." Measured after: 23 cm against 21.
+    // where a small object is a sliver of a large average. In 8 bits that
+    // sliver rounds to nothing, the object's height reads as zero, and a 0.3 m
+    // box 1 m up blurs as if it were touching the floor -- 2 cm of edge where a
+    // 6 m deck at the same height gets 18. In half-float the two agree: 23 cm
+    // against 21.
     this._heights = new THREE.WebGLRenderTarget(RESOLUTION, RESOLUTION, {
       format: THREE.RGBAFormat,
       type: THREE.HalfFloatType,
@@ -560,7 +554,7 @@ class ContactShadows {
 
     // The key has to describe this frame's matrices, not last frame's: a
     // caster noticed a frame late is noticed again when the update catches
-    // up, and nothing ever settles. The depth atlas learned this first.
+    // up, and nothing ever settles. The depth atlas works the same way.
     scene.updateMatrixWorld();
     const casters = this._collect(scene);
     const key = this._keyOf(casters);

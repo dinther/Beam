@@ -3,11 +3,9 @@
  * An inline object's geometry is cached under a key that is its own.
  *
  * `SceneObjects` caches a built shape under the object's render key and hands
- * the same build back to anything asking for that key again. The key used to be
- * the showfile id -- which two different shows hand out freely, and which the
- * migration mints for the floor it seeds from a session counter. Open a second
- * project and its stage asked for `inline:1`, which the first project's floor
- * had already filled in. Stage is a floor, screen is a floor, floor is a floor.
+ * the same build back to anything asking for that key again. A showfile id
+ * would not do: two different shows hand the same ids out freely, so a second
+ * project's stage could ask for `inline:1` and get the first project's floor.
  *
  * The uid is stamped per object per run and never reused, so this cannot
  * happen however the saved ids fall.

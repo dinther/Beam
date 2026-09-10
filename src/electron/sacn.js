@@ -11,8 +11,7 @@ import DmxReceiver, { DMX_LENGTH } from './dmx_receiver';
  * The second thing on the wire that speaks DMX, and the one that says who it
  * is. A packet carries a CID, a 64-character source name and a priority, so
  * two applications sending the same universe can be named rather than merely
- * suspected -- which is exactly the confusion that cost a day when MadMapper
- * and LEDfx were both writing the same tile and each one's ceiling looked like
+ * suspected -- two senders writing one tile make each one's ceiling look like
  * the other's failure.
  *
  * Everything after the parse is `DmxReceiver`'s and shared with Art-Net.
@@ -58,9 +57,9 @@ const VECTOR_DMP_SET_PROPERTY = 0x02;
  */
 const AT = {
   // Four bytes in, not at the front: the root layer opens with a preamble size
-  // and a post-amble size, and only then says what protocol this is. Caught by
-  // a real MadMapper stream -- a test that builds its own packets agrees with
-  // whatever the parser believes, and this is what it cannot tell you.
+  // and a post-amble size, and only then says what protocol this is. A test
+  // that builds its own packets agrees with whatever the parser believes, so
+  // only a real stream -- MadMapper's -- can confirm this.
   ACN_ID: 4,
   ROOT_VECTOR: 18,
   CID: 22,

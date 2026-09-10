@@ -226,8 +226,8 @@ class Show extends EventEmitter {
    *
    * Most edits are noticed on their own: show data goes through a proxy that
    * reports every write. Studio's cameras do not -- they live in their own
-   * reactive store so two fragments can share them -- and they are show data
-   * now, so whatever changes them says so here. Without this you can place a
+   * reactive store so two fragments can share them -- and they are show data,
+   * so whatever changes them says so here. Without this you can place a
    * view, close, and be asked nothing on the way out.
    *
    * @public
@@ -268,7 +268,7 @@ class Show extends EventEmitter {
     return {
       version: SHOWFILE_VERSION,
       diffInput: PatchSingleton.diffInput,
-      // Addressing lives entirely on the fixtures now. Universe records are
+      // Addressing lives entirely on the fixtures. Universe records are
       // kept only for the name and colour the patch bay displays.
       groups: this.groups.map((group) => group.showData),
       structures: this.structures.map((structure) => structure.showData),
@@ -336,11 +336,9 @@ class Show extends EventEmitter {
   /**
    * Steps the undo stack back one.
    *
-   * An **instance** method, not static. It was static while its only caller --
-   * the Edit menu -- wrote `this.$show.undo()`, so Undo threw
-   * `this.$show.undo is not a function` every time it was clicked and had
-   * never worked. Every other thing the app asks of the show goes through
-   * `$show`, so the call site was right and the declaration was wrong.
+   * An **instance** method, not static: its caller, the Edit menu, calls
+   * `this.$show.undo()`, the way everything the app asks of the show goes
+   * through `$show`. Declared static, that call throws.
    *
    * @public
    */
@@ -405,8 +403,8 @@ class Show extends EventEmitter {
     // rather than a fault. Deleting a selection makes three passes -- groups,
     // then structures, then what is left -- and the first two take their
     // contents with them, so the third routinely meets fixtures that are
-    // already gone. `getFromId` threw at that, and the guard below could never
-    // fire because it never got the chance to return anything falsy.
+    // already gone. `getFromId` throws at that, so the guard below would never
+    // see the falsy value it exists to catch.
     const fixtureHandle = this.fixturePool.findFromId(fixture.id);
     if (fixtureHandle) {
       PatchSingleton.unpatchFixture(fixtureHandle);
@@ -632,9 +630,8 @@ class Show extends EventEmitter {
     // A failed load must not stall the queue, hence the same handler twice.
     //
     // The load raises the loading overlay, so the load lowers it -- including
-    // when it throws. Leaving that to each caller is how opening a document
-    // came to sit at "Finalizing" forever: the show behind the overlay was
-    // loaded and fine, but nothing had thought to take the overlay away.
+    // when it throws. Left to each caller, one missed path leaves the overlay
+    // at "Finalizing" for good over a show that loaded fine.
     const run = async () => {
       try {
         return await this.loadShowData(rawShowData);
@@ -692,8 +689,8 @@ class Show extends EventEmitter {
       .map((data) => new VideoConnector(data));
 
     // Cameras belong to the show, so the one arriving replaces the one that
-    // was open. A file written before this carries none, which empties the
-    // list rather than leaving the last show's views behind it.
+    // was open. A file with no cameras empties the list rather than leaving
+    // the last show's views behind it.
     //
     // When the file carries an editor view, the viewport goes to it: reopening
     // a project should look the way it did when it was closed. Applied further
@@ -1028,8 +1025,8 @@ class Show extends EventEmitter {
     };
     this.structureLibrary[group.name] = structure;
     if (typeof window !== 'undefined' && window.library) {
-      // Only this structure is written. Saving one used to re-serialise every
-      // structure there was, so a bad write took the whole library with it.
+      // Only this structure is written, so a bad write cannot take the rest of
+      // the library with it.
       await window.library.write('structures', group.name, JSON.stringify(structure, null, 2));
     }
     return group.name;
@@ -1149,8 +1146,8 @@ class Show extends EventEmitter {
    *
    * So the insertion point is the bottom of the geometry, centred in X and Y:
    * ask for z 0 and it stands on the floor, ask for z 6 and it hangs with its
-   * underside at 6 m. Derived rather than stored, so structures saved before
-   * any of this place correctly without being saved again.
+   * underside at 6 m. Derived rather than stored, so it holds for every
+   * structure file whatever wrote it.
    *
    * @public
    * @param {Object} structure the structure to seat
@@ -1191,16 +1188,14 @@ class Show extends EventEmitter {
     // with the cost of a fetch. A profile is ~0.5 ms to fetch; what it costs
     // is the *await*. An await on real I/O is a macrotask, so the renderer
     // gets to paint between one member of a structure and the next -- and
-    // while fixtures are arriving a frame is not cheap: measured at 542 ms
-    // rising to 2.9 s, growing 64 ms with every fixture already placed. A
-    // 115-member structure therefore paid 115 ever-slower frames and took
-    // four minutes and forty-five seconds, of which the actual work -- every
-    // fixture built, named, addressed and patched -- was 48 ms.
+    // while fixtures are arriving a frame is not cheap: 542 ms rising to
+    // 2.9 s, growing 64 ms with every fixture already placed. A 115-member
+    // structure placed that way pays 115 ever-slower frames, nearly five
+    // minutes, for 48 ms of actual work.
     //
     // Served from here the await resolves immediately, which is a microtask,
     // and a microtask cannot paint. The loop runs to the end and the renderer
-    // sees the finished structure once. That is exactly why loading a show of
-    // the same fixtures was always a snap: it has had this cache all along.
+    // sees the finished structure once, as it does when a show loads.
     if (fixtureDataCache[key]) return JSON.parse(fixtureDataCache[key]);
     // Validated, not merely fetched -- see `fetchProfile`. Callers test this
     // for null and skip; a page of HTML would pass that test and then die
@@ -1250,14 +1245,12 @@ class Show extends EventEmitter {
     this.objects.push(...made);
     if (!made.length) return made;
     await this.preloadObjectLibrary();
-    // Awaited, all of them. These used to be fired off inside a `forEach` and
-    // left to land: the load reported itself finished while geometry was still
-    // arriving, so a clear that happened in between removed placements that did
-    // not exist yet and their meshes were added to a scene nothing was tracking
-    // them in. It also made the check below meaningless -- `unresolved` is set
-    // inside `attach`, so reading it in the same tick asked every object a
-    // question none of them had answered, and a genuinely missing model went
-    // unreported.
+    // Awaited, all of them. Fired and left to land, the load would report
+    // itself finished while geometry was still arriving: a clear in between
+    // would remove placements that did not exist yet, and their meshes would
+    // land in a scene nothing tracks them in. The check below needs it too --
+    // `unresolved` is set inside `attach`, so it means nothing until every
+    // object has answered.
     await Promise.all(made.map(
       (object) => object.attach(this.objectLibrary[foldModelKey(object.model)] || null),
     ));
@@ -1285,20 +1278,19 @@ class Show extends EventEmitter {
       // folder. It has to be the path: two folders may each hold a `truss`,
       // and a show that stored only the name could not say which it meant.
       //
-      // The bare name is registered too, but never over a real key -- that is
-      // what keeps shows written before folders existed resolving. An object
-      // that was at the root and has since been filed into a folder still
-      // finds itself; one whose name is now ambiguous resolves to the first
-      // listed, which is better than resolving to nothing.
+      // The bare name is registered too, but never over a real key, so a show
+      // that names a model without its folder still resolves. An object that
+      // was at the root and has since been filed into a folder still finds
+      // itself; one whose name is ambiguous resolves to the first listed,
+      // which is better than resolving to nothing.
       //
       // Registered under a folded key, and looked up the same way. A library
       // key is a file name, and on Windows a file's capitalisation can change
-      // without anything looking like it changed -- but this lookup is an exact
-      // string compare, so `Audio/Sub_Speaker` stopped finding
-      // `Audio/Sub_speaker` and every object placed from it silently became
-      // unresolved. It bit hardest between a development checkout and an
-      // installed build, where the two copies of a model had drifted in case
-      // alone.
+      // without anything looking like it changed -- an exact string compare
+      // would let `Audio/Sub_Speaker` miss `Audio/Sub_speaker` and leave every
+      // object placed from it unresolved. Two copies of a model, one in a
+      // development checkout and one in an installed build, can differ in
+      // case alone.
       this.objectLibrary = listed.reduce((all, model) => {
         all[foldModelKey(model.key)] = model;
         const name = foldModelKey(model.name);
@@ -1751,8 +1743,8 @@ class Show extends EventEmitter {
     if (typeof window === 'undefined' || !window.library) return;
     const stored = await window.library.readAll('profiles');
     // Bars are stored without the channels their geometry implies; the parser
-    // needs them, so they are rebuilt here. Profiles that carry their own --
-    // anything written before this -- come back untouched.
+    // needs them, so they are rebuilt here. Profiles that carry their own come
+    // back untouched.
     this.generatedProfiles = Object.fromEntries(
       Object.entries(stored || {}).map(([key, profile]) => [key, expandLedBarProfile(profile)]),
     );
@@ -1792,8 +1784,7 @@ class Show extends EventEmitter {
    * Nothing is written to the library. A definition lives with the show until
    * the user saves it from the fixture's Model widget, and disappears when the
    * last fixture using it does -- see `definition_store.js`. That is the same
-   * bargain a structure makes, and the opposite of what this used to do, which
-   * was to mint a permanent library entry for every experiment.
+   * bargain a structure makes, and it keeps experiments out of the library.
    *
    * @public
    * @param {String} manufacturer name the user chose

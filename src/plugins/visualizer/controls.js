@@ -39,13 +39,11 @@ import GroupHandle from './group_handle';
  * stays inside it, and a renderer that has nothing to offer for one of these
  * implements it as a no-op rather than being left out of a list somewhere.
  *
- * **One list, not several.** There were two: this, and a hand-written trio
- * inside `clearAllHighlighting` that included `GroupHandle` and omitted
- * `SceneObjects`. Overlapping but not equal, each maintained separately --
- * which is how objects came to be pickable but not band-selectable, missing
- * from `sceneBounds`, and absent from highlight clearing. Adding a renderer is
- * now three methods, and forgetting one is a missing method rather than a
- * silent omission at a call site nobody thinks to look at.
+ * **One list, not several.** Picking, band selection, `sceneBounds` and
+ * highlight clearing all walk this list, so a renderer cannot be in one and
+ * missing from another. Adding a renderer is three methods, and forgetting one
+ * is a missing method rather than a silent omission at a call site nobody
+ * thinks to look at.
  *
  * @constant {Array}
  */
@@ -54,10 +52,9 @@ const SCENE_RENDERERS = [MovingHead, LedBar, Projector, Display, Laser, SceneObj
 function selectionKey(item) {
   if (!item) return '';
   // The uid is unique across every kind, which is the whole reason it exists.
-  // What this did before -- `fixture:${universe}:${id}` for anything that was
-  // not a structure -- gave an object `fixture:undefined:3`, which collides
-  // with an unpatched fixture 3 and would have deduplicated one of them out of
-  // a band selection containing both.
+  // A key built from universe and id would give an object
+  // `fixture:undefined:3`, which collides with an unpatched fixture 3 and
+  // deduplicates one of them out of a band selection containing both.
   if (item.uid !== undefined) return `uid:${item.uid}`;
   if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) return `structure:${item.id}`;
   return `fixture:${item.universe}:${item.id}`;
@@ -202,7 +199,7 @@ const CONTROL_MODES = {
 const boundingBoxMaterial = new THREE.MeshBasicMaterial({
   color: 'rgb(162, 45, 88)',
   transparent: true,
-  // Invisible: the corner brackets carry the selection now. The mesh itself is
+  // Invisible: the corner brackets carry the selection. The mesh itself is
   // kept because the gizmo and the transform maths attach to it.
   opacity: 0,
   depthWrite: false,
@@ -216,7 +213,7 @@ const boundingBoxMaterial = new THREE.MeshBasicMaterial({
 const boundingBoxEdgesMaterial = new THREE.LineBasicMaterial({
   color: 0xffffff,
   // WebGL ignores linewidth, so a line is one pixel whatever this says. Thin
-  // is what was wanted here anyway.
+  // suits it anyway.
   linewidth: 1,
   transparent: true,
   opacity: 0.85,
@@ -338,8 +335,8 @@ const MIN_FRAME_RADIUS = 0.6;
 /**
  * The volume an empty scene is framed as, in metres, and where it sits.
  *
- * A unit cube at the origin straddled the floor and was small enough that the
- * camera ended up kneeling on the grid, looking at a point underfoot. A room
+ * A unit cube at the origin straddles the floor and is small enough that the
+ * camera ends up kneeling on the grid, looking at a point underfoot. A room
  * standing *on* the floor is what an empty show is really showing, so that is
  * what gets framed.
  *
@@ -379,8 +376,8 @@ const VIEW_DIRECTIONS = {
 /**
  * Gizmo scale and resting opacity.
  *
- * Smaller and softer than stock: at full size and near-opaque it covered the
- * fixture it was moving, which rather defeats placing it by eye.
+ * Smaller and softer than stock: at full size and near-opaque it covers the
+ * fixture it is moving, which rather defeats placing it by eye.
  *
  * @constant {Number}
  */
@@ -413,9 +410,8 @@ const framingOffset = new THREE.Vector3();
 /**
  * Where the camera looks when nothing is selected.
  *
- * Previously implicit at the world origin, which is floor level -- fine for a
- * rig standing on the ground, wrong for anything flown, which ended up in the
- * top of the frame.
+ * Not the world origin, which is floor level -- fine for a rig standing on the
+ * ground, wrong for anything flown, which would sit in the top of the frame.
  *
  * @constant {Object} DEFAULT_ZOOM_OUT_TARGET
  */
@@ -600,10 +596,9 @@ class Controls {
   handleKeydown(e) {
     if (e.repeat) return;
     // Nothing here belongs to a field being typed into. The listener is on the
-    // window, so `t` and `r` were always one focused text box away from moving
-    // the gizmo instead of typing a letter -- it is only the `@keydown.stop` on
-    // the inputs that has been holding that line. Copy makes the point
-    // unavoidable: ctrl+c in a name field has to copy the text.
+    // window, so without this `t` and `r` in a focused text box would move the
+    // gizmo instead of typing a letter, and ctrl+c in a name field has to copy
+    // the text.
     const { target } = e;
     if (target && (target.isContentEditable
       || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
@@ -636,10 +631,9 @@ class Controls {
       // stays free for whatever else has focus.
       if (this.pooledInstances.length) {
         // Straight from the selection store, which already describes every
-        // selected item as `{ kind, id, uid }`. Building the payload here by
-        // hand was a second producer of the same shape, and it did not carry
-        // the uid -- so once the item list started matching on uid, deleting
-        // from the 3D view matched nothing and silently did nothing.
+        // selected item as `{ kind, id, uid }` -- one producer of that shape.
+        // The item list matches on uid, so a payload without it deletes
+        // nothing.
         //
         // Copied rather than passed by reference: the consumer deletes what is
         // in it, and deleting mutates the selection it would be iterating.
@@ -797,12 +791,12 @@ class Controls {
      * it swallows whole. The exception is an item *bigger than the band*,
      * which has to be enclosed to count.
      *
-     * That exception exists because the floor became an ordinary object. Its
-     * origin is (0, 0, 0) -- the middle of the stage -- so every band drawn
-     * anywhere near the centre picked up a fifty-metre plane along with what
-     * the user was actually lassoing. Excluding the floor by name would have
-     * been the wrong fix twice over: it is deletable and replaceable, so there
-     * is no floor to name, and the next big object would have the same problem.
+     * The exception is for the floor, an ordinary object whose origin is
+     * (0, 0, 0) -- the middle of the stage -- so without it every band drawn
+     * anywhere near the centre would pick up a fifty-metre plane along with
+     * what the user is actually lassoing. Excluding the floor by name would be
+     * wrong twice over: it is deletable and replaceable, so there is no floor
+     * to name, and the next big object would have the same problem.
      *
      * Sized rather than special-cased, and it reads as the rule anybody would
      * state anyway: a thing larger than the box you drew was not what you were
@@ -841,9 +835,7 @@ class Controls {
     // Every renderer answers the same question the same way, so this knows
     // nothing about how any of them stores a position -- heads are instanced,
     // bars are not, objects are instanced per model, and none of that belongs
-    // here. It used to: this ran the head instance loop itself, which is why
-    // adding a renderer meant remembering to edit selection code, and why
-    // objects were missing from band selection until somebody noticed.
+    // here -- so adding a renderer needs no change to selection code.
     SCENE_RENDERERS.forEach((renderer) => {
       renderer.eachSelectable((item, worldPosition, worldRadius) => {
         if (inBand(worldPosition, worldRadius)) picked.push(item);
@@ -931,14 +923,13 @@ class Controls {
    * Puts the orbit pivot at the depth of whatever the pointer is over.
    *
    * A pivot fixed far behind the thing being looked at makes the camera swing
-   * wildly for a small drag, which is the whole complaint about orbiting from
-   * a bolted-down centre. Taking the depth from a raycast fixes that, and pan
-   * speed with it -- the control derives that from the same distance.
+   * wildly for a small drag. Taking the depth from a raycast settles that,
+   * and pan speed with it -- the control derives that from the same distance.
    *
    * The pivot stays on the axis the camera already looks down, though, rather
    * than moving to the hit itself. This control re-aims at its target every
    * frame, so an off-axis pivot would swing the view to centre it the instant
-   * the button went down: a worse jump than the one being fixed. Only the
+   * the button went down: a worse jump than the swing. Only the
    * distance changes, and distance is what governs how orbiting feels.
    *
    * @public
@@ -1086,11 +1077,10 @@ class Controls {
     // its kinds intact; `selectedIds` is the fixtures in it and nothing else,
     // because everything downstream resolves those against the fixture pool
     // and a structure id sent that way comes back as an unrelated fixture.
-    // Three kinds, not two. An object is not a structure, so it used to fall
-    // through to 'fixture' and its id was emitted as `fixtureId` -- object 3
-    // arriving downstream as fixture 3, an unrelated LED bar, which is exactly
-    // the hazard the note above describes for structures. Objects have their
-    // own numbering space like structures do, so they need their own kind.
+    // Three kinds, not two. Objects have their own numbering space, as
+    // structures do, so they need their own kind: sent as a fixture, object 3
+    // would arrive downstream as fixture 3, an unrelated LED bar -- the hazard
+    // the note above describes for structures.
     // The store first: it is what the item list and the modifier panel read,
     // and it is the only place the selection is actually kept. The event stays
     // for anything still listening, and carries the same answer.
@@ -1231,8 +1221,8 @@ class Controls {
    * Moves the camera to a position and target over the focus duration.
    *
    * Pulled out of setFocus so the view buttons and zoom-extents animate the
-   * same way rather than each inventing their own -- and now the studio's
-   * camera transitions too, for the same reason. A second camera animator
+   * same way rather than each inventing their own -- and the studio's camera
+   * transitions too, for the same reason. A second camera animator
    * would be two paths doing one job, and they would drift apart.
    *
    * @public
@@ -1269,11 +1259,11 @@ class Controls {
 
     const animationFunction = () => {
       // Clamped, and the last frame runs AT 1 rather than stopping short of it.
-      // The old loop exited on the first frame past the duration without ever
-      // applying the end value, so the camera settled a little way from where
-      // it was sent -- invisible for a view button, but the studio writes the
-      // live view back into the camera it flew to, so every trip would have
-      // nudged that camera a bit further from where it was placed.
+      // Stopping on the first frame past the duration never applies the end
+      // value, so the camera settles a little way from where it was sent --
+      // invisible for a view button, but the studio writes the live view back
+      // into the camera it flew to, so every trip would nudge that camera a bit
+      // further from where it was placed.
       const time = performance.now() - startTime;
       const t = Math.min(1, time / ms);
       const progress = ease(t);
@@ -1520,9 +1510,8 @@ class Controls {
   }
 
   setFocus(state, { force = false } = {}) {
-    // Zooming back out used to be exempt from the auto-focus setting, so
-    // turning auto-focus off stopped the camera framing a selection but not
-    // resetting the view when one was dropped.
+    // Zooming back out obeys the auto-focus setting as framing does: with it
+    // off, dropping a selection leaves the view where it is.
     if (!force && !this.autoFocus) return;
     // An empty group has nothing to frame, and an empty box carries infinite
     // bounds -- which would send the camera somewhere unreachable rather than
@@ -1535,10 +1524,9 @@ class Controls {
     const startPos = new THREE.Vector3();
     startPos.setFromMatrixPosition(this.cameraHandle.matrixWorld);
     const startTPos = this.controlHandle.target.clone();
-    // Framing used to fly the camera to the selection's own position and look
-    // at that same point, which put the eye inside the box. It now stops at
-    // the distance that makes the box span half the viewport, along the
-    // direction already being looked from.
+    // Framing stops at the distance that makes the box span half the
+    // viewport, along the direction already being looked from -- not at the
+    // selection's own position, which would put the eye inside the box.
     let endPos;
     let endTarget;
     if (state) {
@@ -1631,9 +1619,8 @@ class Controls {
       SceneManager.add(child);
       const instanceHandle = this.pooledInstances.find((h) => h._3DModel._dummy === child);
       if (instanceHandle) {
-        // Vector3.round() takes no precision argument and snaps to whole
-        // numbers, so this was quantising every dropped fixture to the nearest
-        // metre. Two decimal places is what was meant: millimetre-ish.
+        // Two decimal places, centimetres: three's Vector3.round() snaps to
+        // whole numbers, which would put every dropped fixture on the metre.
         instanceHandle.position = position.multiplyScalar(100).round().divideScalar(100);
         euler.setFromQuaternion(quaternion);
         instanceHandle.rotation = {
@@ -1664,8 +1651,8 @@ class Controls {
    *
    * The outline is sized once, when the selection is made, from what each item
    * says it occupies. That is right for anything whose shape is fixed -- but a
-   * created object's dimensions are editable, so widening a cube left the white
-   * box around the old one. Tearing the helpers down and building them again is
+   * created object's dimensions are editable, and widening a cube would leave
+   * the white box around the old one. Tearing the helpers down and building them again is
    * the same thing a finished drag does; there is nothing cheaper worth having,
    * since the box position is what the group re-parenting is derived from.
    *
@@ -1762,10 +1749,8 @@ class Controls {
       this.clearPooledInstance(this.pooledInstances[i]);
     }
     // The store mirrors the pool, so it has to follow every change to it --
-    // not just the ones that get announced. `emitSelection` used to be the only
-    // writer, so `deselectAll` emptied the pool without the store hearing:
-    // after Arrange applied, the item list still showed the old selection while
-    // the 3D view had none and no gizmo.
+    // not just the ones that get announced. Otherwise the item list keeps
+    // showing a selection the 3D view no longer has.
     Selection.set(this.pooledInstances);
   }
 
@@ -1811,14 +1796,11 @@ class Controls {
   /**
    * Drops one item out of the selection, keeping the rest.
    *
-   * The argument used to be ignored: this cleared the whole pool, which made
-   * it identical to `detachAll` and cost the caller every *other* selected
-   * item. That is not what its callers ask for -- `highlight(false, true)`
-   * passes the one item it is unhighlighting, and picks `detachAll()` by name
-   * on the paths that really do mean everything -- and every per-axis write
-   * goes through here too, since `writeAxis` detaches, writes and re-attaches
-   * around the value. So nudging one item of a multi-selection in the position
-   * tool left that item selected and silently dropped the others.
+   * Only that item: `highlight(false, true)` passes the one item it is
+   * unhighlighting, and picks `detachAll()` by name on the paths that really
+   * do mean everything. Every per-axis write goes through here too, since
+   * `writeAxis` detaches, writes and re-attaches around the value -- clearing
+   * the whole pool would drop the rest of a multi-selection on every nudge.
    *
    * Helpers come back for whatever survives. `applyTransformation` has already
    * put them down and committed any drag, so an empty pool needs nothing

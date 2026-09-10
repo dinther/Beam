@@ -353,8 +353,7 @@ export default {
         // against rows that no longer exist -- and `highlightIds` will not
         // necessarily change again to re-trigger its own watcher. Adding
         // fixtures changes the selection and the list contents in the same
-        // tick, and whichever arrived first won: select three fixtures at once
-        // and the 3D view showed them while the list showed none.
+        // tick, and either may arrive first.
         this.applyExternalHighlight(this.highlightIds);
         // And the selected row with it, for an owner that drives one. The
         // rebuild carries `selected` across by *index*, so inserting rows
@@ -402,13 +401,11 @@ export default {
     // made before this list existed.
     this.applyExternalHighlight(this.highlightIds);
     if (this.updateTree(this.items)) {
-      // The same rule as the highlight above, and it was missing: a list whose
-      // owner already has a selection has to show it on the first paint. The
-      // `selectedId` watcher only fires on a change, and the `items` watcher
-      // that also applies it only fires if the items arrive *after* mount.
-      // Lists fed asynchronously -- the patch bay -- were covered by that
-      // accident; one handed a complete list up front showed no selection at
-      // all until the owner happened to change it.
+      // The same rule as the highlight above: a list whose owner already has a
+      // selection has to show it on the first paint. The `selectedId` watcher
+      // only fires on a change, and the `items` watcher that also applies it
+      // only fires if the items arrive *after* mount -- so a list handed a
+      // complete list up front would show no selection at all.
       this.applyExternalSelection(this.selectedId);
       if (this.autoSelectFirst && this.tree[0]) {
         if (this.tree[0].value.unfold) {

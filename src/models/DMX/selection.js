@@ -4,23 +4,10 @@ import { kindOf } from './scene_item';
 /**
  * @file What is selected, in one place.
  *
- * Selection used to live in three channels at once, with no owner:
- *
- * - the route query (`fixtureId`, `structureId`, `objectId`),
- * - the EventBus `fixture_picked` event,
- * - and `Controls.pooledInstances`, the actual 3D selection.
- *
- * Four consumers then kept their own derived copies -- `selectedFixture`,
- * `selectedFixtures`, `selectedItems`, `selectedStructure`, `selectedObject`,
- * `highlightedIds` -- and nothing reconciled them. Whichever channel fired last
- * won, and the channels carried different information: the route names only one
- * thing, so a selection of several could not be expressed in it at all. That is
- * why inserting four fixtures left the single-fixture widgets up, and why an
- * object picked in the 3D view never lit its row in the list.
- *
  * This is the one source. Everything that shows a selection reads it; the thing
- * that changes a selection writes it. The route becomes a consequence rather
- * than a rival.
+ * that changes a selection writes it. The route is a consequence rather than a
+ * rival -- it names one thing at most, so a selection of several cannot be
+ * expressed in it at all.
  *
  * **Descriptors, not models.** The store keeps `{ kind, id, uid }` and nothing
  * else. Models are already wrapped by Proxify for the undo stack, and putting
@@ -37,8 +24,7 @@ const state = reactive({
    * The one item the UI should follow, or null.
    *
    * Null for a selection of several on purpose. Naming one of many routes the
-   * list back to it and collapses the selection that was just made, which is
-   * the rule the 3D view already followed by hand.
+   * list back to it and collapses the selection that was just made.
    */
   primaryUid: null,
 });

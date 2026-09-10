@@ -26,24 +26,23 @@ import { castsContactShadow } from './contact_shadows';
  *
  *   1. Unscramble. Once per frame, per fixture, into a render target sized
  *      exactly `columns x rows`. Each fragment is one LED and works out its own
- *      chain position, address and channels. The scatter the CPU used to do per
- *      emitter -- scan order, serpentine, universe straddling -- happens here,
+ *      chain position, address and channels. The per-emitter scatter -- scan
+ *      order, serpentine, universe straddling -- happens here,
  *      in parallel, and lands as a plain 2D image.
  *
  *   2. Draw. One textured quad. The die and halo are evaluated per fragment
  *      from the local grid coordinate, so cost follows screen area and nothing
  *      else. A 256 x 256 tile then costs what a 16 x 16 one does.
  *
- * Mipmaps come with the target, which is what finally makes a dense tile hold
+ * Mipmaps come with the target, which is what makes a dense tile hold
  * still: the far field reads an averaged mip rather than point-sampling a
  * lattice finer than the screen, so the shimmer goes away rather than being
  * traded for aliasing.
  *
- * Single-row bars come through here too. They were left on the billboard path
- * at first on the grounds that a few hundred emitters cost nothing -- true of
- * the emitters, false of their glow, which had the same spaced-out hotspots a
- * lattice always has. A bar is a grid one row deep, so it needs no special
- * case: it takes the same unscramble target and the same glow volume.
+ * Single-row bars come through here too. A few hundred billboard emitters cost
+ * nothing, but their glow has the same spaced-out hotspots a lattice always
+ * has. A bar is a grid one row deep, so it needs no special case: it takes the
+ * same unscramble target and the same glow volume.
  *
  * `led_field.js` keeps the billboard path for a fixture that arrives without
  * addressing, and for whatever polyline strip fixture eventually needs to walk
@@ -93,8 +92,8 @@ const DIE_MEAN_COEFFICIENT = 0.34;
  * How far a fixture's halo reaches past its edge, as a fraction of its
  * characteristic size.
  *
- * Fixture-relative rather than absolute, for the same reason the blob size had
- * to be: a fixed metre is the reach of one 5 mm die on a strip and means
+ * Fixture-relative rather than absolute, for the same reason the blob size
+ * is: a fixed metre is the reach of one 5 mm die on a strip and means
  * nothing to a 250 mm tile. Applied to the geometric mean of the two spans,
  * so a long thin bar is not treated as though it were 12 mm across.
  *
@@ -431,7 +430,7 @@ const PANEL_FRAGMENT = /* glsl */`
     // Panel-local metres, centred on the emitter face. The quad is drawn larger
     // than the face by one emitter halo, so an emitter at the edge is not sliced
     // off -- on a single-row bar the halo is wider than the face itself, and
-    // clipping it to the face was what made a bar look cut out.
+    // clipping it to the face makes a bar look cut out.
     vec2 p = (vUv - 0.5) * (halfQuad * 2.0);
 
     // Grid coordinates, counting rows from the top so they match the image.
@@ -496,10 +495,9 @@ const PANEL_FRAGMENT = /* glsl */`
 /**
  * Scattered light from a fixture, marched through the air around it.
  *
- * Three versions of this were flat, and each failed the same way. A lattice of
- * billboards showed its samples as hotspots. An analytic halo in the fixture's
- * own plane fixed that and stayed flat -- fine head-on, and obviously a sheet
- * of paper from the side.
+ * Not flat. A lattice of billboards shows its samples as hotspots; an analytic
+ * halo in the fixture's own plane is fine head-on and obviously a sheet of
+ * paper from the side.
  *
  * Flat is defensible for a display: a grid points at an audience and is seen
  * from the front. It is indefensible for a bar, which lives in a truss or a
@@ -586,8 +584,8 @@ const PANEL_GLOW_FRAGMENT = `${hazeShaderPrelude() /* glsl */}
     float r = min(
       reach * (glowSize / ${GLOW_BASE_SIZE.toFixed(1)})
         // Denser air carries light further from its source. The upper bound is
-        // the box's own headroom, so thick air uses the volume that was always
-        // built for it rather than stopping halfway through it.
+        // the box's own headroom, so thick air uses the whole volume built for
+        // it rather than stopping halfway through it.
         * mix(sizeAtZeroHaze, sizeAtFullHaze, hazeAmount),
       min(boxHalf.x - halfBody.x, min(boxHalf.y - halfBody.y, boxHalf.z - halfBody.z))
     );
@@ -629,8 +627,8 @@ const PANEL_GLOW_FRAGMENT = `${hazeShaderPrelude() /* glsl */}
       falloff *= mix(haloBackScatter, 1.0, side);
 
       // Lit from the nearest point on the emitter face. The mip does the
-      // averaging a lattice used to be for: the texture already holds every
-      // LED, and filtering already sums them.
+      // averaging: the texture already holds every LED, and filtering already
+      // sums them.
       vec2 nearest = clamp(p.xy, -halfFace, halfFace);
       vec3 color = textureLod(
         panelTexture,
@@ -1012,7 +1010,7 @@ function refresh(renderer) {
   if (!panels.size) return;
 
   // The store's own counter, not the texture's: a partial upload never sets
-  // `needsUpdate`, so `texture.version` no longer moves when DMX arrives.
+  // `needsUpdate`, so `texture.version` does not move when DMX arrives.
   const { version } = DMXStore;
   const dmxChanged = version !== pass.dmxVersion;
 
@@ -1039,11 +1037,10 @@ function refresh(renderer) {
 /**
  * Whether a bar's geometry can be drawn as a surface.
  *
- * Any rectangular grid can, one row or two hundred and fifty six. The split
- * used to be `rows > 1`, on the grounds that a bar's few hundred billboards
- * cost nothing -- which was true of its emitters and false of its glow, where
- * the spaced-out samples were just as obvious as on a tile. A bar is a grid one
- * row deep, so there is nothing here to special-case.
+ * Any rectangular grid can, one row or two hundred and fifty six. A bar is a
+ * grid one row deep -- its few hundred billboards would cost nothing, but its
+ * glow shows the spaced-out samples as obviously as a tile does -- so there is
+ * nothing here to special-case.
  *
  * @public
  * @param {Object} params bar parameters

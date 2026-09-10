@@ -16,7 +16,7 @@ import { DEFAULT_BAR_PARAMS } from '../../models/DMX/generic/led_bar';
  * mesh, however many bars exist -- so 6,000 LEDs cost three draws rather than
  * two hundred.
  *
- * It also removes a whole class of bug. With one material per parameter there
+ * It also rules out a whole class of bug. With one material per parameter there
  * is exactly one copy of each uniform, so scene state like haze cannot fall out
  * of step between fixtures, and fixtures created after a setting was applied
  * cannot miss it.
@@ -38,7 +38,7 @@ const LED_SIZE = 0.005;
  * Component order of a plain RGB run, as offsets from the pixel's first
  * channel: [red, green, blue, white], -1 for an emitter the fixture lacks.
  *
- * GRB by default because that is what the strips this was built against use.
+ * GRB by default because that is what most cheap strips use.
  * Nothing downstream assumes it -- order is data, per emitter.
  *
  * @constant {Array}
@@ -65,7 +65,7 @@ const GLOW_SCALE = 7.0;
  *
  * A cap rather than a scale: the halo only ever shrinks. A real emitter's glow
  * belongs to its die and does not grow because the neighbours moved further
- * away, so a sparsely populated bar is left exactly as it was.
+ * away, so a sparsely populated bar is left alone.
  *
  * @constant {Number} HALO_PITCH_LIMIT
  */
@@ -92,16 +92,14 @@ const GLOW_SIZE_AT_ZERO_HAZE = 0.35;
 /**
  * How far the glow reaches at full haze, as a multiple of its authored size.
  *
- * Denser air carries light further from its source, so reach has always tracked
- * the haze amount -- but it used to stop at exactly the authored size, which
- * made thick air the point where the glow stopped responding rather than the
- * point where it did the most. Turning the intensity up past the middle changed
- * brightness and nothing else.
+ * Denser air carries light further from its source, so reach tracks the haze
+ * amount, and goes past the authored size -- stopping there would make thick
+ * air the point where the glow stops responding rather than where it does the
+ * most.
  *
  * 1.5 rather than more because that is exactly the headroom the panel path's
- * marched box was already built with (`HALO_HEADROOM` in led_panel.js), so the
- * whole range is free: no larger volume, no extra overdraw, only reach that was
- * always there and never reached for. Going beyond it means raising that
+ * marched box is built with (`HALO_HEADROOM` in led_panel.js), so the whole
+ * range is free: no larger volume, no extra overdraw. Going beyond it means raising that
  * headroom too, and every bit of it is fill nobody sees at the default -- a
  * dodecahedron puts thirty bars in front of each other, and the overdraw is
  * what bites first.
@@ -352,12 +350,9 @@ const GLOW_FRAGMENT = `${hazeShaderPrelude()}
 
     // The same field the beams read, at the same scale, in the same room.
     //
-    // This used to sample vec3(world.x, world.z, time) / turbulenceScale -- a
-    // flat slice with time standing in for the third axis, and a private 4.8 m
-    // feature size that the haze scale control could not reach. So a glow and a
-    // beam standing in the same air disagreed about how coarse that air was,
-    // and only one of them answered the slider. All three world axes now, and
-    // hazeScale is the scene's own.
+    // All three world axes, and hazeScale is the scene's own, so a glow and a
+    // beam standing in the same air agree about how coarse that air is and
+    // both answer the slider.
     if (turbulence > 0.0) {
       vec3 coord = vGlowWorld / max(hazeScale, 0.01);
       float churn = clamp(fogging(coord, time * hazeDrift), 0.0, 1.0);
@@ -439,12 +434,11 @@ const GLOW_UNIFORMS = {
 function syncEnvironment() {
   // Written into the shared uniforms rather than reached through `field.glow`.
   // The panel renderer holds these same objects by reference and draws every
-  // patched fixture now, while this module allocates a glow mesh only when a
-  // capacity is claimed -- which nothing does. Guarding the whole function on
-  // that mesh therefore stopped updating the panel's haze as well, leaving it
-  // at the value it was born with: `SceneEnv.hazeAmount` read at module load,
-  // before any preference had been applied, which is zero. The quads were
-  // drawn and every one of them rasterised black.
+  // patched fixture, while this module allocates a glow mesh only when a
+  // capacity is claimed -- which nothing does. Guarded on that mesh, the
+  // panel's haze would stay at the value it was born with:
+  // `SceneEnv.hazeAmount` read at module load, before any preference is
+  // applied, which is zero -- and every quad would rasterise black.
   GLOW_UNIFORMS.hazeAmount.value = SceneEnv.hazeAmount;
   GLOW_UNIFORMS.turbulence.value = SceneEnv.hazeTurbulence;
   GLOW_UNIFORMS.hazeDrift.value = SceneEnv.hazeDriftRate;
@@ -519,10 +513,9 @@ const EMITTER_UNIFORMS = {
 
 function buildEmitters(maxLeds) {
   // Unit quad, scaled per instance: emitter size is a fixture property, and one
-  // shared geometry cannot carry more than one of them. `coreRadius` used to be
-  // a uniform on the grounds that the die-to-quad ratio holds at any size --
-  // true until the quad started being capped to the pitch, after which the same
-  // ratio would have shrunk the die along with the halo.
+  // shared geometry cannot carry more than one of them. The die-to-quad ratio
+  // is per instance too: the quad is capped to the pitch, and one shared
+  // ratio would shrink the die along with the halo.
   const geometry = new THREE.PlaneGeometry(1, 1);
 
   const material = new THREE.ShaderMaterial({
@@ -609,12 +602,11 @@ function init({ scene, maxBars, maxLeds }) {
 
   // Bodies always; emitters only when a capacity is asked for.
   //
-  // One quad per LED is what this module was, and every patched fixture now
-  // draws through the panel renderer instead -- which reads the same uniforms
-  // but rasterises one surface rather than tens of thousands of billboards.
-  // Sized for a capacity nothing claims, the two meshes and their four
-  // attributes are megabytes allocated at startup and never written to, so the
-  // capacity is what decides whether they exist at all.
+  // Every patched fixture draws through the panel renderer, which reads the
+  // same uniforms but rasterises one surface rather than tens of thousands of
+  // billboards. Sized for a capacity nothing claims, the two meshes and their
+  // four attributes would be megabytes allocated at startup and never written
+  // to, so the capacity is what decides whether they exist at all.
   if (maxLeds > 0) {
     field.emitters = buildEmitters(maxLeds);
     field.glow = buildGlow(maxLeds);
@@ -918,8 +910,7 @@ function addEmitters(emitters) {
  *
  * The objects themselves, not the meshes' copies of them: the panel renderer
  * binds these same uniforms, so they still steer what is on screen when the
- * billboard meshes were never built. Reaching them through the emitter mesh is
- * what used to take the whole debug panel away with it.
+ * billboard meshes are never built.
  *
  * @returns {Object}
  */

@@ -23,14 +23,14 @@ import { fixtureIslands, ISLAND_KINDS } from '../fixture_islands';
  * MadMapper's editor offers Fixed Size, LED Strip and Matrix. Only Fixed
  * exposes the per-pixel mapping -- but a Fixed fixture is never sampled.
  * MadMapper paints one texel across every pixel of it however the media
- * moves, which reads as a panel stuck on a single drifting colour. Measured
- * on the wire against a 256 x 256 tile in four bands: Fixed carried three
- * distinct colours across all 65,536 pixels, Matrix carried 248 per band.
+ * moves, which reads as a panel stuck on a single drifting colour. On the wire,
+ * against a 256 x 256 tile in four bands, Fixed carries three distinct colours
+ * across all 65,536 pixels; Matrix carries 248 per band.
  *
  * Matrix derives the layout from width, height and the start address instead.
- * Its rule is serpentine rows, which is what our own map already describes for
- * a generated bar -- captured frozen, its even rows matched ours and its odd
- * rows were their exact mirror, 128 of 128. So nothing is lost here.
+ * Its rule is serpentine rows, which is what our own map describes for a
+ * generated bar -- captured frozen, its even rows match ours and its odd rows
+ * are their exact mirror, 128 of 128. So nothing is lost here.
  *
  * A profile wired straight rather than serpentine would be given MadMapper's
  * serpentine anyway and come back with every odd row mirrored. That is a wrong

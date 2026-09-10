@@ -11,13 +11,11 @@
  *     "templateChannels": ["Red $pixelKey", "Green $pixelKey", "Blue $pixelKey"] }
  *
  * That is how a 4 x 4 head fits in 11 KB and why the same file would still fit
- * at 256 x 256. It is also why the parser could not read one: `prepareChannels`
- * only ever understood a mode entry that was a string, so the insert fell to
- * its "unknown entry" branch and became a single `Unset` channel. An Illusion
- * Dotz 4.4 then claimed 10 channels where it needs 57 -- it under-reserved by
- * 47, so whatever was patched next was addressed straight over the top of it,
- * and none of its pixel channels existed at all. Silently, on 93 of the 485
- * profiles we ship.
+ * at 256 x 256. `prepareChannels` reads only mode entries that are strings, so
+ * without this the insert would become a single `Unset` channel: an Illusion
+ * Dotz 4.4 would claim 10 channels where it needs 57, whatever was patched
+ * next would land on top of it, and none of its pixel channels would exist --
+ * silently, on 93 of the 485 profiles we ship.
  *
  * Everything here is pure: no Vue, no three, no fetching. It is the same rule
  * OFL's own `Matrix` model applies, reimplemented rather than imported because

@@ -21,9 +21,8 @@ import dgram from 'dgram';
  * in nothing after that. Both have a buffer of a few thousand points that the
  * host keeps full by reading a fullness figure in every reply, and both play
  * it out at a rate the host sets. That shared half is this class; a protocol
- * supplies its sockets and its packet layouts and inherits the rest. Written
- * as two classes it was going to be written twice, and the second copy is
- * where the timing quietly goes wrong.
+ * supplies its sockets and its packet layouts and inherits the rest, so the
+ * timing is written once rather than twice.
  *
  * **The buffer is real, and it is what makes the timing right.** A host does
  * not send points at the play rate; it fills the buffer and reads how much

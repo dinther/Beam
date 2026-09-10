@@ -24,11 +24,7 @@
       :fixture="editedFixture"
     />
     <!-- One placement widget for whatever single thing is selected, of
-         whatever kind, under one name. There were three of these, one per
-         kind, each shown by its own guard; the guards were hardened one at a
-         time and the object one never was. It was then one component titled
-         three ways -- "Position Tool", "Object Position", "Structure Position"
-         -- which read as three widgets. -->
+         whatever kind, under one name and one guard. -->
     <placement-widget
       v-if="selectedItem"
       :fixture="selectedItem"
@@ -116,25 +112,16 @@ export default {
      * The one selected item, whatever kind it is -- null when nothing is
      * selected, and null when several things are.
      *
-     * **One guard, every kind.** There used to be three of these, one per
-     * kind, each asking `Selection.primary` for its own kind and each carrying
-     * its own idea of when to show. They were hardened against
-     * multi-selections one at a time: `showsOneFixture` learned to check the
-     * count after a nudge in the position tool moved one fixture out of a set
-     * that looked selected, and `selectedObject` and `selectedStructure` never
-     * learned it at all -- so two selected speakers put a single-object editor
-     * on screen beside the multi-item one, and nudging the single one dropped
-     * the other speaker out of the selection.
-     *
-     * That is the `scene_item.js` fault one layer up: kind-dispatch repeated
-     * per consumer, where every new kind has to be remembered separately. The
-     * kinds still get their own *editors* below, because an object and a
-     * structure genuinely are different things to edit -- but whether one
-     * thing is selected is asked once.
+     * **One guard, every kind.** A guard per kind would each carry its own
+     * idea of when to show -- and one that forgets to check the count puts a
+     * single-item editor on screen beside the multi-item one for a selection
+     * of two. The kinds still get their own *editors* below, because an object
+     * and a structure genuinely are different things to edit -- but whether
+     * one thing is selected is asked once.
      *
      * From the store, not the route: the route names one thing at most, and
      * router navigation is asynchronous, so `?fixtureId=` for the first of a
-     * batch used to land after the rest and overwrite it.
+     * batch would land after the rest and overwrite it.
      *
      * @returns {Object|null}
      */
@@ -164,10 +151,8 @@ export default {
      *
      * Component state rather than a view of the selection store, because that
      * is what it is: the structure is what is *selected*, and which of its
-     * members the panel has opened is this panel's own business. It was
-     * written straight into `selectedFixture` before, which stopped working
-     * silently when that became a computed -- Vue refuses the write, so
-     * picking a member did nothing at all.
+     * members the panel has opened is this panel's own business.
+     * `selectedFixture` is a computed, and Vue refuses a write to it.
      *
      * @returns {Object|null}
      */
@@ -197,9 +182,8 @@ export default {
     /**
      * The selected structure, or null -- read from the selection store.
      *
-     * Derived, not kept. This was a field that several code paths had to
-     * remember to clear, and the one that forgot left a structure's widgets on
-     * screen over a fixture. A view cannot be stale.
+     * Derived, not kept: a field would need every code path to remember to
+     * clear it. A view cannot be stale.
      *
      * @returns {Object|null}
      */
@@ -229,14 +213,11 @@ export default {
      * Whether a selection of two or more items is live.
      *
      * Items, not fixtures: three structures are three things to arrange, and
-     * counting the fixtures inside them is what put every one of them on a
+     * counting the fixtures inside them would put every one of them on a
      * single line.
      *
-     * No per-kind exclusions any more. It used to name groups and structures
-     * by hand, which is the same list-of-kinds that let objects fall through
-     * -- and it meant two selected structures were three things to arrange by
-     * the comment above and one thing by the code. `selectedItem` answers null
-     * for anything but a single item, so the two cannot disagree.
+     * No per-kind exclusions. `selectedItem` answers null for anything but a
+     * single item, so the two cannot disagree.
      *
      * @property {Boolean} showsManyItems
      */
@@ -285,12 +266,12 @@ export default {
      * @param {Number} id fixture id
      */
     /**
-     * Kept so the route can still name a fixture, but it no longer *selects*.
+     * Kept so the route can still name a fixture, but it does not *select*.
      *
      * Selection comes from the store. The route is pushed as a consequence of
-     * selecting, so having it write back was a second source of truth -- and an
-     * asynchronous one, which is how it came to overwrite a multi-selection
-     * with a single item after the fact.
+     * selecting, so having it write back would be a second source of truth --
+     * and an asynchronous one, overwriting a multi-selection with a single
+     * item after the fact.
      *
      * @public
      * @param {Number} id
@@ -371,10 +352,8 @@ export default {
      * Drops the structure entirely, once it has stopped being one item.
      *
      * Only the member is let go here. Which structure is selected belongs to
-     * the selection store, and this used to assign null over the computeds
-     * that read it -- writes Vue refuses, so they never did anything; the
-     * panel emptied because exploding a structure changes the selection, not
-     * because of anything on this line.
+     * the selection store; the panel empties because exploding a structure
+     * changes the selection.
      *
      * @public
      */
@@ -395,10 +374,9 @@ export default {
      *   selectedIds}, or null when cleared
      */
     handleFixturePicked(payload) {
-      // Nothing to copy any more. Every field this used to write -- the
-      // primary, the fixtures, the whole typed selection -- is a computed view
-      // of the selection store, and a view cannot be stale or be overwritten
-      // by whichever channel happened to fire last.
+      // Nothing to copy. The primary, the fixtures and the whole typed
+      // selection are computed views of the selection store, and a view cannot
+      // be stale or be overwritten by whichever channel happened to fire last.
       this.highlightMember(false);
       if (!payload) this.selectedGroup = null;
     },

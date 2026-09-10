@@ -9,14 +9,8 @@ import { newUid } from './scene_item';
  * stands somewhere and faces some way, and the app reaches all three through
  * the same accessors: `position` and `rotation` in degrees for the UI,
  * `rotationRad` for the renderers, and one accessor per axis for the numeric
- * inputs. Those per-axis accessors were written out three times -- twelve of
- * them in `Fixture`, twelve in `Structure`, and none at all in `SceneObject`,
- * which is why an object could not be typed into the way the other two could.
- *
- * They were not quite the same three times, either, and the differences were
- * the interesting part: `Fixture.rotX` had no guard against a non-finite angle
- * where `Structure.writeAxis` did, so a bad keystroke could blank a fixture by
- * a route that had already been closed for structures.
+ * inputs. Written once here, so every kind can be typed into the same way and
+ * every kind gets the same guard against a non-finite angle.
  *
  * **Not in `scene_item.js`.** That module is imported by `controls.js`, and
  * this one imports `Controls` -- putting the two together would close a cycle.

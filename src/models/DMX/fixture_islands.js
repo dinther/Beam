@@ -15,10 +15,9 @@
  * one island of sixteen 3-component pixels rather than forty-eight channels
  * nobody can interpret.
  *
- * What this replaces is a classification: asking of each profile "is this a
- * pixel grid?" and finding that most fixtures are neither wholly one thing nor
- * the other. Nothing has to qualify here. An awkward fixture simply yields
- * more islands.
+ * Not a classification: asking of each profile "is this a pixel grid?" finds
+ * that most fixtures are neither wholly one thing nor the other. Nothing has
+ * to qualify here. An awkward fixture simply yields more islands.
  *
  * The kind of a channel is read from its OFL capability rather than its name,
  * so it holds for any profile the library can express.

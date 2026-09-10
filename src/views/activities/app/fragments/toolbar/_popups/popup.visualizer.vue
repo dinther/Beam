@@ -397,10 +397,9 @@ export default {
   },
   watch: {
     state(state) {
-      // Re-read on every opening, not only the first. Kept once, Cancel undid
-      // everything back to however the scene stood when the dialog was first
-      // opened this session -- including changes from an earlier visit that
-      // had already been accepted with OK.
+      // Re-read on every opening, not only the first. Kept once, Cancel would
+      // undo everything back to how the scene stood at the first opening --
+      // including changes already accepted with OK.
       if (state && this.$show.visualizerHandle) {
         this.initialValues = this.$show.visualizerHandle.showData;
         // Re-read the folder on every opening: the user may have put a file in

@@ -25,8 +25,8 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 # A native addon cannot be loaded from inside an asar -- the OS loader needs a
 # real file on disk -- so grandi's binary and the NDI library it carries are
-# unpacked beside the archive. UNVERIFIED: no packaged build has been made
-# since NDI was added, so this is reasoning rather than evidence.
+# unpacked beside the archive. UNVERIFIED in a packaged build: this is
+# reasoning rather than evidence.
 asarUnpack:
   - '**/node_modules/@grandi/**'
 win:

@@ -157,7 +157,7 @@ export default {
 .studio_cameras {
   /* Wider than the other studio widgets on purpose. Every row carries a name
      plus cut, fly and a padlock, and at the 180px the rest of them use the
-     name was squeezed into what the buttons left over. The buttons are a fixed
+     name is squeezed into what the buttons leave over. The buttons are a fixed
      cost, so the extra width all goes to the name. */
   max-width: 280px;
   min-width: 280px;

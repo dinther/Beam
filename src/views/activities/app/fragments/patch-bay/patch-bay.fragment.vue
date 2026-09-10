@@ -6,12 +6,10 @@
     >
       <h3>Patch Bay</h3>
       <span style="flex: 1" />
-      <!-- Hidden rather than removed. A group is on its way to being a saved
-           selection set for control, not a thing that moves in the scene --
-           structures do that now -- so making one from here offers a concept
-           the app is in the middle of retiring. `createGroup` stays: the
-           groups in existing shows still load, and this comes back the day
-           groups mean something again. -->
+      <!-- Hidden rather than removed. A group is becoming a saved selection
+           set for control, not a thing that moves in the scene -- structures
+           do that -- so there is nothing to make one for from here yet.
+           `createGroup` stays: the groups in existing shows still load. -->
       <uk-button
         icon="structure"
         style="margin-right: 8px"
@@ -80,8 +78,8 @@ export default {
   data() {
     return {
       /**
-       * Every fixture in the show. Universes are an addressing detail now, not
-       * a level in this list.
+       * Every fixture in the show. Universes are an addressing detail, not a
+       * level in this list.
        */
       pool: this.$show.fixturePool,
       show: this.$show,
@@ -127,14 +125,9 @@ export default {
      * The one row the list should show as *selected*, rather than highlighted.
      *
      * The list keeps two states -- the row whose widgets are open, and the set
-     * that is highlighted -- and only the second was ever driven from the
-     * store. So a row clicked first stayed marked as selected however the
-     * selection changed afterwards: select five movers, copy, paste, and the
-     * five copies arrive highlighted while the first of the originals is still
-     * sitting there selected. The same thing happened to a list selection when
-     * a rubber band in the 3D view replaced it.
-     *
-     * Bound here, both states come from the same place. A selection of several
+     * that is highlighted. Both come from the store, so a row clicked first
+     * does not stay marked as selected after a paste or a rubber band in the
+     * 3D view has replaced the selection. A selection of several
      * names no primary, which is exactly the case where no single row should
      * look picked out.
      *
@@ -281,13 +274,9 @@ export default {
     /**
      * Selects an object from the item list.
      *
-     * Objects had no branch of their own here, so a row fell through to the
-     * fixture path and was looked up with `findFromId`, which compares against
-     * `Number(id)` -- and an object's list id is `object:3`, so that is `NaN`
-     * and never matches. The lookup returned null and the handler bailed
-     * *before* `clearAllHighlighting`, so clicking an object selected nothing
-     * and left whatever was selected before still lit. Two symptoms, one
-     * missing branch.
+     * A branch of its own: the fixture path looks rows up with `findFromId`,
+     * which compares against `Number(id)`, and an object's list id is
+     * `object:3` -- `NaN`, which never matches.
      *
      * @public
      * @param {Number} objectId
@@ -326,14 +315,10 @@ export default {
     /**
      * The model a kind and an identifier refer to.
      *
-     * The one resolver. There were two -- this and `placedHandle` -- doing the
-     * same job with different coverage, and each fell through to the fixture
-     * pool for anything it did not recognise. An object row's id is
-     * `object:3`, so `Number()` made it NaN and it resolved to nothing:
-     * objects could not be multi-selected in the list, and nothing said so.
-     *
-     * An unknown kind returns null. "None of the above is a fixture" is what
-     * made every one of those omissions silent instead of obvious.
+     * The one resolver, for every kind. An unknown kind returns null rather
+     * than falling through to the fixture pool: an object row's id is
+     * `object:3`, which `Number()` makes NaN, and treating "none of the above"
+     * as a fixture turns every missing kind into a silent miss.
      *
      * @public
      * @param {String} kind
@@ -481,11 +466,9 @@ export default {
       const items = (fixtures || []).map((row) => this.itemFromRow(row)).filter(Boolean);
 
       // The set the list reports *is* the selection, so it is rebuilt rather
-      // than added to. This only ever added: `clearAllHighlighting` clears what
-      // is drawn, not the pool, so an item ctrl-clicked off the list stayed in
-      // the selection and stayed lit -- and an empty set returned early, so
-      // deselecting the last one did nothing at all. Same rule the rubber band
-      // follows: whatever the gesture reports replaces what was selected.
+      // than added to -- `clearAllHighlighting` clears what is drawn, not the
+      // pool -- and an empty set deselects everything. Same rule the rubber
+      // band follows: whatever the gesture reports replaces what was selected.
       Controls.detachAll();
       Controls.clearAllHighlighting();
       if (!items.length) {
@@ -507,8 +490,8 @@ export default {
      */
     deleteFixtures(fixtures) {
       // Every kind in the selection is handled, rather than returning after
-      // the first one found: a selection holding a structure and a loose
-      // fixture used to delete the one and silently spare the other.
+      // the first one found, so a selection holding a structure and a loose
+      // fixture deletes both.
       //
       // Deleting a structure or a group takes its contents with it; explode
       // and ungroup are what leave them behind.
@@ -526,8 +509,8 @@ export default {
         .forEach((fixtureData) => this.$show.deleteFixture(fixtureData));
 
       // The selection still names what was just deleted, and the gizmo and
-      // bounding box are drawn for the selection -- so they stayed on screen,
-      // attached to nothing, until the next selection happened to clear them.
+      // bounding box are drawn for the selection -- left alone they would stay
+      // on screen, attached to nothing.
       //
       // Re-asserted from what survived rather than simply cleared, so deleting
       // two of five leaves the other three selected. `listable` has already
@@ -549,9 +532,7 @@ export default {
       // remove.
       this.setArrangeOpen(false);
       // Nothing to copy: `highlightedIds` is a computed view of the selection
-      // store. It used to be rebuilt here by hand with a branch per kind, and
-      // an object mapped to a bare number matched no row at all -- so an
-      // object picked in the 3D view never lit up in the list.
+      // store, for every kind.
       if (payload.fixtureId === undefined) return;
       this.$router.push({ path: '/patch', query: { fixtureId: payload.fixtureId } }).catch(() => {});
     },
@@ -619,10 +600,8 @@ export default {
      * @param {Array} selection `{kind, id}` entries from the 3D view
      */
     requestDeletion(selection) {
-      // One comparison for every kind, now that a row carries its own. This
-      // was three branches that each had to know about the others, and the
-      // fixture case was "none of the above" -- so a kind nobody had added yet
-      // quietly matched fixtures.
+      // One comparison for every kind, since a row carries its own -- so a
+      // new kind cannot quietly match fixtures.
       const rows = this.listable.filter((row) => (selection || [])
         .some((entry) => kindOf(row) === entry.kind && row.uid === entry.uid));
       if (rows.length) this.deleteFixtures(rows);
@@ -650,11 +629,9 @@ export default {
     /**
      * Selects what "+ New" just added.
      *
-     * The list used to select its own first row on mount, which meant
-     * something looked selected that the user had never chosen. Selecting the
-     * thing they just created is the part that was actually wanted.
+     * The list selects nothing on mount -- nothing the user has not chosen
+     * should look selected -- but what they just created is.
      *
-     * @public
      * Everything added is selected, not just the first of a batch: adding
      * four fixtures and finding one of them selected means arranging them is a
      * re-selection away, when the set is already exactly what was wanted.
@@ -690,11 +667,9 @@ export default {
       }
 
       // Both, and in this order. `clearAllHighlighting` clears what is drawn;
-      // `detachAll` empties the selection pool. Only the first was called here,
-      // and the pool happened to be emptied anyway because the first item's
-      // `highlightSingle` calls `detachAll` itself -- a side effect of the kind
-      // rather than anything this path guaranteed. Adding four objects while a
-      // fixture was selected left the fixture in the selection.
+      // `detachAll` empties the selection pool. Some kinds' `highlightSingle`
+      // calls `detachAll` itself, but not all, and this path must not depend
+      // on it.
       Controls.detachAll();
       Controls.clearAllHighlighting();
       // Additive from the second on, exactly as holding ctrl would be.

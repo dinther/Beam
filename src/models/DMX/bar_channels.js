@@ -5,20 +5,21 @@ import { COMPONENTS } from './generic/led_bar';
  *
  * Every channel of a generated bar is the same thing: an 8-bit colour
  * intensity for one component of one pixel. A 256 x 256 tile has 196,608 of
- * them, and building a `Channel` for each cost 185 ms and most of 300 MB, to
+ * them, and building a `Channel` for each costs 185 ms and most of 300 MB, to
  * describe something six numbers already say. All of them share one `type`
  * ('Color') and one of three capability shapes, differing only in an index and
  * a colour name -- both of which are arithmetic on the channel's position.
  *
  * So the values live in a `Uint8Array` and everything else is derived on
- * demand. Adding a panel stops allocating per channel, and the inbound Art-Net
- * path -- which for a bar only ever writes a number -- becomes an array store.
+ * demand. Adding a panel allocates nothing per channel, and the inbound
+ * Art-Net path -- which for a bar only ever writes a number -- is an array
+ * store.
  *
  * This is deliberately **not** a general channel container. It works because
  * every pixel of a bar is treated identically; a fixture whose channels mean
  * different things still gets one `Channel` each, and should.
  *
- * @see channel.model.js for the object this replaces
+ * @see channel.model.js for the per-channel object
  */
 
 /** What a bar's channels all are. `setChannelTypes` maps ColorIntensity here. */

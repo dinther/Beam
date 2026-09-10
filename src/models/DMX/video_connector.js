@@ -63,9 +63,9 @@ class VideoConnector {
     // the category; "HDMI 3" reads as something you plug a cable into, which
     // is the mental model that makes a projector's Source Select channel
     // explain itself -- a real projector cycles exactly these labels. It is a
-    // white lie: the picture arrives over NDI. Paul's call, made knowing that,
-    // because the clarity is worth more than the pedantry. Only the default
-    // label is a socket; the *concept* stays a connector everywhere else.
+    // white lie: the picture arrives over NDI, and the clarity is worth more
+    // than the pedantry. Only the default label is a socket; the *concept*
+    // stays a connector everywhere else.
     this.name = data.name || `HDMI ${this._id}`;
 
     // The frame the rectangle was authored against, which is what lets it be
@@ -352,7 +352,7 @@ class VideoConnector {
       // IPC to be written. `object.model.js` documents the same trap.
       // In pixels once a real frame has been seen, and as fractions before
       // that. `frame` says which, so a show written either way reads back the
-      // same -- and one written before this existed still loads.
+      // same -- and one without `frame` still loads.
       rect: this.pixelRect() || {
         x: this.rect.x,
         y: this.rect.y,

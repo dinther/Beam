@@ -11,16 +11,14 @@
  * of the application. It is also the only honest way to say how many lasers a
  * protocol can carry: Ether Dream and LaserCube identify a device *by its
  * address* and carry no name, so one laser may hold one address, and a second
- * needs a second address. Paul: *"LaserCube and Etherdream only exclusive if
- * they must share the same IP address... the user can if savvy add additional
- * IP to the network setup."* So Beam asks nothing of anyone's network -- the
- * default is one device on the primary address -- and does not pretend the
- * ceiling is not there.
+ * needs a second address -- which a user can add to the network setup. So
+ * Beam asks nothing of anyone's network -- the default is one device on the
+ * primary address -- and does not pretend the ceiling is not there.
  *
  * IDN is the exception and the reason it is worth preferring: one unit at one
  * address offers a **named service per laser**, so a whole rig fits on one
- * address. Beam has implemented that since the start; MadMapper is the one that
- * does not send a service ID (see `docs/madmapper-idn-service-map.md`), which
+ * address. Beam implements that; MadMapper is the one that does not send a
+ * service ID (see `docs/madmapper-idn-service-map.md`), which
  * is why `serviceZero` is reported -- a producer that names nothing is a fact
  * the user should be told, not a silent mis-route.
  *
@@ -69,8 +67,8 @@ function addressByte(address) {
  * **Each carries an identity of its own, derived from its address.** A host
  * recognises a device by what it advertises -- an Ether Dream by its MAC, an
  * IDN unit by its unit ID -- not by the address it answers from. Built from
- * the defaults, two devices at two addresses were the same device seen twice,
- * and MadMapper showed one destination for a rig of two. The address is the
+ * the defaults, two devices at two addresses would be the same device seen
+ * twice, and MadMapper would show one destination for a rig of two. The address is the
  * one thing that differs between them, so it is what the identity is made
  * from, and it is stable across restarts because the address is.
  *

@@ -9,8 +9,8 @@ import { castsContactShadow } from './contact_shadows';
 /**
  * @file Renderer for a generic display: a bezelled box with a picture on it.
  *
- * The simplest consumer of the video path there is, and deliberately built
- * before the projector's: the picture lands on the display's own surface, so
+ * The simplest consumer of the video path there is: the picture lands on the
+ * display's own surface, so
  * nothing about projection, occlusion or depth is involved. If an image looks
  * wrong here the fault is in the connector or the feed.
  *
@@ -20,8 +20,8 @@ import { castsContactShadow } from './contact_shadows';
  *
  * The crop is done exactly the way the slicing editor does it: four geometry
  * UVs written from `VideoConnector.sampleAt`. That method is the one place that
- * says what a rotation and a flip mean, and this is its second caller -- the
- * whole reason it was put on the model rather than in the editor.
+ * says what a rotation and a flip mean, which is why it is on the model rather
+ * than in the editor.
  */
 
 /** Every display in the scene, so the statics can sweep them. */
@@ -164,12 +164,11 @@ function buildScreen(width, height, offset, curve, hy) {
 /**
  * The casing: a box whose front is a frame with a hole in it.
  *
- * The screen used to be a plane floated a millimetre in front of a plain box,
- * which is two parallel faces covering the same pixels. Depth resolution falls
- * off with the square of the distance, so past about fifteen metres the two
- * landed in the same depth bucket and the casing punched through the picture in
- * hard bands. A bias would hide that; an opening removes it, because there is
- * no longer any casing behind the picture to come through it.
+ * A plane floated a millimetre in front of a plain box is two parallel faces
+ * covering the same pixels. Depth resolution falls off with the square of the
+ * distance, so past about fifteen metres the two land in the same depth bucket
+ * and the casing punches through the picture in hard bands. A bias would hide
+ * that; an opening removes it, because there is no casing behind the picture.
  *
  * So the front is built as four strips around a hole the size of the picture,
  * and the screen sits at the bottom of a shallow recess, joined to the rim by
@@ -594,10 +593,8 @@ class Display {
    * Called every drawn frame, and it has to be, because **a feed has no texture
    * until its first frame lands** -- which is always after the source was
    * chosen. Selecting a source announces immediately, at which point there is
-   * nothing to draw yet, and without this a display stayed black until some
-   * unrelated edit happened to call `refresh` again. That is precisely how it
-   * behaved: picking a connector did nothing, and toggling any other control
-   * made the picture appear.
+   * nothing to draw yet, and without this a display stays black until some
+   * unrelated edit happens to call `refresh` again.
    *
    * Two comparisons per display per frame. `refresh` itself is not called
    * blindly because it rewrites the screen's UVs, which is real work for an

@@ -7,16 +7,9 @@
  * them, drawing a box round them, moving them, deleting them, writing them to a
  * showfile.
  *
- * That was expressed with boolean flags -- `isStructure`, `isObject`,
- * `isGroup` -- and every consumer dispatched on them:
- *
- *     item.isStructure ? 'structure' : 'fixture'
- *
- * which is kind-dispatch by flag, in two dozen places, each of which has to
- * learn every new kind. Adding objects meant finding all of them, and each one
- * missed showed up as its own bug: an object selected nothing, or selected an
- * unrelated LED bar, or left another kind's widgets on screen. This module is
- * the type that was missing.
+ * Boolean flags -- `isStructure`, `isObject`, `isGroup` -- make every consumer
+ * dispatch on them (`item.isStructure ? 'structure' : 'fixture'`), and every
+ * one has to learn every new kind. This module is the type instead.
  *
  * Two things live here:
  *
@@ -25,15 +18,12 @@
  * - **`uid`**, unique across every scene item regardless of kind.
  *
  * The uid matters more than it looks. Fixtures, structures and objects each
- * number from 1, so object 3 and fixture 3 are different things, and every
- * lookup had to be told which pool to search -- get that wrong and you silently
- * get somebody else's item. Selection, the item list and the 3D view now refer
- * to items by uid, which has no such ambiguity.
+ * number from 1, so object 3 and fixture 3 are different things, and a lookup
+ * by id has to be told which pool to search. Selection, the item list and the
+ * 3D view refer to items by uid, which has no such ambiguity.
  *
- * **Showfiles are unaffected.** They keep per-kind ids exactly as before, and a
- * uid is assigned on load. Renumbering what is on disk would mean migrating
- * every existing show, and there is nothing to gain from it that this does not
- * already give.
+ * **Showfiles keep per-kind ids**, and a uid is assigned on load. Renumbering
+ * what is on disk would mean migrating every existing show for nothing.
  */
 
 /**
@@ -62,10 +52,8 @@ export const PLACEABLE_KINDS = [
 /**
  * The floor a show starts with.
  *
- * An ordinary object, deliberately. It used to be a `BoxGeometry(50, 50, 0.5)`
- * built in the visualizer and bolted to the scene: a cube pretending to be a
- * surface, that no one could move, resize, replace or delete, and that the
- * item list never knew about. It is a target like anything else -- a beam
+ * An ordinary object, deliberately, so it can be moved, resized, replaced or
+ * deleted and the item list shows it. It is a target like anything else -- a beam
  * lands on it, the gizmo can take hold of it -- so it belongs in the show
  * rather than in the renderer.
  *
@@ -85,7 +73,7 @@ export const DEFAULT_FLOOR = {
   primitive: {
     type: 'plane',
     size: { x: 50, y: 50 },
-    // Paul's pick, 2026-09-10. Light enough for a contact shadow to read on.
+    // Light enough for a contact shadow to read on.
     color: '#b9babb',
   },
   position: { x: 0, y: 0, z: 0 },
@@ -112,12 +100,10 @@ export function newUid() {
 /**
  * The kind of an item, however it declares itself.
  *
- * Null for anything that does not declare one. It used to fall back to the old
- * boolean flags and, failing those, to fixture -- which is the very default
- * that made every missed kind silent: a thing nobody had handled quietly
- * became a fixture and failed later, somewhere else. Every model and every
- * list row carries `kind` now, so a null here means a genuine omission and
- * should look like one.
+ * Null for anything that does not declare one, not a fallback to fixture:
+ * that default makes every missed kind silent. Every model and every list row
+ * carries `kind`, so a null here means a genuine omission and should look
+ * like one.
  *
  * @public
  * @param {Object} item a model or a list row

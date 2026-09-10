@@ -3,9 +3,9 @@
  * Channel values set by hand on a library fixture.
  *
  * A generic device carries its settings in `device` and saves only what was
- * parked, never what the wire said. A library fixture had neither: its channels
- * held whatever DMX last wrote, and nothing was saved, so a light placed to try
- * an idea stayed dark until it was patched and a console was talking to it.
+ * parked, never what the wire said. A library fixture has no `device`, so
+ * without these its channels hold whatever DMX last wrote, nothing is saved,
+ * and a light placed to try an idea stays dark until it is patched.
  *
  * The rules worth pinning are about who wins and what travels:
  *

@@ -12,12 +12,9 @@
  * `device_settings.js`, which applies it at run time; this file is what a
  * parameter *is* before anyone applies anything to it.
  *
- * Three things used to be spread apart and had to be kept in step by hand: a
- * plain `{ mode, value, channel, bits }` record in the profile, a free function
- * that laid its bytes out as OFL channels, and a label in a lookup table beside
- * an ordering array. A parameter that gained a column had to be edited in all
- * three, per kind, and the create dialog then rebuilt the same record shape a
- * fourth time. They are one object now:
+ * A parameter's record in the profile, the way its bytes are laid out as OFL
+ * channels, its label and its order are one object, so nothing has to be kept
+ * in step by hand:
  *
  * - **`ControlType`** and its subclasses say what a parameter is *worth* -- its
  *   range, its default, how to keep a hand-set value legal, and which editor
@@ -34,10 +31,10 @@
  *   the offset-to-parameter map, and the OFL channel list a fixture is patched
  *   through.
  *
- * The compatibility path lives here too, in one place: a profile made before
- * any of this carries a `channels` array of the keys that were ticked, which
- * meant DMX, 8-bit, numbered in the kind's order. `ControlSet.fromProfile`
- * reads either shape, so nothing made earlier loses its patch.
+ * The compatibility path lives here too, in one place: an older profile
+ * carries a `channels` array of the keys that were ticked, which means DMX,
+ * 8-bit, numbered in the kind's order. `ControlSet.fromProfile` reads either
+ * shape, so no profile loses its patch.
  */
 
 /** The three ways a parameter can be decided. */
@@ -242,8 +239,8 @@ export class RatioType extends ControlType {
 }
 
 /**
- * On or off. A shutter is a blade, not a fader, and a row that showed it as a
- * number was asking the definer to encode a boolean by hand.
+ * On or off. A shutter is a blade, not a fader, and a row showing it as a
+ * number would ask the definer to encode a boolean by hand.
  */
 export class SwitchType extends ControlType {
   /**
@@ -546,8 +543,8 @@ export class ControlSet {
   /**
    * Reads whichever shape a profile carries.
    *
-   * A `controls` block is the current form. A `channels` array is what profiles
-   * made before it carry: the keys that were ticked, which meant DMX, 8-bit,
+   * A `controls` block is the current form. A `channels` array is what older
+   * profiles carry: the keys that were ticked, which means DMX, 8-bit,
    * numbered in the kind's own order. A profile with neither -- a fixture being
    * defined right now -- starts every parameter Adjustable at its default, with
    * channels pre-numbered in order so that ticking a run of them to DMX lands
@@ -743,8 +740,7 @@ export class ControlSet {
  * A form models a select by its *index*, and holds a value for every mode so
  * that switching a parameter to DMX and back does not lose what it was set to.
  * Records are plain objects on purpose: they are what a Vue component binds to,
- * and a class instance behind a reactive proxy is a trap this app has been
- * caught by before.
+ * and a class instance behind a reactive proxy is a trap.
  *
  * @public
  * @param {Array} defs

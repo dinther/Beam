@@ -16,22 +16,18 @@ import { castsContactShadow, standsUp } from './contact_shadows';
  * separately: the primitives are uploaded once per model and every placement
  * of it is another matrix in the same `InstancedMesh`. Draw calls then follow
  * how many *kinds* of thing are in the scene rather than how many there are of
- * them. Paul's silo gantry is 5 primitives and 18,838 triangles: one placement
- * costs 5 draw calls, and so does the hundredth.
+ * them. A silo gantry of 5 primitives and 18,838 triangles costs 5 draw calls
+ * for one placement, and so does the hundredth.
  *
- * This is the same trade `moving_head.js` already makes for base, yoke and
+ * This is the same trade `moving_head.js` makes for base, yoke and
  * head, generalised to whatever a `.glb` happens to contain. What it does not
  * change is vertex work -- a hundred gantries is still 1.9 M triangles to
  * rasterise, because that is a hundred gantries.
  *
  * Models are **referenced**, never copied into a show: a placement stores a
  * key, and the bytes stay in the library until an export freezes them. See
- * `objectstore.js` for how they are served.
- *
- * Not yet a scene item. There is no model class, no persistence and no
- * selection -- `place` exists so the geometry can be looked at, and the units
- * and up-axis it applies can be judged by eye before an import UI is built to
- * set them.
+ * `objectstore.js` for how they are served. The scene item that owns a
+ * placement is `SceneObject`, in `object.model.js`.
  */
 
 /** Placements one model can hold before it needs a bigger buffer. */
@@ -94,19 +90,17 @@ function correction(metadata) {
  *
  * glTF defaults an unstated `metallicFactor` to **1**, so a material that says
  * only its name -- which is what several exporters write -- arrives as a
- * perfect mirror. A mirror with no environment to reflect is black, and Beam's
- * scene has a directional light and no environment map, so such a model comes
- * in invisible. Paul's silo gantry has five materials and four of them are
- * exactly this: a name, and nothing else.
+ * perfect mirror. A mirror with nothing to reflect is black, so such a model
+ * comes in invisible wherever the environment is dark. Some exporters write
+ * whole models this way: a name per material, and nothing else.
  *
  * The test is deliberately narrow -- fully metallic, fully rough, no maps of
  * any kind -- because a material set that way on purpose is equally
  * unrenderable, so nothing is lost by treating the two alike. Anything that
  * states a colour, a texture or a finish is left exactly as authored.
  *
- * This is a stand-in for an environment map, not a substitute. Give the scene
- * one and this can go: metals would then reflect a room and look like metal
- * rather than like the plastic they are turned into here.
+ * Metals given a room to reflect look like metal; these are turned into
+ * plastic, which at least shows.
  *
  * @param {Object} material THREE.Material from the loader
  * @returns {Object} the same material, possibly adjusted
@@ -229,10 +223,8 @@ function buildPrimitive(descriptor) {
     // take the diffuse away and with it the colour the user chose; roughness
     // would restyle every primitive already placed in every saved show.
     envMapIntensity: PRIMITIVE_ENV_RESPONSE,
-    // Single sided, planes included. A plane was two sided until 2026-08-29,
-    // on the reasoning that having no thickness it would be seen from
-    // underneath as often as not -- but that is exactly what makes it useless
-    // as a ceiling: it hid the room from any camera above it. Facing one way
+    // Single sided, planes included. A two-sided plane is useless as a
+    // ceiling: it hides the room from any camera above it. Facing one way
     // only, a ceiling is solid from inside the room and invisible from above,
     // so the rig can be looked at from outside without deleting the roof.
     //
@@ -386,10 +378,9 @@ function writeInstance(model, index, placement) {
     // The instances have moved, so anything derived from where they were is
     // wrong. `InstancedMesh.raycast` tests the bounding sphere first and only
     // computes it when it is null -- so a stale one silently rejects every ray
-    // that should have hit. That is picking *and* box select gone, because both
-    // go through `intersectObjects`, and it appears only once something has
-    // moved far enough to leave the old sphere: arrange three objects apart and
-    // none of them can be clicked again.
+    // that should have hit -- picking *and* box select, because both go
+    // through `intersectObjects`, for anything moved far enough to leave the
+    // old sphere.
     //
     // Nulled rather than recomputed, so the cost is paid on the next raycast
     // rather than on every write. `MovingHead` recomputes on every pick for the

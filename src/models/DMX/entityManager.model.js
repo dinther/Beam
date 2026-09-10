@@ -340,12 +340,11 @@ class Entity {
     value = this.getValueFromPresets(value);
     const valueUnit = Entity.parseValueUnit(value);
     // A percentage is a fraction of the feature's range whatever that range is
-    // measured in -- including when it is itself measured in percent. That
-    // case used to fall to the branch below and be taken literally, so a
-    // brightness of `100%` came back as 100 on a scale that ends at 1: a
-    // hundred times too bright, saturated and clipped, and no longer able to
-    // vary. It bit exactly the profiles that spell the defaults out, while the
-    // ones that leave them off were right by accident.
+    // measured in -- including when it is itself measured in percent. Taken
+    // literally by the branch below, a brightness of `100%` would come back as
+    // 100 on a scale that ends at 1: a hundred times too bright, saturated and
+    // clipped, and unable to vary -- in exactly the profiles that spell their
+    // defaults out.
     if (valueUnit === ENTITY_UNIT_PERC) {
       return min + (parseFloat(value) / 100) * (max - min);
     }
@@ -384,13 +383,11 @@ class Entity {
    * the unit -- so the set removed has to be the whole of a number's spelling,
    * not just its digits.
    *
-   * Digits alone was the rule until 2026-08-29, which left the decimal point
-   * behind: `"3.5"` came back as a unit of `"."`. Nothing matches that, so the
-   * value fell to the catch-all conversion at the end of `getValue` and was
-   * multiplied by a thousand. A wheel slot of 3.5 -- a split colour, the wheel
-   * parked between two slots -- arrived as slot 3500, was rejected as out of
-   * range, and the head kept the colour it already had. Whole-numbered slots
-   * were unaffected, so it looked like one fixture at a time misbehaving.
+   * Digits alone would leave the decimal point behind: `"3.5"` would come back
+   * as a unit of `"."`, which matches nothing, so the value would fall to the
+   * catch-all conversion at the end of `getValue` and be multiplied by a
+   * thousand. A wheel slot of 3.5 -- a split colour, the wheel parked between
+   * two slots -- would arrive as slot 3500 and be rejected as out of range.
    *
    * The sign goes for the same reason; trimming is so that `"20 ms"` reads as
    * `ms` rather than as a unit that begins with a space and matches nothing.

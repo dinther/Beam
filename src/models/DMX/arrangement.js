@@ -41,13 +41,10 @@ const LAYOUT = {
  * it into three stored angles is `aimedRotation`'s job, and for anything that
  * is not upright the two are not the same thing.
  *
- * It used to be four names -- unchanged, along, outward, inward -- with each
- * layout offering its own subset under its own vocabulary. They turn out to be
- * two values of one number: outward is zero degrees from the radius, inward is
- * a hundred and eighty, along is zero from the line. Saying it as an angle
- * costs nothing and reaches the headings the names could not. The useful one
- * is ninety -- heads tangential to a circle, or a row square to the line it
- * stands on -- and neither could be asked for before.
+ * An angle rather than named directions: outward is zero degrees from the
+ * radius, inward is a hundred and eighty, along is zero from the line -- and
+ * an angle also reaches the headings names cannot. The useful one is ninety:
+ * heads tangential to a circle, or a row square to the line it stands on.
  *
  * @constant {Object} AIM_FROM
  */
@@ -226,7 +223,7 @@ function rotationOf(q) {
  * off the item's own forward axis rather than off its stored `z`. The two
  * agree for anything standing upright and disagree for everything else -- a
  * head hanging at `rotX: 180` has its forward axis mirrored, so a stored `z`
- * of 90 is a heading of -90, which is why hung heads used to swing the wrong
+ * of 90 is a heading of -90. Read off `z`, hung heads would swing the wrong
  * way round a circle.
  *
  * @param {Object} rotation `{ x, y, z }` in degrees
@@ -265,8 +262,7 @@ function headingOf(rotation) {
  * and then arranged round a circle would lean rather than swing.
  *
  * An upright item comes back with exactly `aimZ` in `z` and zeroes elsewhere,
- * which is what the old arithmetic did -- the two only part company where the
- * old one was wrong.
+ * the same answer plain arithmetic on `z` gives.
  *
  * @param {Object} rotation `{ x, y, z }` in degrees, what the item holds now
  * @param {Number} aimZ heading it should have, in degrees
@@ -368,7 +364,7 @@ function circleTransforms(count, options = {}) {
     const angle = first + step * i;
     const rad = angle / DEG;
     // The outward radius at this point is what the angle is measured from, so
-    // zero is the old "outward", 180 the old "inward", and 90 is tangential.
+    // zero is outward, 180 inward, and 90 tangential.
     const aimZ = aimHeading(options.aim, angle);
 
     out.push({

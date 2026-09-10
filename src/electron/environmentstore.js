@@ -10,12 +10,11 @@ import objectstore from './objectstore';
  * @file The user's environment images (main process).
  *
  * An environment is a photograph of a room's light, and Beam uses two of them:
- * one for the house lights up and one for show time. Until this existed the
- * scene had a single procedural `RoomEnvironment` whose intensity was scaled by
- * the house control, which meant show time was a *dimmed photographic studio* --
- * the same bright-panel-overhead distribution, only darker -- and at the bottom
- * of the range there was nothing left for a metal or a glossy floor to reflect.
- * Two images let each end be shaped like the room it actually is.
+ * one for the house lights up and one for show time. One environment scaled by
+ * the house control makes show time a *dimmed photographic studio* -- the same
+ * bright-panel-overhead distribution, only darker -- with nothing left at the
+ * bottom of the range for a metal or a glossy floor to reflect. Two images let
+ * each end be shaped like the room it actually is.
  *
  * Files live in the library beside the models rather than being referenced
  * wherever the user happens to keep them, for the reason `objectstore` gives:

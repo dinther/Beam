@@ -96,8 +96,8 @@ console.log('\n-- the group is the identity, not the name --');
 console.log('\n-- a structure is a group for this purpose --');
 {
   // A structure is the tighter of the two -- a locked, deliberately arranged
-  // set -- so if anything wants its own definition it does. It was left out
-  // at first and its fixtures exported as the plain shared model.
+  // set -- so if anything wants its own definition it does, rather than its
+  // fixtures exporting as the plain shared model.
   const rig = { id: 3, name: 'Truss A' };
   const loose = fixture('a');
   const held = fixture('b');

@@ -167,11 +167,10 @@ export default {
     /**
      * Whether this subject's transform belongs to something else.
      *
-     * Asked of the subject rather than worked out here. This used to read
-     * `fixture.structure`, which only an item with that field can answer -- so
-     * a *selection* answered "no" by not having one, and the multi-item tool
-     * stayed editable over the very members the single-item tool greys out.
-     * Both subjects answer `locked` now, which is the whole reason this widget
+     * Asked of the subject rather than worked out here: reading
+     * `fixture.structure` would let a *selection* answer "no" by not having
+     * one, leaving the multi-item tool editable over members the single-item
+     * tool greys out. Both subjects answer `locked`, which is why this widget
      * can be pointed at either.
      *
      * @property {Boolean} locked

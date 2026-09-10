@@ -43,10 +43,8 @@ const bare = { ...DEFAULT_PROJECTOR_PARAMS, channels: [] };
 /**
  * And one with the three a projector with any DMX usually offers.
  *
- * Spelled out rather than taken from the defaults. It used to be
- * `{ ...DEFAULT_PROJECTOR_PARAMS }`, which tied every assertion below to a
- * product decision they have no opinion about -- and duly broke the day the
- * default became "no channels at all".
+ * Spelled out rather than taken from the defaults, which would tie every
+ * assertion below to a product decision they have no opinion about.
  */
 const patched = {
   ...DEFAULT_PROJECTOR_PARAMS,

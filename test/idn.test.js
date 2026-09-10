@@ -19,7 +19,7 @@
  * IDN-Hello draft 2022-03-27 and IDN-Stream revision 001. A self-built packet
  * agrees with whatever the parser believes, so the one thing this cannot prove
  * is an offset both sides got wrong the same way; a live MadMapper stream
- * settles that, as it did for sACN.
+ * settles that.
  *
  * Usage:
  *   npm test
@@ -294,7 +294,7 @@ async function stream() {
   // A producer that names its service is believed. One that does not --
   // MadMapper sends service 0 on channel 0 for every output -- gets the
   // channel's laser, then the first. Telling MadMapper's outputs apart is
-  // not IDN's job any more; they reach Beam over Ponk, by name.
+  // Ponk's job; they reach Beam over Ponk, by name.
   dac.setServices([{ id: 1, name: 'Laser Left' }, { id: 2, name: 'Laser Right' }]);
   check('a named service is that laser', dac.serviceDac(2, 0).name.endsWith('Laser Right'), true);
   check('unnamed on channel 0: the first', dac.serviceDac(0, 0).name.endsWith('Laser Left'), true);

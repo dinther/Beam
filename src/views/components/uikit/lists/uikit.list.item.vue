@@ -308,9 +308,8 @@ export default {
    icon is a separate component, and `fill` as an SVG attribute is a
    presentation hint that any stylesheet outranks. Addressing `fill` directly
    is the one thing that cannot be quietly overridden.
-   Off is 39% white against a full white on -- `--secondary-lighter` was tried
-   first and is #FFFFFFC7, which is 78%, so the two states differed by almost
-   nothing and the state was unreadable. */
+   Off is 39% white against a full white on -- `--secondary-lighter` is
+   #FFFFFFC7, 78%, too close to on to read. */
 .uikit_list_item_action.bare :deep(svg) {
   fill: var(--secondary-light-alt);
 }

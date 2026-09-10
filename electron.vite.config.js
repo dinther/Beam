@@ -37,18 +37,14 @@ async function readCommand(command) {
 async function prepareVersioningEnv() {
   // **package.json decides the version, not the nearest git tag.**
   //
-  // It used to be the tag, and the two drifted apart for three releases. The
-  // release path creates the tag with `gh release create`, which makes it on
-  // GitHub -- nothing brings it back to the working copy unless someone
-  // remembers `git fetch --tags`. So the newest local version tag sat at
-  // alpha.5 while package.json said alpha.8, and the About box reported a
-  // build three releases old.
-  //
-  // Worse, electron-builder names the installer from `${version}` in
-  // package.json. So the file on disk said alpha.8 and the splash inside it
-  // said alpha.5 -- one fact with two sources, disagreeing silently. Reading
-  // both from package.json makes them agree by construction, and it is also
-  // the first thing a release bumps, so it cannot lag.
+  // The release path creates the tag with `gh release create`, which makes it
+  // on GitHub -- nothing brings it back to the working copy unless someone
+  // remembers `git fetch --tags`, so the newest local tag can lag releases
+  // behind. And electron-builder names the installer from `${version}` in
+  // package.json, so reading the tag here would let the file on disk and the
+  // splash inside it disagree. Reading both from package.json makes them agree
+  // by construction, and it is the first thing a release bumps, so it cannot
+  // lag.
   process.env.VITE_APP_VERSION = pkg.version || '';
 
   // The nearest version-shaped tag, still read -- not to name the build, but to

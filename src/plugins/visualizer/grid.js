@@ -6,11 +6,10 @@ import * as THREE from 'three';
 /**
  * @file The ground grid, drawn at whatever scale can actually be read.
  *
- * The original drew two fixed decades at full strength all the way to the
- * horizon. That is fine directly under the camera and wrong everywhere else:
- * once a cell falls below a pixel the lines interfere with the pixel grid and
- * the floor turns into moire, which is worse than no grid at all -- and it was
- * bright white while doing it.
+ * Fixed decades at full strength all the way to the horizon are fine directly
+ * under the camera and wrong everywhere else: once a cell falls below a pixel
+ * the lines interfere with the pixel grid and the floor turns into moire,
+ * which is worse than no grid at all.
  *
  * So each decade is faded by how big its cells are **on screen** rather than by
  * how far away they are. A level appears once its cells are a few pixels

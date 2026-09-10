@@ -59,8 +59,7 @@ const MIN_PROJECTED_LENGTH = 0.05;
  * MadMapper flips a quad fixture vertically on import: a tile exported from
  * here and imported there arrives upside down, and so does one of its own
  * exports round-tripped through it. A *line* fixture round-trips correctly.
- * Paul established the split on 2026-08-24 and reported it; this is the
- * workaround until a fix ships.
+ * This is the workaround until MadMapper fixes it.
  *
  * A rectangle is expressible either way, so nothing is lost by drawing the
  * panel as a thick line: `bandEnds` already returns the band's centreline, and
@@ -73,7 +72,7 @@ const MIN_PROJECTED_LENGTH = 0.05;
  * cannot be a non-rectangular quad.
  *
  * Set back to true once MadMapper imports a quad the right way up. Their fix
- * cannot break the line path -- lines already import correctly today.
+ * cannot break the line path -- lines import correctly.
  *
  * @constant {Boolean}
  */
@@ -245,8 +244,8 @@ export function isCameraView(projection) {
  * shape a wiring diagram of a polyhedron is always drawn in.
  *
  * `distance` is in radii, measured from the rig's centre. Close to 1 the eye
- * is nearly touching and the effect is extreme; large values approach the
- * parallel projection it replaces.
+ * is nearly touching and the effect is extreme; large values approach a
+ * parallel projection.
  *
  * @param {THREE.Vector3} point scene position, metres
  * @param {String} projection one of the camera views
@@ -290,8 +289,8 @@ export function wrapsAround(projection) {
  *
  * An angle has no single answer, and `atan2` picks the one in (-pi, pi]. A bar
  * lying across that seam gets one end from each side and is drawn stretched
- * clean across the canvas -- which is what those long horizontal lines were.
- * Both ends are placed on whichever side its middle fell.
+ * clean across the canvas as a long horizontal line. Both ends are placed on
+ * whichever side its middle fell.
  *
  * @param {Number} value
  * @param {Number} reference
@@ -503,10 +502,9 @@ function elementId(entry, offset = 0) {
 
   // A line states its thickness here as well as in the attribute. The importer
   // accepts every placement value either way -- as an id token or as plain
-  // XML -- and a line carrying `__MW__`/`__MH__` is new ground, so this one is
-  // said twice rather than once: bands that abut exactly in the file were
-  // arriving with gaps between them, which is what a thickness that did not
-  // land looks like.
+  // XML -- and a line carrying `__MW__`/`__MH__` is the less trodden path, so
+  // this one is said twice rather than once: a thickness that does not land
+  // shows as gaps between bands that abut exactly in the file.
   //
   // Whole numbers, like every other id token: the ranges the importer quotes
   // are integers (`__UN__` 0-32767, `__CH__` 1-512, `__TH__` 0-1000), and it
@@ -625,14 +623,14 @@ function prepare(fixture, projection, definitionName, frame, perspective, option
     const parts = profileParts(fixture.OFLData, fixture.mode);
     // Stacked rather than side by side, and the reason is selection. A rig is
     // laid out along its width: fixtures in a truss share a height and differ
-    // in x. Spreading each fixture's islands in x too put them among their
-    // neighbours', so picking every Pan/Tilt on the canvas meant hunting one
-    // island at a time. Stacked, each fixture keeps its own column and the
-    // same island of every fixture lands on one horizontal line -- which a
-    // single rubber-band selection takes.
+    // in x. Spreading each fixture's islands in x too would put them among
+    // their neighbours', so picking every Pan/Tilt on the canvas would mean
+    // hunting one island at a time. Stacked, each fixture keeps its own column
+    // and the same island of every fixture lands on one horizontal line --
+    // which a single rubber-band selection takes.
     //
-    // The stack is centred on where the fixture really is, as the row was,
-    // which is what makes a control channel mean anything if the user repoints
+    // The stack is centred on where the fixture really is, which is what
+    // makes a control channel mean anything if the user repoints
     // it at the media. Islands run in channel order, so light, movement and
     // control keep the order they occupy in the profile.
     //
@@ -720,14 +718,11 @@ function prepare(fixture, projection, definitionName, frame, perspective, option
     // of being flattened to an axis-aligned box.
     if (PANEL_AS_QUAD && isPanel(bar)) {
       const half = new THREE.Vector3(0, 1, 0).applyEuler(basis).multiplyScalar(across / 2);
-      // Corner order is inert here, and that is worth knowing rather than
-      // rediscovering: MadMapper's SVG import always builds a fixture in its
-      // default orientation. Paul established this on 2026-08-22 by round trip
-      // -- a fixture he had flipped by hand exported and re-imported unflipped,
-      // while one left in the default orientation round-tripped unchanged. So
-      // no winding and no coordinates written here can express a vertical flip,
-      // and two attempts to fix one by reordering these corners changed
-      // nothing. If a flip needs fixing, it is not in this file.
+      // Corner order is inert here: MadMapper's SVG import always builds a
+      // fixture in its default orientation -- a fixture flipped by hand
+      // exports and re-imports unflipped. So no winding and no coordinates
+      // written here can express a vertical flip, and reordering these corners
+      // changes nothing. If a flip needs fixing, it is not in this file.
       return {
         ...common,
         kind: 'fixture_quad',
@@ -950,8 +945,7 @@ export function buildMadMapperLayout({
 
   // Named by mapping rather than by island, so one name means one way of
   // looking at the whole rig and a cue can raise or lower it as a set. Spelled
-  // out in full now that it has a group of its own to sit in rather than a
-  // prefix on somebody else's name.
+  // out in full, since it has a group of its own to sit in.
   const order = PROJECTION_LABELS
     .filter((p) => islands.some((island) => island.mapping === p.id));
   const prefixOf = new Map(order.map((p) => [p.id, p.label]));
@@ -1013,8 +1007,8 @@ export function buildMadMapperLayout({
         // be inside the island. Fitting to the centreline alone lets the scale
         // push the thickness past `MAX_THICKNESS`, where it is clamped -- and a
         // clamped band is drawn narrower than its neighbour is far away, which
-        // opens a gap between the bands of a tile. A 128 x 256 panel wanted
-        // 1024 and was held to 1000, leaving 24 units of black per seam.
+        // opens a gap between the bands of a tile -- a 128 x 256 panel wanting
+        // 1024 and held to 1000 leaves 24 units of black per seam.
         //
         // Taken perpendicular to the line, so this is the same rectangle the
         // quad branch builds from the same centreline and the two fit alike.

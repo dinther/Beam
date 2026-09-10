@@ -37,7 +37,7 @@ import * as THREE from 'three';
 /**
  * How many projectors can light the scene at once.
  *
- * Six covers the rigs Paul described -- three to six machines on a facade --
+ * Six covers the common rig -- three to six machines on a facade --
  * and it is the number the projector atlas is laid out for. Past it the extra
  * projectors simply do not contribute rather than corrupting anyone else's
  * tile.
@@ -86,11 +86,11 @@ const DEPTH_MATERIAL = new THREE.MeshDepthMaterial({
  * interpolated varying divided per fragment. A ground plane is two triangles
  * tens of metres across that run from well behind the camera to well in front,
  * so that varying is interpolated across a triangle crossing `w = 0` and the
- * division loses all meaning: the whole floor came back as `packDepthToRGBA` of
- * a negative number -- alpha 0, the other channels noise, which unpacks to
- * roughly zero and reads as a surface sitting on the near plane. Every beam
- * aimed anywhere near the floor was then cut a few centimetres out of the
- * aperture. Changing near/far does not help; the interpolation is the problem.
+ * division loses all meaning: the whole floor comes back as `packDepthToRGBA`
+ * of a negative number -- alpha 0, the other channels noise, which unpacks to
+ * roughly zero and reads as a surface sitting on the near plane, cutting every
+ * beam aimed near the floor a few centimetres out of the aperture. Changing
+ * near/far does not help; the interpolation is the problem.
  *
  * View-space distance has none of that: it is linear, it never divides by an
  * interpolated `w`, and it spends the buffer evenly instead of crushing
@@ -116,8 +116,8 @@ const LINEAR_DEPTH_MATERIAL = new THREE.ShaderMaterial({
       // gl_FragCoord.z, never an interpolated varying. A ground plane is two
       // triangles running from behind the camera to far in front, so any
       // varying is interpolated across a triangle crossing w = 0 and comes out
-      // meaningless -- which is exactly how the floor used to pack as noise and
-      // read back as a surface on the near plane. The rasteriser computes
+      // meaningless, packing the floor as noise that reads back as a surface
+      // on the near plane. The rasteriser computes
       // gl_FragCoord.z after clipping, so it is always right; the depth buffer
       // and the on-screen render rely on the same value.
       float ndc = gl_FragCoord.z * 2.0 - 1.0;
@@ -307,11 +307,11 @@ export class DepthAtlas {
     this.ensureTarget();
 
     // Brought up to date before anything is hashed, because the hash has to
-    // describe the scene the pass is about to draw. Hashing first read the
-    // matrices as they stood *last* frame, so a fixture that moved was noticed
-    // one frame late and then noticed again once the update caught up -- every
-    // tile redrawn twice, and a rig that never settled while anything in it had
-    // a dirty matrix.
+    // describe the scene the pass is about to draw. Hashed first, it would read
+    // the matrices as they stood *last* frame: a fixture that moved would be
+    // noticed one frame late and again once the update caught up -- every tile
+    // redrawn twice, and a rig that never settles while anything in it has a
+    // dirty matrix.
     scene.updateMatrixWorld();
 
     // Which tiles are actually owed a redraw.
@@ -341,8 +341,8 @@ export class DepthAtlas {
     // `scene.updateMatrixWorld()`, and some objects use that hook to manage
     // their own visibility -- three's TransformControls gizmo re-enables its
     // handles and its picker meshes there, every call. So a hide applied before
-    // the render was undone inside it, once per tile, and the gizmo went on
-    // printing its rotate rings into the atlas as shadow circles.
+    // the render is undone inside it, once per tile, and the gizmo would print
+    // its rotate rings into the atlas as shadow circles.
     const wasAutoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
     // Everything from here to the restore runs inside `try`, because leaving
@@ -372,8 +372,8 @@ export class DepthAtlas {
     // colour -- once per tile, after our far-white clear. The tile then holds
     // the background colour (#0C0D0A) where nothing was drawn, and RGBA depth
     // unpacking reads those bytes as a perfectly good depth (~0.996), so every
-    // empty direction became a solid occluder about 22 m out and beams were cut
-    // against open air. Nulled here, restored below.
+    // empty direction would become a solid occluder about 22 m out and beams
+    // would be cut against open air. Nulled here, restored below.
     const wasBackground = scene.background;
     const wasAlpha = renderer.getClearAlpha();
     renderer.getClearColor(previousColour);

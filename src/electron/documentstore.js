@@ -17,9 +17,9 @@ import paths from './paths';
  *
  * A `.beam` is a zip. That is what lets a Save dialog behave the way everyone
  * expects: you type a name, you get a file with that name, and nothing is
- * created or moved behind you. A project *folder* would have meant typing a
- * file name and receiving a directory, which is what made every earlier version
- * of this jarring. The container also makes Export nearly free -- it is the
+ * created or moved behind you. A project *folder* would mean typing a file
+ * name and receiving a directory. The container also makes Export nearly
+ * free -- it is the
  * same file with the referenced resources collected into it.
  *
  * Inside:

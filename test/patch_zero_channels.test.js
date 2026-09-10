@@ -105,9 +105,9 @@ console.log('\n-- a whole show loads past one --');
 console.log('\n-- the questions the dialog asks --');
 {
   const patch = new PatchMap();
-  // Both of these are *correct* answers to the question asked; the dialog's
-  // mistake was asking them at all about a fixture wanting no channels. Pinned
-  // so that a later "fix" here does not quietly change what they mean.
+  // Both of these are *correct* answers to the question asked; the dialog
+  // must not ask them at all about a fixture wanting no channels. Pinned so
+  // that a later "fix" here does not quietly change what they mean.
   check('canPatch refuses a run of nought', patch.canPatch(0, 0), false);
   check('findFreeAddress has nowhere to put nothing', patch.findFreeAddress(0, 1), -1);
   check('but a real run is still found', patch.findFreeAddress(6, 1), 0);

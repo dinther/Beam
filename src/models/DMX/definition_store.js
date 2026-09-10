@@ -3,13 +3,12 @@ import { withoutLedBarChannels, expandLedBarProfile } from './generic/led_bar';
 /**
  * @file The fixture definitions that belong to a show.
  *
- * Creating a generic fixture used to write its profile straight into the
- * library, so every experiment was a permanent library entry and a show only
- * opened on a machine whose library still held what it referenced. A
- * definition now lives **in the show** until the user saves it to the library
- * -- the same bargain a structure or an inline object already makes.
+ * A definition lives **in the show** until the user saves it to the library
+ * -- the same bargain a structure or an inline object makes -- so an
+ * experiment is not a permanent library entry, and a show opens on a machine
+ * whose library has never seen what it uses.
  *
- * Two rules, both Paul's:
+ * Two rules:
  *
  * - **A definition exists only while something references it.** Delete the
  *   last instance and the definition goes with it; a definition created and

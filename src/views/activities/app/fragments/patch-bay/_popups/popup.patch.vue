@@ -495,7 +495,7 @@ export default {
      * What to call this fixture in MadMapper.
      *
      * The profile's own name, not `model`: for a library fixture that is the
-     * file it was loaded from, so exporting one produced a fixture called
+     * file it was loaded from, so exporting one would produce a fixture called
      * "mac-aura.json". Generated profiles name themselves after the model, so
      * both come out the same there.
      *
@@ -719,8 +719,8 @@ export default {
       }
       this.loading = false;
       // What was just added is what the user is looking at, so it arrives
-      // selected. This is not the list picking a default -- that was wrong and
-      // is gone -- it is the outcome of an action they took.
+      // selected. This is not the list picking a default -- it is the outcome
+      // of an action they took.
       if (placed.length) {
         this.$emit('placed', { kind: 'structure', ids: placed.map((o) => o.id) });
       }
@@ -784,8 +784,8 @@ export default {
                 ),
               );
               this.$show.patchFixture(fixture);
-              // Collected rather than left empty: this list was already being
-              // returned, and something has to name what was added.
+              // Collected rather than left empty: this list is returned, and
+              // something has to name what was added.
               fixtures.push(fixture);
             }
             this.loading = false;
@@ -839,9 +839,8 @@ export default {
      *
      * Nothing is written to the library. The parameters go straight into the
      * show, where the object keeps them and stays editable through its widget;
-     * Save to library is a separate, deliberate act. That is the whole point of
-     * the change -- creating used to mint a permanent library entry, so every
-     * experiment was an artefact and none of them could be adjusted afterwards.
+     * Save to library is a separate, deliberate act, so experiments do not
+     * become permanent library entries.
      *
      * Placed where the form's position and rotation say, exactly as a library
      * object would be, and the Add dialog closes because the job is done.
@@ -1112,7 +1111,7 @@ export default {
       }
     },
     async loadFixture(item) {
-      // Folders are selectable now that a row's click selects rather than
+      // Folders are selectable, since a row's click selects rather than
       // folds, so a manufacturer arrives here as well as a profile. It carries
       // no fixture to load.
       if (!item || !item.manufacturer || !item.fixture) return;
@@ -1133,11 +1132,9 @@ export default {
         modes: data.modes,
         modeNames: data.modes.map((mode) => mode.name),
         // Back to the first, because a mode index means nothing across
-        // profiles. Left alone it carried over: pick 8-bit on a Spica, which is
-        // mode 1, then load a display, which has only a Default -- and every
-        // `modes[mode]` in here is reading undefined. It surfaced as a crash on
-        // insert, and looked like the newly defined profile was at fault when
-        // the culprit was whatever had been selected before it.
+        // profiles: 8-bit on a Spica is mode 1, and a display has only a
+        // Default, so a carried-over index leaves every `modes[mode]` in here
+        // reading undefined -- a crash on insert.
         mode: 0,
         name: data.name,
         model: fixture,
@@ -1160,8 +1157,8 @@ export default {
       const chCount = this.modeChannelCount;
       // Nothing to place, so nothing can be in the way. `canPatch` answers
       // false for a run of nought, which is the right answer to the question it
-      // was asked and the wrong one to ask -- it read as "those channels are
-      // already taken" for a projector that wants no channels at all.
+      // is asked and the wrong one to ask -- it would read as "those channels
+      // are already taken" for a projector that wants no channels at all.
       if (chCount <= 0) {
         this.patchError = false;
         this.chStop = 0;

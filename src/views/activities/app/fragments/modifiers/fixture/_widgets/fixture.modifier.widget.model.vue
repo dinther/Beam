@@ -11,9 +11,8 @@
       class="fixture_model_body"
     >
       <p class="scope_note">
-        <!-- Non-breaking spaces, because the ordinary ones either side of the
-             bold were being eaten somewhere between here and the screen: it
-             rendered as "every<b>Beatline Projector 2</b>in". An entity is a
+        <!-- Non-breaking spaces, because ordinary ones either side of the bold
+             are eaten somewhere between here and the screen. An entity is a
              character rather than whitespace, so nothing can condense it. -->
         Applies to every&nbsp;<b>{{ fixture.manufacturer }} {{ fixture.model }}</b
         >&nbsp;in the show.
@@ -714,7 +713,7 @@ export default {
   padding-top: 8px;
 }
 .channel_map {
-  /* Scrolls sideways only: the widget body carries the vertical scrollbar now,
+  /* Scrolls sideways only: the widget body carries the vertical scrollbar,
      and two nested ones make the map awkward to reach. */
   overflow-x: auto;
   border: 1px solid var(--primary-dark);

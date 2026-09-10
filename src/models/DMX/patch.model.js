@@ -3,7 +3,7 @@ import { toRaw } from 'vue';
 /**
  * DMX512 universe length. Universes remain the unit the wire is addressed in —
  * an ArtDMX packet carries at most this many channels for one port address —
- * but they are no longer the unit fixtures are patched into.
+ * but they are not the unit fixtures are patched into.
  *
  * @constant {Number} DMX_UNIVERSE_LENGTH
  */
@@ -19,10 +19,10 @@ const DMX_UNIVERSE_LENGTH = 512;
  * the number of channels stepped over is a remainder -- anywhere from none to
  * `pixelSize - 1` -- and depends on where the fixture starts.
  *
- * This replaces a fixed "skip 511 and 512", which was only ever this rule's
- * answer for a three-channel pixel starting on a universe boundary. Applied
- * globally it split pixels for any fixture out of phase with that grid: three
- * channels per pixel from address 100 put one pixel on 508, 509 and 512.
+ * A fixed "skip 511 and 512" is only this rule's answer for a three-channel
+ * pixel starting on a universe boundary. Applied globally it would split
+ * pixels for any fixture out of phase with that grid: three channels per pixel
+ * from address 100 would put one pixel on 508, 509 and 512.
  *
  * A one-channel pixel can never be split, so 1 -- the default -- means the
  * channels simply run on, crossing boundaries freely.
@@ -120,12 +120,12 @@ class PatchMap {
      * Every patched fixture as one span, in address order and never
      * overlapping.
      *
-     * This replaces a Map holding one entry per DMX channel. A 512 x 512 panel
-     * is 786,432 channels, so that map was 786,432 entries saying "these all
-     * belong to one fixture" -- rebuilt on every patch, and probed once per
-     * channel per frame. A rig has tens of fixtures, not hundreds of thousands
-     * of channels, so the index that matters is over fixtures: a lookup
-     * becomes a binary search and a patch becomes an insert.
+     * Not one entry per DMX channel: a 512 x 512 panel is 786,432 channels,
+     * and a per-channel map would be 786,432 entries saying "these all belong
+     * to one fixture" -- rebuilt on every patch, and probed once per channel
+     * per frame. A rig has tens of fixtures, not hundreds of thousands of
+     * channels, so the index that matters is over fixtures: a lookup is a
+     * binary search and a patch is an insert.
      *
      * A span reaches from the fixture's address to where its last channel
      * really lands -- `channelAddress`, never `start + length`, which a
@@ -317,8 +317,8 @@ class PatchMap {
   /**
    * Finds the first free run big enough for a set of fixtures.
    *
-   * Unlike the per-universe search this replaces, the run may cross a universe
-   * boundary, so the only limit is the end of the address space.
+   * The run may cross a universe boundary, so the only limit is the end of the
+   * address space.
    *
    * @public
    * @param {Number} chCount per-instance channel count
@@ -336,10 +336,9 @@ class PatchMap {
     while (i <= limit) {
       if (this.canPatchMany(i, chCount, amount, pixelSize)) return i;
       // Skip past whatever blocked us rather than retesting every address in
-      // between. This used to step one channel at a time and jump only when it
-      // landed *on* an occupied channel, so a free gap merely too small for the
-      // run was walked byte by byte -- which for a panel's channel counts is
-      // hundreds of thousands of probes to cross ground already known to be
+      // between: stepping one channel at a time would walk a free gap merely
+      // too small for the run byte by byte -- for a panel's channel counts,
+      // hundreds of thousands of probes across ground already known to be
       // free. A run carries where it really ends, so the whole blocker is one
       // step.
       const placed = this.addressRun(i, chCount, amount, pixelSize);
@@ -352,8 +351,8 @@ class PatchMap {
       // A fixture keeping its pixels whole can also be refused for starting too
       // late in a universe to fit one; this moves past exactly that tail.
       next = alignedStart(next, pixelSize);
-      // Only ever forwards. A jump that can move backwards is what turned an
-      // off-by-some into a silent hang the last time this loop was wrong.
+      // Only ever forwards. A jump that can move backwards turns an
+      // off-by-some into a silent hang.
       i = next > i ? next : i + 1;
     }
     return -1;
@@ -379,8 +378,8 @@ class PatchMap {
   patchFixture(handle) {
     // The show is reactive, so a fixture arriving from the UI is a Vue proxy
     // while the one stored here is raw. The map is keyed on identity, and a
-    // proxy never equals its target -- which silently turned re-addressing
-    // into a no-op that left the old channels claimed. Normalised on entry so
+    // proxy never equals its target, so re-addressing would silently do
+    // nothing and leave the old channels claimed. Normalised on entry so
     // everything in the map is raw.
     const fixture = toRaw(handle);
     const chCount = fixture.channels.length;

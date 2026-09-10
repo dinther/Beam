@@ -34,7 +34,7 @@ const DEFAULTS = {
   /**
    * Haze intensity, as a percentage.
    *
-   * Halved from 100 on 2026-09-02. Full is a genuinely thick room -- the sort
+   * Half, not full. Full is a genuinely thick room -- the sort
    * that swallows a beam within a few metres -- and it is a poor thing to meet
    * first: everything looks soft and nothing looks like it is throwing light.
    * Fifty reads as hazed without deciding the whole scene.
@@ -47,7 +47,7 @@ const DEFAULTS = {
   /**
    * How fast the haze field churns, as a percentage.
    *
-   * Raised from 50 on 2026-09-02. Still air reads as a texture painted on the
+   * Well above still. Still air reads as a texture painted on the
    * scene rather than as something the beams are moving through, and the
    * churn is most of what sells it as air at all.
    *
@@ -72,8 +72,7 @@ const DEFAULTS = {
    * lit mostly from the floor, or `'none'` for no bounce at all. A name rather
    * than a path so the setting survives the library moving between machines.
    *
-   * Both default to the built-in room, which is what the scene had before
-   * there was a choice.
+   * Both default to the built-in room.
    */
   environmentHouseOn: 'room',
   /** Environment image with the house lights down. */
@@ -133,11 +132,9 @@ async function load() {
 /**
  * What is worth writing down: everything that differs from the default.
  *
- * Writing the merged set instead meant that the first time anything was saved,
- * every default was written with it -- and a stored value always beats a
- * default, so from then on no default could ever reach that installation
- * again. Changing one in a new version did nothing for anybody who had ever
- * touched a setting.
+ * Writing the merged set would write every default the first time anything
+ * was saved -- and a stored value always beats a default, so no later default
+ * could ever reach that installation again.
  *
  * A value the user chose that happens to equal the default is left out too, so
  * it would follow the default if that ever moved. That is the trade for a file

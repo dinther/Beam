@@ -12,8 +12,7 @@ import VideoFeed from './video_feed';
  *
  * **Nothing here opens a receiver on its own.** A feed is a network socket and
  * a 16 MB frame every 33 ms, and starting one behind a user's back is not this
- * module's decision to make -- the same reason the old `attachVideoTest` sat
- * behind a debug flag. `select()` is called when someone picks a source in
+ * module's decision to make. `select()` is called when someone picks a source in
  * Preferences > Video, and only then.
  *
  * This is deliberately *one* source rather than one per connector. That matches

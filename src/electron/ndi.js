@@ -99,7 +99,7 @@ async function open(name, onFrame, { maxFps = DEFAULT_MAX_FPS } = {}) {
     // Asking for RGBA outright looks simpler and costs twice, both ways:
     // NDI's wire format is YUV 4:2:2, so the SDK converts on the CPU for every
     // frame, and the result is 4 bytes a pixel instead of 2 -- a 4K frame is
-    // 33 MB rather than 16.6 MB, and that upload was measured at ~9.7 ms.
+    // 33 MB rather than 16.6 MB, and that upload costs ~9.7 ms.
     // Taking the SDK's own format skips its conversion and halves the bytes;
     // the shader does the colour transform, where it is nearly free.
     colorFormat: grandi.ColorFormat.UYVY_RGBA,

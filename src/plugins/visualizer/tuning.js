@@ -1,18 +1,16 @@
 /**
  * @file Persistence for the debug panel's tuning values.
  *
- * The panel exists to find values worth keeping, and until now keeping them
- * meant editing a constant in source. This stores whatever has been moved and
+ * The panel exists to find values worth keeping. This stores whatever has been moved and
  * puts it back at startup, so a session's work survives a restart.
  *
- * **Defaults deliberately live where they always did.** Nothing here is
+ * **Defaults deliberately live in their own modules.** Nothing here is
  * registered in `Preferences.DEFAULTS`: the constants in `led_field.js`,
  * `led_panel.js` and `ambient.js` remain the single source of truth, and this
  * only ever holds departures from them. Copying them into a second table would
  * be two versions of one fact, and the preference would silently win -- so a
  * constant changed in a new version would never reach anyone who had opened
- * the panel once. That is the exact failure `departures()` was written to
- * avoid; see the note there.
+ * the panel once -- see `departures()`.
  *
  * A key that has never been touched reads back `undefined` and is skipped,
  * which is what leaves the source constant in charge.

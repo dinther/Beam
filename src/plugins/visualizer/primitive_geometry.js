@@ -30,12 +30,8 @@ export const PRIMITIVE_TYPES = ['cube', 'cylinder', 'sphere', 'plane'];
  * base, and the shape rises from z = 0. A scenic object is placed by where it
  * stands: a Stage Table at z = 0 is on the floor, turning it about the vertical
  * turns it in place, and typing z = 0 in Placement means "on the floor", which
- * is what anyone means by it. Shapes used to be centred on their origin, which
- * put every cube placed at z = 0 half into the floor; only the plane was
- * already built this way, for the same reason.
- *
- * Changed without migrating saved shows (Paul, 2026-09-10): a built shape in a
- * show written before this rises by half its height when reopened.
+ * is what anyone means by it. A shape centred on its origin would sit half
+ * into the floor at z = 0.
  *
  * @param {Object} primitive `{ type, size }` from the descriptor
  * @returns {THREE.BufferGeometry}
@@ -68,9 +64,7 @@ export default function primitiveGeometry(primitive) {
     case 'plane': {
       // `PlaneGeometry` lies in XY with its normal along +Z, which in this
       // Z-up scene is already flat and already facing up -- so there is
-      // nothing to rotate, and it is left at z = 0 as a floor. (The comment
-      // here used to describe standing it up from a Y-up world, which this is
-      // not, and a rotation the code has never performed.)
+      // nothing to rotate, and it is left at z = 0 as a floor.
       return new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
     }
     case 'cube':

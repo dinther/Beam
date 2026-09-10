@@ -5,20 +5,16 @@ import Preferences from './preferences';
  * @file Scene-wide rendering environment.
  *
  * Conditions that belong to the room rather than to any fixture -- haze being
- * the one that matters so far. Kept here because it was previously stored in
- * the moving-head beam shader's uniforms, which meant anything else needing to
- * know how hazy the room was had to reach into one fixture type's material,
- * and anything created afterwards missed the value entirely.
+ * the one that matters so far. Kept here rather than in any one fixture type's
+ * material, so anything needing to know how hazy the room is can ask, and
+ * anything created later still gets the value.
  *
  * Renderers subscribe and read; nothing keeps its own copy.
  *
- * **It is also where these values come from.** They used to have three sets of
- * defaults -- one here, one in `visualizer.js`, one in `preferences.js` -- that
- * disagreed with each other (turbulence 0, 100 and 70 respectively), and which
- * one you got depended on the order things happened to be built in. The room
- * now reads its own defaults from `Preferences.DEFAULTS`, adopts the stored
- * settings through `adopt`, and writes every change back itself, so there is
- * one answer to "where does this number come from" and it is this file.
+ * **It is also where these values come from.** The room reads its defaults
+ * from `Preferences.DEFAULTS`, adopts the stored settings through `adopt`, and
+ * writes every change back itself, so there is one answer to "where does this
+ * number come from" and it is this file -- whatever order things are built in.
  *
  * Percentages live at the edges. A preference file and a slider both talk in
  * 0..100 because that is what a person reads; everything in here is 0..1, and
@@ -102,7 +98,7 @@ class SceneEnvironment extends EventEmitter {
   constructor() {
     super();
     // Built at the defaults rather than at zero. A panel or a renderer that
-    // reads the room before the stored settings arrive now gets the value it
+    // reads the room before the stored settings arrive gets the value it
     // would have had anyway, instead of a blank scene it then reports back.
     this._hazeEnabled = stored('hazeEnabled');
     this._hazeDensity = stored('hazeDensity');
@@ -171,19 +167,17 @@ class SceneEnvironment extends EventEmitter {
   /**
    * How fast the haze travels, in **noise units a second**.
    *
-   * Two things were wrong with using turbulence directly, and both are fixed
-   * here rather than in five shaders.
+   * Worked out here once, not in five shaders, for two reasons.
    *
-   * **It meant different speeds at different haze scales.** Drift is added to
-   * a coordinate already divided by `hazeScale`, so the world speed was
-   * `turbulence x scale`: the same setting moved the air seven times faster in
-   * fine haze than in coarse. Turbulence now names a speed in metres a second
-   * and this converts it, so changing how coarse the air is no longer changes
-   * how fast it moves.
+   * **Speed must not depend on haze scale.** Drift is added to a coordinate
+   * already divided by `hazeScale`, so used directly, turbulence would give a
+   * world speed of `turbulence x scale`: the same setting would move the air
+   * seven times faster in fine haze than in coarse. Turbulence names a speed
+   * in metres a second and this converts it, so changing how coarse the air
+   * is does not change how fast it moves.
    *
-   * **And every renderer picked its own divisor** -- beams `/15`, lasers
-   * `/30`, glows `/15` -- so one room's air drifted at two speeds depending on
-   * what was lit by it. They all read this now.
+   * **One divisor for every renderer**, so one room's air drifts at one speed
+   * whatever is lit by it.
    *
    * The curve is square rather than straight: the useful settings for a room
    * are all at the bottom of the range, and a straight line spends most of the
@@ -202,8 +196,7 @@ class SceneEnvironment extends EventEmitter {
    *
    * Size, not amount. Density says how much haze there is; this says how
    * coarsely it clumps -- a small value gives fine wisps, a large one slow
-   * billows. The two were one control until 2026-08-24, which is why turning
-   * the haze up used to change its grain instead of its strength.
+   * billows.
    *
    * @type {Number} metres
    */
@@ -241,10 +234,10 @@ class SceneEnvironment extends EventEmitter {
    *
    * The single number renderers actually want.
    *
-   * **The house lights are deliberately not folded in here.** They were, for
-   * about ten minutes, and it was wrong: it killed the beams too. A beam is a
-   * fixture scattering light in its own cone and stays visible under work
-   * light; what goes is the *room* air between fixtures. So `houseLights` is
+   * **The house lights are deliberately not folded in here** -- that would
+   * kill the beams too. A beam is a fixture scattering light in its own cone
+   * and stays visible under work light; what goes is the *room* air between
+   * fixtures. So `houseLights` is
    * published separately and only the renderers that draw room air read it --
    * see `roomHaze`.
    *

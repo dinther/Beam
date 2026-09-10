@@ -222,7 +222,7 @@ export default {
       if (selectBoxEl && optionListEl) {
         const box = selectBoxEl.getBoundingClientRect();
         this.optionListStyle = {
-          // Fixed, not absolute: the list lives in `document.body` now, so an
+          // Fixed, not absolute: the list lives in `document.body`, so an
           // absolute one is placed against the *document* while these numbers
           // come from `getBoundingClientRect`, which is against the viewport.
           // The two agree only until something scrolls.

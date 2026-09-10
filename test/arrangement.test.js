@@ -7,13 +7,13 @@
  * angles an item stores are read as an XYZ Euler, where the z turn happens
  * inside the other two. Writing the heading straight into z therefore spins
  * the item about its own axis, which is right only while the other two are
- * zero. A head hanging at `rotX: 180` came out mirrored, and an object tipped
- * about y leaned instead of swinging.
+ * zero. A head hanging at `rotX: 180` would come out mirrored, and an object
+ * tipped about y would lean instead of swinging.
  *
  * So every check here reads the heading back off the item's forward axis with
  * three, rather than off the numbers `aimedRotation` returned. The numbers are
  * one of several triples meaning the same orientation; where the item ends up
- * pointing is the thing that was wrong.
+ * pointing is what matters.
  *
  * Usage:
  *   npm test
@@ -75,7 +75,7 @@ console.log('\na head hanging at rotX 180 aims where it is told');
   const before = { x: 180, y: 0, z: 33 };
   const after = aimedRotation(before, aim);
   check(`aim ${aim}`, bearing(after), aim);
-  // The old maths wrote the aim into z, which for a hanging head is a mirror.
+  // Writing the aim into z would, for a hanging head, be a mirror.
   check('  where writing it into z would not', bearing({ ...before, z: aim }), (360 - aim) % 360);
   check('  and it is still hanging', apart(after, { x: 180, y: 0, z: after.z }), 0);
 });

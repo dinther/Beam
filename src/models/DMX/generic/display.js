@@ -196,7 +196,7 @@ export function pixelFill(params) {
   const high = Number(params.pixelsHigh) || DEFAULT_DISPLAY_PARAMS.pixelsHigh;
   const width = Number(params.width) || DEFAULT_DISPLAY_PARAMS.width;
   const height = Number(params.height) || DEFAULT_DISPLAY_PARAMS.height;
-  // Profiles written before the size was authored carry the ratio directly.
+  // A profile without a pixel size carries the ratio directly.
   if (params.pixelSize === undefined && typeof params.pixelFill === 'number') {
     const legacy = Math.min(Math.max(params.pixelFill, 0), 1);
     return { x: legacy, y: legacy };
@@ -227,9 +227,9 @@ export function displayCurve(params, outerWidth) {
   const width = Number(outerWidth) || Number(params.width) || DEFAULT_DISPLAY_PARAMS.width;
 
   let degrees = Number(params.curveAngle) || 0;
-  // A panel authored before this was an angle. The radius it was bent on and
-  // the width it was bent at give the angle back exactly, so an old show opens
-  // curved the way it was saved rather than flat.
+  // A panel that states its curve as a radius: the radius and the width give
+  // the angle back exactly, so it opens curved the way it was saved rather
+  // than flat.
   if (!degrees && Number(params.curveRadius)) {
     const legacy = Number(params.curveRadius);
     degrees = ((width / Math.abs(legacy)) * DEG) * (legacy > 0 ? 1 : -1);

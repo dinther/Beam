@@ -19,10 +19,10 @@ import jsonstore from './jsonstore';
  * file again, copy it to another machine, or send it to somebody. That is the
  * same reason one structure is one file.
  *
- * One item is one file. The alternative, a single keyed blob per kind, is what
- * this replaces: saving one structure used to re-serialise the whole library,
- * so an interrupted write or one malformed entry put every item at risk. Here a
- * save touches exactly the file it names, and a file that will not parse is
+ * One item is one file, not a single keyed blob per kind, where saving one
+ * structure would re-serialise the whole library and an interrupted write or
+ * one malformed entry would put every item at risk. Here a save touches
+ * exactly the file it names, and a file that will not parse is
  * skipped by name while the rest of the library still loads.
  *
  * Layout, under `Documents/Beatline/Beam/Library`:

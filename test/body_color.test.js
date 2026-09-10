@@ -49,8 +49,8 @@ check('a chosen colour', srgbHex(finish.material('#FF0000').color), '#ff0000');
 const red = finish.material('#ff0000');
 check('one material per colour, shared', finish.material('#FF0000'), red);
 check('different colours, different materials', finish.material('#ff0000') !== finish.material('#00ff00'), true);
-// The projector's floor used to be the fixed 0x767d84; from the lift it lands
-// within a couple of steps of that, per channel.
+// The default projector's floor lands within a couple of steps of 0x767d84,
+// per channel.
 const srgb = (color) => color.getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
 const floor = srgb(finish.material(undefined).emissive);
 const was = srgb(new THREE.Color(0x767d84));

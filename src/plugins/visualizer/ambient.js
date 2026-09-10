@@ -9,23 +9,19 @@ import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 /**
  * @file The room's ambient light.
  *
- * Until 2026-08-28 the scene had none. There was one `DirectionalLight` at
- * (-10, -10, 10) and nothing else, so every surface facing away from that one
- * corner received exactly zero light and rendered pure black. Real rooms bounce;
- * that is what was missing, and it is why the scene read as harsh.
+ * With one `DirectionalLight` alone, every surface facing away from it
+ * receives exactly zero light and renders pure black. Real rooms bounce.
  *
- * The fix is an environment rather than a second lamp, because it answers two
- * problems with one change. `rescueMaterial` in scene_objects.js exists only
- * because glTF defaults `metallicFactor` to 1 and "a mirror with no environment
- * to reflect is black" -- its own comment says "give the scene one and this can
- * go". A standard material lit by an environment gets both a diffuse bounce term
- * and a specular reflection, so metals look like metal instead of being flattened
- * to plastic.
+ * An environment rather than a second lamp, because it answers two problems at
+ * once. glTF defaults `metallicFactor` to 1, and a mirror with no environment
+ * to reflect is black. A standard material lit by an environment gets both a
+ * diffuse bounce term and a specular reflection, so metals look like metal
+ * instead of being flattened to plastic.
  *
- * **Two environments, not one.** The house-lights switch used to scale a single
- * `RoomEnvironment` down, which made show time a *dimmed photographic studio*:
- * the same bright-panel-overhead distribution, only darker, and at the bottom of
- * the range nothing at all for a metal or a glossy floor to reflect. A room with
+ * **Two environments, not one.** Scaling a single `RoomEnvironment` down for
+ * show time would make it a *dimmed photographic studio*: the same
+ * bright-panel-overhead distribution, only darker, and at the bottom of the
+ * range nothing at all for a metal or a glossy floor to reflect. A room with
  * the work lights on and the same room during a show are not one room at two
  * brightnesses -- they are lit from different places, in different colours. So
  * each state names its own image and they are swapped, not faded.
@@ -48,9 +44,8 @@ import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
  * control: full house gives a lit room, house down gives a black one and the
  * fixtures own the space. Which is what house lights mean.
  *
- * 0.09 is Paul's own setting from 2026-08-28, arrived at by eye against real
- * beams. It is a quarter of what I first guessed at, which is the answer to
- * how far a studio environment has to come down before it reads as a venue.
+ * 0.09 is set by eye against real beams: that is how far a studio environment
+ * has to come down before it reads as a venue.
  *
  * A user's own image photographs a real room rather than a studio, so it will
  * usually want more than this. That is what the ceiling control is for.
@@ -125,26 +120,21 @@ export const DARK_VENUE = 'venue';
  * room is.
  *
  * Levels are in the same range as `RoomEnvironment`'s dimmer surfaces rather
- * than its light panels, so the existing ceiling setting stays in the region it
- * was tuned in. The house-down brightness does the dimming; this decides the
+ * than its light panels, so one ceiling setting suits both. The house-down
+ * brightness does the dimming; this decides the
  * *shape* and the colour, which is the part a photograph gets wrong.
  *
  * @constant {Object}
  */
 const VENUE = {
-  // Brought down from 1.7. It was the brightest thing in the box, which reads
-  // as an up-lit stage -- but an up-facing surface never sees it, so the one
-  // thing it could not light was the floor of the actual scene. A grey floor
-  // came out in single digits while the walls above it were fine.
+  // Not the brightest thing in the box: an up-facing surface never sees it,
+  // so the one thing it cannot light is the floor of the actual scene.
   floor: { colour: 0xffe8cc, level: 1.05 },
-  // Raised from 0.55 and 0.30. At those the box was almost all floor: a
-  // vertical surface sees mostly walls, got a fifth of what the ground got, and
-  // with the house down came out at zero -- a building went completely missing
-  // while the floor under it was still faintly there. A dark venue is dark, but
-  // it is a room with a roof and drapes that catch something, not a void with a
-  // lit floor. Keeping the floor dominant preserves the up-light look; bringing
-  // the other two within reach of it is what puts the silhouette back.
-  // The ceiling is what lights the ground, so it leads now. Nearly even all
+  // Within reach of the floor: a vertical surface sees mostly walls, and with
+  // them much dimmer a building goes missing with the house down while the
+  // floor under it is still faintly there. A dark venue is dark, but it is a
+  // room with a roof and drapes that catch something, not a void with a lit
+  // floor. The ceiling is what lights the ground, so it leads. Nearly even all
   // round: a blacked-out room has no strong direction to its residual light,
   // and shaping it only decides which surfaces disappear.
   ceiling: { colour: 0xaec4e0, level: 1.35 },

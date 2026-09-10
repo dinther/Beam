@@ -485,7 +485,7 @@ class LaserCubeDac extends LaserDac {
    * The full-info reply, laid out as `handleFullInfoPkt` reads it -- and, in
    * the bytes that function skips, as a real cube fills them.
    *
-   * Captured from Paul's Cube2 Ultra 7.5W (firmware 0.23) on 2026-09-08:
+   * As a Cube2 Ultra 7.5W (firmware 0.23) sends it:
    *
    *     77 00 00 00 17 02 00 00 ff 0f b8 88 00 00 b8 88 00 00 03 70 17 70 17
    *     5f 13 02 e4 65 b8 15 60 e8 c0 a8 01 c1 02 05 "Cube2 Ultra 7.5W"
@@ -584,8 +584,8 @@ class LaserCubeDac extends LaserDac {
    */
   send(socket, packet, rinfo) {
     if (!socket) return;
-    // A real cube answers every question twice -- captured from a Cube2
-    // Ultra on 2026-09-08, alive and info alike -- for the same reason the
+    // A real cube answers every question twice -- a Cube2 Ultra does, alive
+    // and info alike -- for the same reason the
     // host sends every command twice: UDP on Wi-Fi loses packets and every
     // exchange here is idempotent. Mirrored, so a host tuned to hardware
     // sees the same thing.

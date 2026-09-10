@@ -52,8 +52,8 @@ function packet({
   const buffer = Buffer.alloc(126 + slots.length);
   // Root layer. Preamble size, post-amble size, and only then the identifier:
   // these four bytes are what a self-built packet gets wrong in the same way
-  // the parser does, so the offsets here are taken from a real MadMapper
-  // packet captured on 2026-08-31 rather than from a reading of the spec.
+  // the parser does, so the offsets here are taken from a real captured
+  // MadMapper packet rather than from a reading of the spec.
   buffer.writeUInt16BE(0x0010, 0);
   buffer.writeUInt16BE(0x0000, 2);
   Buffer.from([0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0, 0, 0]).copy(buffer, 4);

@@ -22,8 +22,8 @@ import { LASER_CHANNELS, CONTROL_DEFS } from './generic/laser';
 export const LASER_ATTRIBUTES = LASER_CHANNELS;
 
 /**
- * Every protocol a laser may be *stored* as, so a show written before one was
- * withdrawn still loads and says what it was set to.
+ * Every protocol a laser may be *stored* as, including withdrawn ones, so a
+ * show naming one still loads and says what it was set to.
  */
 export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube'];
 

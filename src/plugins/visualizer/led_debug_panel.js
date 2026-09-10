@@ -130,9 +130,8 @@ export default function createLEDDebugPanel(visualizer, host) {
   scatter.add(state, 'haloFalloff', 1, 24, 0.25)
     .name('falloff sharpness')
     .onChange((v) => Tuning.write('haloFalloff', v, visualizer));
-  // The volume's only brightness. There used to be a second, `strength`, which
-  // multiplied the same result -- two controls for one quantity, so a value
-  // reached through them could not be read back off either.
+  // The volume's only brightness: a second control over the same quantity
+  // would leave neither readable.
   scatter.add(state, 'haloRadiance', 0, 4, 0.01)
     .name('brightness')
     .onChange((v) => Tuning.write('haloRadiance', v, visualizer));
@@ -155,23 +154,22 @@ export default function createLEDDebugPanel(visualizer, host) {
     .name('reach at full haze x')
     .onChange((v) => Tuning.write('sizeAtFullHaze', v, visualizer));
 
-  // Haze now multiplies the authored glow values rather than replacing them,
-  // so these no longer disturb the sliders above.
+  // Haze multiplies the authored glow values rather than replacing them, so
+  // these do not disturb the sliders above.
   const scene = gui.addFolder('Scene haze');
   const enabled = scene.add(state, 'hazeEnabled')
     .name('haze on')
     .onChange((v) => {
       visualizer.globalFoggingState = v ? 1 : 0;
     });
-  // Amount, and only amount. This used to be the noise scale as well, so
-  // turning the haze up made its grain coarser instead of making it stronger
-  // -- one control for two quantities, and neither readable off it.
+  // Amount, and only amount: the grain is its own control below, so turning
+  // the haze up makes it stronger, not coarser.
   const density = scene.add(state, 'hazeDensity', 0, 100, 1)
     .name('intensity')
     .onChange((v) => {
       visualizer.globalFoggingDensity = v;
     });
-  // The other half of what density used to mean. Metres, because it is a size
+  // The haze's grain, apart from its amount. Metres, because it is a size
   // in the room: fine wisps at the bottom of the range, slow billows at the
   // top, and the beams themselves are a couple of metres of it.
   const metres = scene.add(state, 'hazeScale', 2, 15, 0.1)
@@ -187,12 +185,8 @@ export default function createLEDDebugPanel(visualizer, host) {
   // The room is the source of these four, and the panel follows it.
   //
   // lil-gui holds its own copy of every value, taken when the control is
-  // built. This panel is built during `main()`, and the haze settings used to
-  // arrive afterwards -- so the folder showed haze off at zero intensity for
-  // the rest of the session while the scene ran on the stored values. The
-  // reading was wrong, not the scene. `SceneEnv` now has its numbers before
-  // any of this is built, and announces every later change, so the two cannot
-  // drift again.
+  // built. `SceneEnv` has its numbers before any of this is built, and
+  // announces every later change, so the panel and the scene cannot drift.
   const followRoom = () => {
     state.hazeEnabled = !!visualizer.globalFoggingState;
     state.hazeDensity = visualizer.globalFoggingDensity;
@@ -262,8 +256,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     });
 
   // The field folded around its own coarse structure, and the curl in each
-  // octave's travel. Both were constants in the shader until somebody had to
-  // sit and look at them, which is what makes a number a control.
+  // octave's travel -- numbers only the eye can settle.
   tuning.add(state, 'hazeWarp', 0, 200, 1)
     .name('swirl %')
     .onChange((v) => Tuning.write('hazeWarp', v, visualizer));
@@ -286,10 +279,10 @@ export default function createLEDDebugPanel(visualizer, host) {
     .name('contact edge blur m')
     .onChange((v) => Tuning.write('contactEdge', v, visualizer));
 
-  // Environment fill at full house lights. The scene had none until
-  // 2026-08-28: one directional light meant every surface facing away from it
-  // rendered pure black. Too much washes the show out, too little brings the
-  // black faces back, and only the eye can settle it against real beams.
+  // Environment fill at full house lights. With one directional light alone,
+  // every surface facing away from it renders pure black. Too much washes the
+  // show out, too little brings the black faces back, and only the eye can
+  // settle it against real beams.
   tuning.add(state, 'ambient', 0, 1.5, 0.01)
     .name('ambient fill')
     .onChange((v) => Tuning.write('roomAir', v, visualizer));
@@ -315,7 +308,7 @@ export default function createLEDDebugPanel(visualizer, host) {
 
   // Air feature size against the scene's haze scale. 1 matches the beams
   // exactly, which is the point -- one field, one source. Larger is coarser
-  // air and less grain, which is the trade this was set at 3 for by mistake.
+  // air and less grain.
   tuning.add(state, 'airScale', 0.5, 4, 0.05)
     .name('air feature size x')
     .onChange((v) => {

@@ -488,8 +488,7 @@ export default {
     laserGroups() {
       // A basis rather than a width: the controls share whatever the widget
       // is, so three colours fit across one row and four geometry fields fall
-      // into two. Pinned pixel widths were picked for a 230px widget and
-      // simply left a gap when it grew.
+      // into two, whatever width the widget has.
       const pct = (key, label, min = 0, basis = 88) => ({
         key, label, min, max: 100, basis,
       });
@@ -540,8 +539,8 @@ export default {
         dimmer: device.value('dimmer'),
         shutter: device.value('shutter'),
         source: device.value('source'),
-        // How a laser is fed. Absent here, every read fell back to the default
-        // and the Address row never appeared however the laser was set.
+        // How a laser is fed. Absent here, every read would fall back to the
+        // default and the Address row would never appear.
         protocol: device.value('protocol'),
         address: device.value('address'),
         // The laser output stage. Undefined for any device without these, which
@@ -553,9 +552,9 @@ export default {
         yScale: device.value('yScale'),
         xPos: device.value('xPos'),
         yPos: device.value('yPos'),
-        // Absent here, `read('mirrorX')` was undefined: the control never showed
-        // its state and `!undefined` wrote true every time, so it could be
-        // turned on and never off. The checkboxes had it too.
+        // Absent here, `read('mirrorX')` would be undefined: the control would
+        // never show its state, and `!undefined` writes true every time, so it
+        // could be turned on and never off.
         mirrorX: device.value('mirrorX'),
         mirrorY: device.value('mirrorY'),
       };
@@ -694,8 +693,8 @@ export default {
      * button would have been pressed to ask, answered without one.
      *
      * The renderer answers, from the stream it actually draws: asking here by
-     * protocol alone had every laser on a protocol claim the first live stream
-     * on it, so two of them said they were receiving while one drew nothing.
+     * protocol alone would have every laser on a protocol claim the first live
+     * stream on it.
      */
     inputStatus() {
       void this.streamTick; // eslint-disable-line no-void
@@ -947,10 +946,8 @@ export default {
       }
       const connector = index > 0 ? this.connectors[index - 1] : null;
       // Through `writeDevice` rather than writing here: that is the one path
-      // that also tells the renderer to redraw, and picking a source without it
-      // left a display black until some *other* field was touched. Two write
-      // paths differing in what each remembered to do -- the exact shape that
-      // has bitten this app before.
+      // that also tells the renderer to redraw; without it, picking a source
+      // would leave a display black until some *other* field was touched.
       this.writeDevice('source', connector ? connector.id : null);
     },
     /**
@@ -999,9 +996,8 @@ export default {
 
 <style scoped>
 .fixture_settings {
-  /* 230 was enough while every row held one control. A laser's input is a
-     protocol beside an address, and two selects in 230px leave neither
-     readable. */
+  /* A laser's input is a protocol beside an address, and two selects in 230px
+     leave neither readable. */
   max-width: 300px;
   min-width: 300px;
 }
@@ -1010,9 +1006,9 @@ export default {
   width: 100%;
   overflow-y: auto;
   padding: 6px;
-  /* The body follows the widget rather than repeating its number: pinned at
-     230 while the frame was widened, it left the content and its scrollbar
-     stranded short of the right edge. */
+  /* The body follows the widget rather than repeating its number, or a
+     widened frame leaves the content and its scrollbar short of the right
+     edge. */
   box-sizing: border-box;
 }
 .empty_text {

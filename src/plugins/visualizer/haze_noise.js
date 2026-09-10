@@ -6,11 +6,11 @@ import SIMPLEX_NOISE_GLSL from './shaders/simplex3d.glsl?raw';
 /**
  * @file Baked haze noise volume.
  *
- * The beam shader used to evaluate four octaves of simplex noise per fragment,
- * which is ALU-heavy in the extreme -- `snoise` is a lattice permutation, eight
- * gradient dots and a normalisation, and the beam pays that four times for
- * every fragment it covers. This bakes the identical fractal sum into a tiling
- * 3D texture once at startup, so the same field costs a single filtered fetch.
+ * Four octaves of simplex noise per fragment is ALU-heavy in the extreme --
+ * `snoise` is a lattice permutation, eight gradient dots and a normalisation,
+ * and a beam would pay that four times for every fragment it covers. This
+ * bakes the noise into a tiling 3D texture once at startup, so the same field
+ * costs a filtered fetch per octave.
  *
  * Two properties make the swap safe rather than merely cheap:
  *
@@ -19,8 +19,8 @@ import SIMPLEX_NOISE_GLSL from './shaders/simplex3d.glsl?raw';
  *   octave -- so sampling it with `RepeatWrapping` gives an endless field with
  *   no seam to find.
  * - Sampling wraps large coordinates into the unit cube for free. The
- *   procedural path fed `vAbsoluteWorldPosition` straight into `snoise`, and a
- *   narrow beam pushes that very large; a texture fetch has no equivalent
+ *   procedural path feeds `vAbsoluteWorldPosition` straight into `snoise`, and
+ *   a narrow beam pushes that very large; a texture fetch has no equivalent
  *   failure mode.
  *
  * The volume is generated once, lazily, and shared by every beam.
@@ -40,12 +40,9 @@ const VOLUME_SIZE = 64;
  * in cells -- 8 cells across 64 texels, giving 8 texels per cell for the
  * trilinear filter to work with.
  *
- * **This was 2, and that was the bug behind Paul's "too pronounced" on
- * 2026-08-28.** The volume held the whole four-octave sum back then, so the
- * base octave -- the one carrying weight 1.0 -- had a lattice period of two
- * cells: eight gradient points, repeating every 8 m at the default scale. That
- * is a blob pattern, not haze. Storing one octave and letting the shader stack
- * it is what allows the period to be this generous.
+ * The volume holds one octave and the shader stacks it, which is what allows
+ * the period to be this generous. A period of two cells is eight gradient
+ * points repeating every 8 m at the default scale -- a blob pattern, not haze.
  *
  * The world repeat is this times the haze scale: 32 m at the 4 m default.
  *
@@ -72,22 +69,21 @@ export const FIELD_GAIN = 1.395;
  * beam and an LED glow in the same air have to agree, and two switches would
  * eventually disagree.
  *
- *   0  procedural simplex, four octaves per fragment. The 2026-08-24 shader.
+ *   0  procedural simplex, four octaves per fragment.
  *   1  baked volume, four fetches, per-octave world-space drift.
  *
- * There used to be a mode 2 for contour cycling. It is gone: cycling is a live
- * uniform in mode 1 now, because gating it behind a mode made the debug slider
- * a liar -- live, set to 37, writing to a uniform no material had.
+ * Contour cycling is a live uniform in mode 1, not a mode of its own, so the
+ * debug slider always writes to a uniform a material has.
  *
- * Measured 2026-08-28 across twelve beams filling the screen: mode 0 about
- * 10 ms of GPU time, modes 1 and 2 about 1 ms. Four fetches cost what one did,
- * so the bottleneck was `snoise` ALU and not texture bandwidth -- there is room
- * for a larger volume or more octaves if quality ever needs it.
+ * Across twelve beams filling the screen: mode 0 about 10 ms of GPU time,
+ * mode 1 about 1 ms. Four fetches cost what one does, so the bottleneck is
+ * `snoise` ALU and not texture bandwidth -- there is room for a larger volume
+ * or more octaves if quality ever needs it.
  *
  * A compile-time constant rather than a control, because it decides which
  * shader is built. **Restart between measurements rather than relying on HMR**
- * -- a hot-reloaded session has been caught reporting 13.2 ms where a fresh
- * start of the same code gave 1.77.
+ * -- a hot-reloaded session can report 13.2 ms where a fresh start of the same
+ * code gives 1.77.
  *
  * @constant {Number}
  */
@@ -96,9 +92,8 @@ export const HAZE_MODE = 1;
 /**
  * How many brightness contours a full sweep pushes through the field.
  *
- * Was 3.0, which put about six cosine cycles through a field spanning 0..1.9 --
- * visible banding, and Paul's verdict was that it did not look like haze. One
- * band modulates the field rather than slicing it.
+ * One band modulates the field rather than slicing it; three put about six
+ * cosine cycles through a field spanning 0..1.9 -- visible banding, not haze.
  *
  * @constant {Number}
  */
@@ -140,8 +135,8 @@ export const TURN_RADIUS = 1.0;
  * stack samples it, so the field folds and curls around its own low-frequency
  * structure instead of being a straight stack of scrolling layers. This is
  * domain warping, and it is the one place worth spending here: **on this
- * engine a fetch is nearly free where arithmetic is not** -- four fetches were
- * measured costing what one did -- so a warp made of fetches beats an analytic
+ * engine a fetch is nearly free where arithmetic is not** -- four fetches cost
+ * what one does -- so a warp made of fetches beats an analytic
  * vortex made of trig.
  *
  * Zero switches it off, which is how it is priced.
@@ -489,7 +484,7 @@ export function setHazeCycle(value) {
 /**
  * How far the field folds around its own coarse structure, in noise units.
  *
- * Zero is the flat stack of scrolling layers it was before; the fetches still
+ * Zero is a flat stack of scrolling layers; the fetches still
  * happen, so turning it down costs nothing and proves nothing about its price.
  *
  * @type {Number}

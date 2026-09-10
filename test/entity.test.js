@@ -8,17 +8,13 @@
  * by a thousand, and nothing downstream can tell that apart from a profile that
  * really did ask for a thousand.
  *
- * That is not hypothetical. Until 2026-08-29 `parseValueUnit` found a unit by
- * stripping digits and left the decimal point behind, so `"3.5"` was read as
- * carrying a unit of `"."`. Nothing matches that, so a colour wheel parked on a
- * split colour -- slot 3.5, the wheel sitting between two slots -- arrived as
- * slot 3500, was rejected as out of range, and the head silently kept whatever
- * colour it already had. Whole-numbered slots were fine, so it presented as one
- * mover at a time refusing to take its colour, moving between loads depending
- * on where the console had parked each wheel.
+ * Stripping only digits to find a unit leaves the decimal point behind, so
+ * `"3.5"` reads as carrying a unit of `"."`. Nothing matches that, so a colour
+ * wheel parked on a split colour -- slot 3.5 -- would arrive as slot 3500, be
+ * rejected as out of range, and the head would silently keep its colour.
  *
- * The 3.5 case below is that bug. The unit cases beside it are the reason the
- * fix cannot simply strip every non-digit: `ms`, `%`, `s` and `rpm` all have to
+ * The 3.5 case below pins that. The unit cases beside it are why the parser
+ * cannot simply strip every non-digit: `ms`, `%`, `s` and `rpm` all have to
  * keep resolving, or the conversion goes wrong in the other direction.
  *
  * Usage:

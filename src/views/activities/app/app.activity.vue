@@ -67,9 +67,9 @@ import ConfirmPopup from './_popups/popup.confirm.vue';
  *
  * Answered by the main process through preload, because it cannot be answered
  * here: New Project and Open both end in `window.location.reload()`, which
- * re-evaluates this module. Anything kept at module scope -- as this was, on
- * the reasoning that a reload is a launch -- resets with it and puts the logo
- * back up on exactly the two actions that should not have it.
+ * re-evaluates this module. Anything kept at module scope resets with it and
+ * would put the logo back up on exactly the two actions that should not have
+ * it.
  *
  * Outside Electron there is no main process to ask, and a plain page load is
  * a launch, so the splash shows.
@@ -311,12 +311,9 @@ export default {
      */
     async setup() {
       // The app starts on a new, empty project. Nothing is restored, reopened
-      // or guessed at: a document appears only when the user opens one.
-      //
-      // It used to restore a stored show, and separately remember which file
-      // had been open. Those two could disagree -- the title said Propaganda
-      // while the contents were an empty autosave -- and one click on Save
-      // would then have written the empty show over a real project.
+      // or guessed at: a document appears only when the user opens one. A
+      // restored show and a remembered file name could disagree, and one
+      // click on Save would then write an empty show over a real project.
       try {
         const res = await fetch(`${import.meta.env.VITE_STATIC_URL}demo/showfiles/blank.showfile.json`);
         await this.$show.loadFromData(await res.json());

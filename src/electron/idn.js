@@ -8,8 +8,8 @@ import LaserDac, { claimPorts } from './laser_dac';
 /**
  * @file Beam as an IDN (ILDA Digital Network) laser server.
  *
- * The third DAC Beam answers as, and the first one built from a published
- * standard rather than from captures: IDN-Hello (draft 2022-03-27) for
+ * The third DAC Beam answers as, and the one built from a published standard
+ * rather than from captures: IDN-Hello (draft 2022-03-27) for
  * discovery and sessions, IDN-Stream (revision 001, July 2015) for the sample
  * data. Both are ILDA documents.
  *
@@ -101,8 +101,6 @@ const MAP_ENTRY_BYTES = 4 + SERVICE_NAME_BYTES;
  * ILDA Wireshark trace of a Microchip-based unit dissects as
  * "Protocol Version: 1", and announcing a major version no producer has heard
  * of is a good way to be discovered and then quietly treated as a stranger.
- * Claiming 1.0 was my reading of the spec's nibble rule rather than anything
- * observed.
  */
 const PROTOCOL_VERSION = 0x01;
 
@@ -132,9 +130,9 @@ const CONFIG_HEADER_BYTES = 4;
  * **IDN-Stream numbers the bits of a diagram MSB first**, so the 'Close' bit
  * drawn at position 6 is worth 0x02 and 'Routing' at position 7 is worth 0x01 --
  * the opposite way round from how the bit positions read. Taking Routing for
- * Close closed every channel the instant it was opened, and the samples that
- * followed arrived at a channel with no decoder: a stream that discovered,
- * configured and then drew absolutely nothing.
+ * Close closes every channel the instant it is opened, and the samples that
+ * follow arrive at a channel with no decoder: a stream that discovers,
+ * configures and then draws absolutely nothing.
  */
 const CFL_ROUTING = 0x01;
 const CFL_CLOSE = 0x02;
@@ -165,7 +163,7 @@ const CHUNK = {
  * which is exactly 120 seven-octet samples, where an eight octet header leaves
  * 836 -- not a whole number of samples at all. The duration then reads 4000
  * microseconds, and 120 samples in 4 ms is the 30 kpps the producer is sending.
- * Three numbers agreeing is worth more than my reading of a mangled table.
+ * Three numbers agreeing are worth more than any reading of a mangled table.
  */
 const CHUNK_HEADER_BYTES = 4;
 
@@ -444,8 +442,8 @@ class IdnDac extends LaserDac {
     // A unit bound to one address only ever hears scans sent to that address,
     // so the ambiguity the rule above guards against cannot arise: a laser
     // placed on 127.0.0.1 is *meant* to be found there, and refusing loopback
-    // scans made it invisible while its LAN sibling was listed. The heuristic
-    // still stands for a unit bound to everything.
+    // scans would make it invisible while its LAN sibling is listed. The
+    // heuristic still stands for a unit bound to everything.
     if (!this.answerLoopbackFixed && bind && bind !== '0.0.0.0') {
       this.answerLoopback = isLoopback(bind);
     }

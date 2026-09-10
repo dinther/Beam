@@ -23,10 +23,10 @@ function check(label, got, want) {
 /**
  * A moving head: colour *and* movement, so it comes apart into islands.
  *
- * This is the case that broke. A fixture that splits carries an `owner` -- its
- * own name -- because when it belongs to nothing else it *is* the outermost
- * thing in the tree. Inside a structure it is not, and preferring the owner
- * regardless put nine heads in nine groups and the structure's name nowhere.
+ * A fixture that splits carries an `owner` -- its own name -- because when it
+ * belongs to nothing else it *is* the outermost thing in the tree. Inside a
+ * structure it is not, and preferring the owner regardless would put nine
+ * heads in nine groups and the structure's name nowhere.
  */
 const MOVER = {
   availableChannels: {
@@ -167,9 +167,9 @@ console.log('\n-- the real profile, in the shape of a real show --');
 {
   // A synthetic fixture is only as good as the guess behind it. This reads
   // the profile the export actually meets -- a Spica 250M, which splits
-  // because it has Pan and Tilt -- and arranges it the way Paul's show does:
-  // two structures of eight. His export came out as sixteen groups named
-  // after fixtures, with neither structure named anywhere.
+  // because it has Pan and Tilt -- and arranges it as a real show does: two
+  // structures of eight, which must not export as sixteen groups named after
+  // fixtures with neither structure named anywhere.
   const file = 'public/fixtures/5star-systems/spica-250m.json';
   const profile = JSON.parse(fs.readFileSync(file, 'utf8'));
   const mode = profile.modes.find((m) => m.name === '8bit') || profile.modes[0];

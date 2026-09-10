@@ -12,10 +12,9 @@ import * as THREE from 'three';
  * That last one is the projector's lesson (see `projector.js`): a lit material
  * in a dark scene reflects nothing, and a dark body on a dark ground has no
  * silhouette. Each kind keeps a small emissive floor so its unlit faces do not
- * collapse into the background. The floor used to be a fixed colour per kind;
- * it is now a fraction of the body colour -- the `lift` -- worked in sRGB, so a
- * kind's own default colour comes out as it always did and a colour someone
- * picks keeps the same relationship.
+ * collapse into the background. The floor is a fraction of the body colour --
+ * the `lift` -- worked in sRGB, so any colour someone picks keeps the same
+ * relationship to it.
  */
 
 /** A colour as a definition stores it. */

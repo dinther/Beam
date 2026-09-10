@@ -2,9 +2,8 @@
  * The renderer's single Art-Net subscription.
  *
  * Two things want inbound universes -- the visualizer's DMX texture and the
- * show's address space -- and each used to register its own IPC listener. That
- * woke the renderer twice per message and unpacked the same batch twice. One
- * listener fans out to both instead.
+ * show's address space. One listener fans out to both, so the renderer wakes
+ * once per message and unpacks each batch once.
  *
  * The main process delivers a batch per display frame: `universes` holds the
  * universe numbers that changed and `data` their values end to end, 512 per
@@ -64,7 +63,7 @@ function deliver({ universes, data }) {
  *
  * The listener goes on before the port is asked for, so the reply cannot
  * arrive before anything is waiting for it. Returns synchronously -- matching
- * the IPC path it replaces -- while the port itself connects in the
+ * the IPC path -- while the port itself connects in the
  * background; the frames lost in that window are a few milliseconds of a
  * stream that repeats itself continuously.
  *
@@ -105,7 +104,7 @@ export function subscribeFrames(listener) {
     // which one is its decision and it can change: the port is asked for
     // asynchronously, so early batches arrive over IPC, and a port that fails
     // hands the stream back to IPC mid-run. Listening on only the path we hope
-    // for is what turned one bad call in main into a black rig.
+    // for would turn one bad call in main into a black rig.
     const stopIpc = window.artnet.onFrames(deliver);
     const stopPort = TRANSFER_FRAMES && window.artnet.requestFramePort
       ? attachPort()

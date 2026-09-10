@@ -13,9 +13,8 @@ import dgram from 'dgram';
  * that often and does not need to be, because a later frame for a universe
  * wholly replaces an earlier one. That is what DMX means.
  *
- * So a protocol supplies a port and a `parse`, and inherits the rest. Written
- * as two classes it was going to be written twice, and the second copy is
- * where the frame rate quietly goes.
+ * So a protocol supplies a port and a `parse`, and inherits the rest: the
+ * tuning is written once rather than twice.
  *
  * Receive only, both protocols. This is a visualizer: whatever is driving the
  * rig owns the wire, and a second transmitter on it would only raise the
@@ -148,7 +147,7 @@ class DmxReceiver {
     const count = Math.min(frame.data.length, DMX_LENGTH);
     buffer.set(frame.data.subarray(0, count));
     // A short frame leaves the tail of a reused buffer holding the last
-    // frame's values; a freshly allocated one used to be zero there.
+    // frame's values, where a freshly allocated one would be zero.
     if (count < DMX_LENGTH) buffer.fill(0, count);
 
     this.dirty.add(universe);
@@ -168,9 +167,9 @@ class DmxReceiver {
    * Records that a source is sending a universe.
    *
    * Kept because two sources on one universe is the failure that costs a whole
-   * evening: each one's ceiling looks like the other's fault, and until now the
-   * only way to tell one source from two was to count universes on the wire.
-   * sACN names its sources, so the readout can name them too.
+   * evening: each one's ceiling looks like the other's fault, and without this
+   * the only way to tell one source from two is to count universes on the
+   * wire. sACN names its sources, so the readout can name them too.
    *
    * @param {Object} source `{ key, name, priority }`
    * @param {Number} universe

@@ -8,10 +8,9 @@ import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
  *
  * Everything else that shows haze is geometry: a beam cone samples the field
  * because a cone is drawn there, and an LED glow samples it because a billboard
- * is drawn there. **Empty space is drawn by nothing**, so until 2026-08-28 the
- * air between fixtures was perfectly clear -- Paul's screenshot is a lit floor,
- * a beam, and pure void between them. Adding an environment map lit the
- * surfaces and left the air exactly as it was, which is what prompted this.
+ * is drawn there. **Empty space is drawn by nothing**, so without this the air
+ * between fixtures is perfectly clear -- a lit floor, a beam, and pure void
+ * between them. An environment map lights surfaces, not air.
  *
  * So this pass looks at the space itself: for every pixel it walks the view ray
  * from the camera to whatever the depth buffer says it hit, samples the same
@@ -64,14 +63,12 @@ const AMBIENT_HAZE_DENSITY = 0.022;
  * How much coarser the ambient field is than the beams' haze scale.
  *
  * **1.0 means the air and the beams read the same field at the same scale**,
- * which is the whole point -- haze from one source. This was 3.0 for a while,
- * chosen to fight grain rather than for how it looked, and Paul spotted it
- * immediately: the wisps in the air were visibly bigger than the wisps in the
- * beams standing in it.
+ * which is the whole point -- haze from one source. Coarser air fights grain,
+ * but its wisps are then visibly bigger than those in the beams standing in it.
  *
- * The trade it was paying for is real. Variance rises as the field gets finer
- * relative to the step spacing, so matching the beams costs steps; that is what
- * took the step count to twelve. Raise this if grain ever comes back and more
+ * The trade is real. Variance rises as the field gets finer relative to the
+ * step spacing, so matching the beams costs steps -- twelve of them. Raise
+ * this if grain ever comes back and more
  * steps are not worth it.
  *
  * @constant {Number}
@@ -94,12 +91,11 @@ const AMBIENT_HAZE_FIELD_DEPTH = 0.86;
 const AMBIENT_HAZE_TINT = 0xaab2bd;
 
 /**
- * How much of the effect is mixed in at full house lights. Paul's, by eye.
+ * How much of the effect is mixed in at full house lights. Set by eye.
  *
- * Lowered from 1.14 on 2026-09-02. Room air is what fills the space *between*
- * fixtures, and at the old value it was doing enough of the lighting that a
- * beam had less to add: the air read before the fixtures did. A quarter leaves
- * the room legible and gives the rig the contrast back.
+ * Room air is what fills the space *between* fixtures; much more and it does
+ * enough of the lighting that a beam has less to add, and the air reads before
+ * the fixtures do. A quarter leaves the room legible and the rig its contrast.
  *
  * The `room air` slider on the debug panel opens here.
  *
@@ -132,9 +128,8 @@ const FRAGMENT = /* glsl */`
     // Two octaves at different drift rates, not one.
     //
     // A single octave offset along one axis is a rigid translation: the field
-    // slides sideways and never changes shape. Paul: "I can see the room haze
-    // move sideways but there is no churning taking place" -- which is exactly
-    // what one octave can do and no more. The second octave travels at 1.9x, so
+    // slides sideways and never changes shape, with no churning. The second
+    // octave travels at 1.9x, so
     // the fine detail runs through the coarse shape, and that differential is
     // what reads as air turning over. Same reason the beams carry four rates.
     //
@@ -159,7 +154,7 @@ const FRAGMENT = /* glsl */`
   /**
    * 4x4 ordered dither over screen pixels.
    *
-   * Replaces a white-noise hash. Both break up the 8 sampling shells, but white
+   * Not a white-noise hash. Both break up the 8 sampling shells, but white
    * noise spreads its error randomly -- neighbouring pixels land anywhere, which
    * is precisely what the eye reads as grain. An ordered pattern spreads the
    * same error evenly and reads as texture rather than noise.

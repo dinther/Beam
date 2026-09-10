@@ -10,8 +10,7 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
  * package has one -- an icon can only hint at "look from here", a labelled
  * face says it.
  *
- * Adapted from a prototype Paul supplied (viewgizmo.html). Two things carried
- * over because they are better than the obvious approach: the six faces share
+ * Two choices here are better than the obvious approach: the six faces share
  * one texture atlas and hover by shifting its offset rather than redrawing,
  * and a merged copy of the faces is drawn back-side-on behind them, which is
  * what fills the gaps at glancing angles and makes it read as solid.

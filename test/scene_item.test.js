@@ -2,19 +2,16 @@
 /**
  * The transform every placeable scene item shares.
  *
- * `Fixture`, `Structure` and `SceneObject` used to write their own per-axis
- * accessors -- twelve each in the first two, none at all in the third -- and
- * they had drifted: `Fixture.rotX` accepted a non-finite angle where
- * `Structure.writeAxis` refused one, so a bad keystroke could blank a fixture
- * by a route already closed for structures. They now share one implementation
- * from `scene_item.transform.js`, and each supplies only the step that differs:
+ * `Fixture`, `Structure` and `SceneObject` share one implementation of the
+ * per-axis accessors from `scene_item.transform.js`, and each supplies only
+ * the step that differs:
  * a fixture pushes to its 3D model, a structure carries its members, an object
  * rewrites its instance matrix.
  *
  * What is checked here is the part that is easy to get wrong when hoisting
  * behaviour into a base: that the shared accessors still read and write the
  * same units, that the per-kind step still fires, and that the guard which
- * rejects a non-finite value is now in force for all three rather than two.
+ * rejects a non-finite value is in force for all three.
  *
  * Usage:
  *   npm test
@@ -69,7 +66,7 @@ function checkContract(label, item, kind) {
   check('rotZ round-trips in degrees', Math.round(item.rotZ), RIGHT_ANGLE);
   check('rotZ stored as radians', Math.round(item.rotationRad.z * 1000) / 1000, 1.571);
 
-  // The guard that only two of the three used to have.
+  // The non-finite guard, which every kind must have.
   item.posY = 4;
   item.posY = Number.NaN;
   check('a NaN axis is refused, not stored', item.posY, 4);
@@ -92,7 +89,7 @@ function checkContract(label, item, kind) {
 // `isStub` is the constructor's own escape hatch for a fixture with no profile
 // behind it, which is what this needs: the transform is the subject, and a real
 // profile would drag in a renderer and a patch. A stub skips the branch that
-// builds the transform, though -- true before this refactor as after it -- so
+// builds the transform, though, so
 // the two fields are seeded here rather than pretending the class does it.
 const stubFixture = new Fixture({ isStub: true });
 stubFixture._position = { x: 0, y: 0, z: 0 };

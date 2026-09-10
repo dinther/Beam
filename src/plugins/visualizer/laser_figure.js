@@ -32,8 +32,8 @@ import * as THREE from 'three';
  * Tiles across and down, and the size of one. Sixteen lasers, one texture.
  *
  * A tile spans the whole scan field, so its resolution is an angle: at 512 one
- * texel was about a tenth of a degree, which is three centimetres on a wall
- * twenty metres away and reads as visible blocks up close. 1024 halves that.
+ * texel is about a tenth of a degree, three centimetres on a wall twenty
+ * metres away, which reads as visible blocks up close. 1024 halves that.
  * The atlas costs 4096 x 4096 x RGBA8 -- 64 MB, which is nothing against what
  * it buys, and it does not grow with the number of lasers.
  */
@@ -215,9 +215,9 @@ export class LaserFigure {
       const dy = by - ay;
       const len = Math.hypot(dx, dy);
       // Two points a scanner's sample apart land almost on top of each other,
-      // and a direction taken from that difference is mostly rounding error --
-      // which had every little quad facing a slightly different way and broke
-      // the line into beads. Too short to have a direction, draw the dot.
+      // and a direction taken from that difference is mostly rounding error,
+      // turning every little quad a slightly different way and breaking the
+      // line into beads. Too short to have a direction, draw the dot.
       if (len < half * 0.25) {
         dot(ax, ay, c3);
         return;

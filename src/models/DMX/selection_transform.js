@@ -5,11 +5,10 @@ import { PLACEABLE_KINDS, kindOf } from './scene_item';
 /**
  * @file A selection, presented as one transform.
  *
- * Selecting several things gives a gizmo but no numbers, so a rig could be
- * dragged into place and not typed into. The obvious answer -- a second widget
- * with its own six fields -- is the wrong one: there is already a widget that
- * does exactly this for a fixture, a structure and an object, and a second set
- * of fields is a second set to style, to guard and to keep in step.
+ * Selecting several things gives a gizmo; this gives it numbers too. Not a
+ * second widget with its own six fields: there is already a widget that does
+ * exactly this for a fixture, a structure and an object, and a second set of
+ * fields is a second set to style, to guard and to keep in step.
  *
  * So instead of a new widget, a new *subject*. Every scene item answers
  * `posX`..`rotZ` (see `scene_item.transform.js`), and that is the whole of what
@@ -23,28 +22,27 @@ import { PLACEABLE_KINDS, kindOf } from './scene_item';
  * whole arrangement about its own centre, carrying each item round and turning
  * it as it goes -- which is what the gizmo does when you grab its rotation ring.
  *
- * Setting every item to one angle instead was the other candidate and it was
- * tried first. It cannot express the thing anybody actually wants from a group
- * -- angling a row of heads as a row -- and what it does instead is available
- * already by selecting them one at a time.
+ * Setting every item to one angle instead cannot express the thing anybody
+ * actually wants from a group -- angling a row of heads as a row -- and what it
+ * does instead is available already by selecting them one at a time.
  *
  * The rotation fields are therefore an amount to turn by, not a heading -- but
  * they *accumulate* rather than snapping back to zero, and hold the total turn
  * applied since the selection was made. Typing 15 swings the selection fifteen
  * degrees and the field reads 15; clicking up once reads 16 and swings one more.
  *
- * Reading back zero was the first design and it could not work, because a
- * `v-model` is a round trip. `uk-num-input` keeps its own copy of the value and
- * re-reads the model only in `watch: modelValue`, which fires on *change* -- so
- * a field that answered zero before an edit and zero after it never fired the
- * watcher, and the control went on displaying whatever had last been typed.
- * Clicking up then sent that stale display plus one as a fresh relative turn:
- * 45 became 46, then 47, and each click swung the rig by most of a right angle.
+ * Reading back zero cannot work, because a `v-model` is a round trip.
+ * `uk-num-input` keeps its own copy of the value and re-reads the model only in
+ * `watch: modelValue`, which fires on *change* -- so a field that answers zero
+ * before an edit and zero after it never fires the watcher, and the control
+ * goes on displaying whatever was last typed. Clicking up would then send that
+ * stale display plus one as a fresh relative turn: 45 becomes 46, then 47, and
+ * each click swings the rig by most of a right angle.
  *
  * Holding the value makes the setter idempotent, which is the property that
  * actually matters here. The control commits on Enter *and* again on blur, and
  * both commits carry the same number; an absolute field lands in the same place
- * twice and nobody notices, while a relative one turned 45 degrees into 90.
+ * twice and nobody notices, while a relative one would turn 45 degrees into 90.
  * Applying only the difference from what is already held makes the second
  * commit a no-op, whatever it was that caused it.
  *

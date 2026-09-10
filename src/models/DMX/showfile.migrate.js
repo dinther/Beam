@@ -29,12 +29,10 @@ function migrateShowData(showData) {
   const version = data.version || 1;
   if (version >= SHOWFILE_VERSION) return data;
 
-  // Older shows had their floor drawn by the visualizer and so never recorded
-  // one. Given rather than withheld, because every one of them was built
-  // looking at a floor -- and it is deletable now, so a show that does not
-  // want it says so by not having one the next time it is written. Every show
-  // below version 3 had a floor whatever else it held, and anything at or past
-  // 3 has already returned above.
+  // A show below version 3 records no floor, though it was built looking at
+  // one, so it is given one. The floor is deletable, so a show that does not
+  // want it says so by not having one the next time it is written. Anything
+  // at or past 3 has already returned above.
   const objects = [{ ...DEFAULT_FLOOR }, ...(data.objects || [])];
 
   return {
@@ -51,9 +49,9 @@ function migrateShowData(showData) {
         : (parseInt(fixture.universe, 10) || 0) * DMX_UNIVERSE_LENGTH
           + (parseInt(fixture.chStart, 10) || 0),
     })),
-    // Version 1 grouped fixtures under the universe that owned them, and gave
-    // each a name and colour. Addresses are the only record of where a fixture
-    // lives now, and nothing presents universes, so the records are dropped.
+    // Version 1 groups fixtures under the universe that owns them, with a name
+    // and colour each. Addresses are the only record of where a fixture lives,
+    // and nothing presents universes, so the records are dropped.
     universes: undefined,
   };
 }

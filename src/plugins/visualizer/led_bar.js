@@ -259,7 +259,7 @@ class LedBar {
     }
 
     // Editing a tile down to a single row moves it onto the billboard path,
-    // and the panel it used to have would otherwise go on drawing over it.
+    // and the panel it had would otherwise go on drawing over it.
     if (this._panel) {
       LEDPanel.release(this._panel);
       this._panel = null;

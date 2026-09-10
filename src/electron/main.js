@@ -231,9 +231,8 @@ function createWindow() {
   // gone is dropped, leaving the window centred on the primary display.
   //
   // With no saved state -- the genuine first run -- open a large window centred
-  // on the primary display rather than maximised. The app used to always
-  // maximise; remembering the window means honouring what the user leaves it
-  // as, so forcing maximise every launch was exactly the behaviour to drop.
+  // on the primary display rather than maximised. Remembering the window means
+  // honouring what the user leaves it as, so nothing forces maximise.
   if (state) {
     options.width = Math.max(options.minWidth, Math.round(state.width));
     options.height = Math.max(options.minHeight, Math.round(state.height));
@@ -274,12 +273,11 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // A launch made by tooling rather than by the user -- Claude starting the dev
-  // app to look at a change. Paul, 2026-09-10: "Don't maximize the app when you
-  // start it." Such a launch keeps the saved size and position but never
-  // maximises, and does not take focus: a window that grabs focus while he is
-  // typing in another app sends his keystrokes into Beam. Development only, so
-  // an installed build cannot be put in this state by an environment variable.
+  // A launch made by tooling rather than by the user. Such a launch keeps the
+  // saved size and position but never maximises, and does not take focus: a
+  // window that grabs focus while the user is typing in another app sends the
+  // keystrokes into Beam. Development only, so an installed build cannot be
+  // put in this state by an environment variable.
   const backgroundLaunch = !app.isPackaged && process.env.BEAM_BACKGROUND === '1';
 
   mainWindow.on('ready-to-show', () => {
@@ -319,8 +317,7 @@ function setupArtnet() {
    *
    * It is only one, not none. `MessagePortMain.postMessage` accepts a transfer
    * list of `MessagePortMain` objects and nothing else -- handing it the
-   * batch's ArrayBuffers throws, which is exactly how this arrived silent the
-   * first time: every flush raised inside the timer and not one universe was
+   * batch's ArrayBuffers throws inside the timer, and not one universe is
    * delivered. Getting to zero copies needs a SharedArrayBuffer, not a
    * transfer.
    */
@@ -393,7 +390,7 @@ function setupArtnet() {
  *
  * Laser software finds a DAC on the network and streams galvo points to it;
  * Beam answers as one so the software needs nothing installed. Which protocol,
- * and at which address, is a per-fixture setting now rather than an
+ * and at which address, is a per-fixture setting rather than an
  * application-wide switch -- a real laser has a DAC in it, and the address is
  * what decides how many of them one protocol can carry. See `laser_hub.js`.
  * Everything here is receive-only.

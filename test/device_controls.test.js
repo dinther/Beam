@@ -2,12 +2,11 @@
 /**
  * Fixed, Adjustable or DMX -- the one way every generic fixture is defined.
  *
- * The engine was built for the laser and this is what pins it down for the
- * others: a projector and a display now declare their parameters the same way,
+ * A laser, a projector and a display declare their parameters the same way,
  * so the interesting cases are the ones that are *not* the laser's -- a
  * parameter whose range comes from the machine (zoom, between this lens's throw
- * ratios), one that is not a number at all (a shutter, a source), and the
- * profiles made before any of this existed, which must keep their patch.
+ * ratios), one that is not a number at all (a shutter, a source), and older
+ * profiles in the `channels` form, which must keep their patch.
  *
  * Usage:
  *   npm test
@@ -44,7 +43,7 @@ function check(label, got, want) {
   );
 }
 
-/** A projector defined the way the create dialog now defines one. */
+/** A projector defined the way the create dialog defines one. */
 function projectorWith(controls) {
   return { ...DEFAULT_PROJECTOR_PARAMS, controls };
 }

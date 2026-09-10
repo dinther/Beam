@@ -3,10 +3,8 @@
  * Every shape the user can build stands on its own origin.
  *
  * The origin is the middle of the base and the shape rises from z = 0, so a
- * Stage Table placed at z = 0 is on the floor. Shapes used to be centred on the
- * origin, which put every cube placed at z = 0 half into the floor -- and the
- * rule was only ever true of the plane. This pins it for every type, so a
- * shape added later cannot quietly go back to being centred.
+ * Stage Table placed at z = 0 is on the floor rather than half into it. This
+ * pins it for every type, so a shape added later cannot quietly be centred.
  *
  * Usage:
  *   npm test

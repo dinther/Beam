@@ -529,8 +529,8 @@ class Capability {
           if (!entityValue && !entityValueStart && !entityValueStop) {
             // Said nothing, so it means all of it. The bounds are already in
             // the units this feature is measured in, so they are taken as they
-            // are rather than spelled back into a string for parsing -- which
-            // is what used to make `max` read as a literal `1%`.
+            // are rather than spelled back into a string for parsing, which
+            // would make `max` read as a literal `1%`.
             this.entities[alias].start = setting.min;
             this.entities[alias].end = setting.max;
           }

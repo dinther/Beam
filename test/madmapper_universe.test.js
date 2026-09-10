@@ -103,8 +103,8 @@ const fallback = build(undefined);
 
 check('offset, Art-Net', universeOffset(PROTOCOLS.ARTNET), 0);
 check('offset, sACN', universeOffset(PROTOCOLS.SACN), 1);
-// Anything unrecognised has to behave as Art-Net did before there was a
-// choice, or an old caller silently moves every fixture a universe.
+// Anything unrecognised has to behave as Art-Net, or a caller that does not
+// say silently moves every fixture a universe.
 check('offset, unknown protocol', universeOffset('nonsense'), 0);
 
 check('Art-Net universes', universesIn(artnet).join(), '0,0,3');

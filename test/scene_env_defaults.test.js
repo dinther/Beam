@@ -2,13 +2,9 @@
 /**
  * The room's haze has one set of defaults, and one place percentages convert.
  *
- * There used to be three sets -- `SceneEnv`'s constructor said zero,
- * `visualizer.js` said a hundred, `preferences.js` said seventy -- and which
- * one you saw depended on the order the scene was built in. The debug panel,
- * built before the stored settings were applied, read the constructor's zeros
- * and displayed them for the rest of the session.
- *
- * So: the room comes up at the preference defaults with nothing loaded, and
+ * More than one set would make what you see depend on the order the scene is
+ * built in. So: the room comes up at the preference defaults with nothing
+ * loaded, and
  * `adopt` is the only thing that divides by a hundred.
  *
  * Usage:
@@ -29,7 +25,7 @@ console.log('\n-- built at the defaults, not at zero --');
 {
   const { DEFAULTS } = Preferences;
   check('turbulence', SceneEnv.hazeTurbulence, DEFAULTS.globalFoggingTurbulences / 100);
-  check('and it is the 70-odd Paul expects', SceneEnv.hazeTurbulence > 0.5, true);
+  check('and it is the 70-odd the default promises', SceneEnv.hazeTurbulence > 0.5, true);
   check('density', SceneEnv.hazeDensity, DEFAULTS.globalFoggingDensity / 100);
   check('scale, in metres', SceneEnv.hazeScale, DEFAULTS.globalFoggingScale);
   check('haze is on', SceneEnv.hazeEnabled, !!DEFAULTS.globalFoggingState);

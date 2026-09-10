@@ -112,8 +112,8 @@ export const DEFAULT_TILT_SPEED = 210;
  * Stand-in for a fixture the renderer has no model for.
  *
  * Such a fixture still patches, addresses and holds channel values -- it simply
- * draws nothing. Previously this threw, which meant patching any of the 360
- * non-moving-head profiles in the library broke the app rather than showing an
+ * draws nothing. Throwing instead would make patching any of the 360
+ * non-moving-head profiles in the library break the app rather than show an
  * unlit fixture.
  *
  * @returns {Object} an inert 3D model accepting the same writes
@@ -262,11 +262,11 @@ class Fixture extends withTransform(Proxify) {
       /**
        * Channel values set by hand, by index.
        *
-       * A library fixture has no `device` and so had nowhere to hold anything
-       * set by hand: its channels only ever carried what DMX last said, which
-       * is not saved. So a light placed to try an idea was dark until it was
-       * patched and a console was talking to it. These are what it shows until
-       * DMX does -- and only these travel in the show, never what the wire
+       * A library fixture has no `device`, and its channels carry what DMX
+       * last said, which is not saved -- so without these a light placed to
+       * try an idea is dark until it is patched and a console is talking to
+       * it. These are what it shows until DMX does -- and only these travel in
+       * the show, never what the wire
        * happens to be saying, which is the line the app already draws for the
        * generic devices.
        *
@@ -274,9 +274,9 @@ class Fixture extends withTransform(Proxify) {
        * zero, so a profile default is not silently overwritten by one.
        */
       this._parkedChannels = { ...(data.channelValues || {}) };
-      // Read from `device`, falling back to the key projectors were written
-      // under before displays existed. Two lines, against silently losing every
-      // projector's zoom and source on the first load after this change.
+      // Read from `device`, falling back to `projector`, the key older shows
+      // store a projector's settings under -- without it they load with every
+      // projector's zoom and source lost.
       const deviceData = data.device || data.projector;
       // The kind that made the profile says which Settings hold its
       // parameters; a library profile was made by none and has no device.
@@ -996,9 +996,7 @@ class Fixture extends withTransform(Proxify) {
     // A bar's channel is a byte in a range. Everything below -- the fine
     // channel recursion, the capability lookup, the 3D model fan-out -- is
     // answering questions a bar has already answered in its geometry, and its
-    // emitters read the DMX texture directly rather than these values. This
-    // replaces the `_3DModel instanceof LedBar` return further down, which
-    // still walked an object to get here.
+    // emitters read the DMX texture directly rather than these values.
     if (this.channels instanceof BarChannels) {
       this.channels.setValueAt(id, Math.ceil(Math.min(Math.max(value, 0), 255)));
       return;
@@ -1033,14 +1031,14 @@ class Fixture extends withTransform(Proxify) {
     // property and dropped.
     //
     // It is not free work. A 256 x 256 tile is 196,608 channels arriving 40
-    // times a second, and each one was allocating an object and parsing entity
+    // times a second, and each one would allocate an object and parse entity
     // strings to fill it.
     if (this._3DModel instanceof LedBar) return;
 
     const capability = channel.getCapability(value); // Fetching channel's capability from value
-    // A preset is released by the channel that set it. This used to hang off
-    // channel 1, which is unrelated to colour and, with diff input on, is never
-    // written unless the shutter itself moves -- so a preset latched forever.
+    // A preset is released by the channel that set it. Any other channel --
+    // channel 1, say -- may be unrelated to colour and, with diff input on, is
+    // never written unless it moves, so the preset would latch forever.
     if (this._colorPresetChannelId === id
       && (!capability || capability.type !== CAPABILITY_TYPES.ColorPreset)) {
       this._3DModel.colorPreset = null;
@@ -1201,11 +1199,9 @@ class Fixture extends withTransform(Proxify) {
       return;
     }
     if (this.OFLData.asls && this.OFLData.asls.laser) {
-      // The body only, for now: a box with an aperture, drawn like the
-      // projector's chassis so a laser is visible and placeable. The beam it
-      // fires from the point stream is a later step; the renderer reads the
-      // settings in place, the way the projector does, so nothing here changes
-      // when it arrives.
+      // A box with an aperture, drawn like the projector's chassis so a laser
+      // is visible and placeable. The renderer reads the settings in place,
+      // the way the projector does.
       this._3DModel = markRaw(new Laser({
         params: this.OFLData.asls.laser,
         settingsAt: () => this.device,
@@ -1309,12 +1305,10 @@ class Fixture extends withTransform(Proxify) {
         const isFine = split.length > 1; // Checking if split result contains a result for fine alias
         let channelData = OFLData.availableChannels[channelName]; // Isolating channel data
         if (channelData && channelData.capability && isFine) {
-          // A copy rather than a write. This one assignment is the only reason
-          // the whole profile used to be deep-cloned on the line above -- 46%
-          // of the cost of adding a panel, spent so that a fine channel could
-          // rename its own capability type without touching the shared
-          // profile. Copying the two objects it actually needs costs nothing
-          // and leaves `this.OFLData` untouched, which is what mattered.
+          // A copy rather than a write, so a fine channel can rename its own
+          // capability type without touching the shared profile. Copying the
+          // two objects it needs costs nothing; deep-cloning the whole profile
+          // for it would be 46% of the cost of adding a panel.
           channelData = {
             ...channelData,
             capability: {
@@ -1490,8 +1484,7 @@ class Fixture extends withTransform(Proxify) {
     } else if (model && model.constructor
       && typeof model.constructor.deleteInstance === 'function') {
       // Asked of the renderer itself, so a new kind needs nothing added here.
-      // Projectors and displays were both missed when this was a list of two,
-      // and a renderer that is never disposed keeps its meshes in the scene and
+      // A renderer that is never disposed keeps its meshes in the scene and
       // its instance in the pick list for the rest of the session.
       //
       // The two branches above cannot migrate to this: a bar is matched by

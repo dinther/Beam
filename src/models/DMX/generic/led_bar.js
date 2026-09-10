@@ -57,9 +57,8 @@ export const BAR_SHAPES = {
 /**
  * Whether a set of bar parameters describes a panel.
  *
- * Profiles written before the distinction existed do not say, so they are read
- * the way they were meant at the time: anything with more than one row was a
- * tile, and everything else a strip.
+ * A profile that does not say is read by its row count: more than one row is
+ * a tile, one is a strip.
  *
  * @public
  * @param {Object} params bar parameters
@@ -94,8 +93,7 @@ export const DEFAULT_BAR_PARAMS = {
   /**
    * The profile's colour, `#rrggbb`. Part of the definition, like its size:
    * the same bar comes in black and in bare aluminium, and they are two
-   * products. A definition written before this existed says nothing, and the
-   * renderer gives it this.
+   * products. A definition that says nothing is drawn in this.
    */
   bodyColor: '#2a2d31',
   /**
@@ -300,7 +298,7 @@ export function withoutLedBarChannels(profile) {
  * Puts the channels back, for a profile stored without them.
  *
  * Safe on anything: a profile that carries its own channels is returned as it
- * is, so the libraries written before this still load.
+ * is, so libraries that store channels still load.
  *
  * @public
  * @param {Object} profile a stored profile

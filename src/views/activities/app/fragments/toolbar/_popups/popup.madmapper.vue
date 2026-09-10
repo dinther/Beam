@@ -151,7 +151,7 @@ export default {
       /** Eye distance from the rig's centre, in radii. */
       eyeDistance: 1.3,
       projectionNames: PROJECTION_LABELS.map((p) => p.label),
-      // Art-Net, which is what every export before this one wrote. Not
+      // Art-Net by default. Not
       // remembered between sessions: it belongs to the MadMapper project being
       // imported into rather than to the show, and a rig only has one answer.
       protocolIndex: 0,
@@ -284,8 +284,7 @@ export default {
       });
       if (!svg) return;
       // `documentTitle`, not `name`. The project's name is its folder's, and
-      // `name` is a leftover from when a show was one file that carried its
-      // own -- nothing updates it when a project is named, so it keeps saying
+      // nothing updates `name` when a project is named, so it keeps saying
       // whatever the show was created as.
       const show = (this.$show.documentTitle || 'layout').replace(/[<>:"/\\|?*]/g, ' ').trim();
       // One dialog, for the layout. The definitions go beside it under the

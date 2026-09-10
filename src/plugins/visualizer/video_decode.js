@@ -26,17 +26,16 @@ import { VIDEO_TO_LINEAR } from './video_material';
  *
  * **The colour transfer happens here.** The YUV matrix produces R'G'B' --
  * gamma-encoded, as broadcast video is -- and this decodes it to linear before
- * anything downstream sees it. That was not always so: it used to hand on
- * encoded values that the consumer encoded a second time, and every screen came
- * out washed out for it. Mips now average in linear, which is also the correct
- * place to average light.
+ * anything downstream sees it; handing on encoded values would have the
+ * consumer encode them a second time and wash every screen out. Mips average
+ * in linear, which is also the correct place to average light.
  */
 
 /**
  * BT.709, studio swing, which is what NDI carries for HD and UHD.
  *
- * Lifted unchanged from `video_material.js`, which is where it used to run once
- * per fragment of every screen rather than once per pixel of the source.
+ * Run here once per pixel of the source rather than once per fragment of
+ * every screen.
  */
 const UNPACK_FRAGMENT = /* glsl */`
   ${VIDEO_TO_LINEAR}
@@ -152,9 +151,8 @@ function targetFor(feed) {
       // The GPU encodes on write and decodes on sample, so what a consumer gets
       // is linear light -- which is what its own `colorspace_fragment` expects
       // to be handed, and what the projector pass needs before it adds video to
-      // scene light. Before this the shader wrote gamma-encoded R'G'B' and the
-      // consumer encoded it again, which lifts the midtones and flattens the
-      // contrast: every screen came out washed out.
+      // scene light. Gamma-encoded R'G'B' written here would be encoded again
+      // by the consumer, which lifts the midtones and flattens the contrast.
       //
       // And the *storage* stays gamma-encoded, which is the reason to do it
       // this way rather than writing linear into a plain byte target. Eight

@@ -1199,8 +1199,7 @@ export default {
       return !!this.$show.localProfile(key);
     },
     /**
-     * The bar's parameters, as the model wants them. The other kinds have had
-     * one of these all along; the bar's were spelled out in `create`.
+     * The bar's parameters, as the model wants them.
      *
      * @type {Object}
      */
@@ -1292,10 +1291,9 @@ export default {
      *
      * Whether they have one is asked of the field rather than remembered: a
      * name that still reads as the suggestion for the type it was offered
-     * under is a name nobody has chosen. Tracking it instead took two pieces
-     * of state -- the last name written and whether it had been overtyped --
-     * and the flag outlived the dialog it described, so one rename stopped the
-     * name following the type for the rest of the session.
+     * under is a name nobody has chosen. A remembered "overtyped" flag would
+     * outlive the dialog it describes, so one rename would stop the name
+     * following the type for the rest of the session.
      */
     kindIndex(index, previous) {
       if (this.model.trim() && this.model.trim() !== this.suggestionFor(previous)) return;
@@ -1410,8 +1408,7 @@ export default {
       );
       // `state` is a computed over the parent's v-model, and its setter above
       // is what announces the change -- this dialog has no popup mixin and so
-      // no close(). Calling one threw after the profile had been written,
-      // leaving the dialog open holding the name it had just taken.
+      // no close() to call.
       this.$emit('created', key);
     },
   },

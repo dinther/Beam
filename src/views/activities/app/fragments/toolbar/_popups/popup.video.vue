@@ -639,7 +639,7 @@ export default {
         this.texture.image.data = pixels;
       }
       // Only when a frame actually arrived. Re-uploading is 8 MB at 4K, and
-      // this method now also runs when nothing has changed but a flip.
+      // this method also runs when nothing has changed but a flip.
       if (fresh) this.texture.needsUpdate = true;
 
       this.drawSlice();
@@ -661,9 +661,10 @@ export default {
      *
      * Fitting rather than filling is the whole point. The stage stretches to
      * whatever height the controls beside it need, which is far more than a
-     * 16:9 frame wants -- and sizing the frame from the width alone left the
-     * difference as a slab of empty panel underneath it. What is left over is
-     * now letterboxing inside a dark viewer, which reads as deliberate.
+     * 16:9 frame wants -- and sizing the frame from the width alone would
+     * leave the difference as a slab of empty panel underneath it. What is
+     * left over is letterboxing inside a dark viewer, which reads as
+     * deliberate.
      *
      * The picture carries the aspect, so a rectangle drawn on screen selects
      * the region it looks like it selects.
@@ -676,8 +677,8 @@ export default {
       if (!stage || !picture || !stage.clientWidth) return null;
       // Driven by the width alone. The stage's own height follows the picture,
       // so measuring the stage's height here would be circular -- and with the
-      // connector list beside it rather than the whole property panel, there
-      // is no longer anything forcing the stage taller than its picture.
+      // connector list beside it rather than the whole property panel, nothing
+      // forces the stage taller than its picture.
       const width = stage.clientWidth;
       const height = Math.max(1, Math.round((width * feed.height) / feed.width));
       if (picture.style.width !== `${width}px`) picture.style.width = `${width}px`;
@@ -870,7 +871,7 @@ export default {
      */
     snapLines(exclude) {
       // The picture, not the stage: the tolerance is a distance on the *frame*,
-      // and the stage is now larger than the frame by however much letterboxing
+      // and the stage is larger than the frame by however much letterboxing
       // the controls beside it force.
       const { picture } = this.$refs;
       const width = (picture && picture.clientWidth) || 1;
@@ -1034,10 +1035,10 @@ export default {
         const toY = this.snapEdge(cornerY, ys, tolY);
 
         // With a shape locked, only one edge can be obeyed -- the other is
-        // derived from it. Obeying the width always meant a locked box could
-        // never snap to a horizontal line, which reads as snapping being
-        // broken rather than as a consequence of the lock. So whichever edge
-        // actually caught a line, and by the smaller margin, leads.
+        // derived from it. Always obeying the width would mean a locked box
+        // could never snap to a horizontal line, which reads as snapping being
+        // broken. So whichever edge actually caught a line, and by the smaller
+        // margin, leads.
         const caughtX = toX !== cornerX;
         const caughtY = toY !== cornerY;
         const leadY = connector.aspect > 0 && caughtY
@@ -1085,8 +1086,7 @@ export default {
    from the palette in `global.css` rather than from literals, so this panel
    follows the app if the theme ever moves. */
 .body {
-  /* The house padding, which this popup was missing entirely -- it is most of
-     why everything read as crammed against the edges. */
+  /* The house padding, so nothing sits crammed against the edges. */
   padding: 16px;
   width: 1040px;
   max-width: 94vw;

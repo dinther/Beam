@@ -58,10 +58,10 @@ const ENVIRONMENT_EXTENSIONS = ['.hdr', '.exr'];
  * the folder on disk is capitalised. Anything not listed here is unreachable,
  * whatever it is called or however the request is spelled.
  *
- * Each kind carries the extensions it will serve, because they no longer agree:
- * a model folder serves geometry and the textures a glTF references, while an
+ * Each kind carries the extensions it will serve, because they differ: a model
+ * folder serves geometry and the textures a glTF references, while an
  * environment folder serves radiance images and nothing else. A null list means
- * the model set, which is the older behaviour written down.
+ * the model set.
  *
  * @constant {Object}
  */
@@ -626,12 +626,10 @@ function resolve(requestPath) {
   // `path.resolve` collapses `..` before the containment test, so the test is
   // made against where the path actually lands rather than how it is written.
   //
-  // Contained in the *kind's* folder, not merely in the library. Tested against
-  // the library root until 2026-08-29, which let `environments/../x.hdr` land on
-  // a file beside the folder and be served -- inside the library, so the test
-  // passed, and with an allowed extension, so nothing else stopped it. The
-  // comment above already claimed the folders were the guarantee; this is that
-  // claim made true.
+  // Contained in the *kind's* folder, not merely in the library: against the
+  // library root, `environments/../x.hdr` would land on a file beside the
+  // folder and be served -- inside the library, with an allowed extension, so
+  // nothing else would stop it.
   const base = path.join(root, dir);
   const target = path.resolve(base, `.${path.sep}${rest.join(path.sep)}`);
   const relative = path.relative(base, target);

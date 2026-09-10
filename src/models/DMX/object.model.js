@@ -60,12 +60,9 @@ class SceneObject extends withTransform(Object) {
      * the numbers it is defined by, held in the show, editable at any time, and
      * belonging to this object alone.
      *
-     * Inline is what "create" produces now. Writing every created shape to the
-     * library made a library of near duplicates and froze the parameters, so
-     * widening a cube meant making a second cube. Save to library copies these
-     * numbers out as a template; it does not turn this object into a reference,
-     * because then editing it later would silently edit every object stamped
-     * from the same entry.
+     * Inline is what "create" produces, so a created shape stays adjustable
+     * and the library does not fill with near duplicates. Save to library
+     * makes it a reference -- see `adoptLibraryModel`.
      */
     this.primitive = data.primitive ? { ...data.primitive } : null;
     this._name = data.name || data.model || 'object';
@@ -436,8 +433,8 @@ class SceneObject extends withTransform(Object) {
    * The other half of Save to library. Until it is saved, a created object is
    * a bare placement of its kind -- a cube whose size and colour are its own
    * to change. Saving it as "Stage Table" makes those numbers part of a
-   * *definition*: they are what a Stage Table is, and a placement of one can
-   * no longer resize it any more than a display can change its resolution.
+   * *definition*: they are what a Stage Table is, and a placement of one
+   * cannot resize it any more than a display can change its resolution.
    * So the object stops carrying parameters and points at the library entry
    * instead, exactly as if it had been placed from the library.
    *

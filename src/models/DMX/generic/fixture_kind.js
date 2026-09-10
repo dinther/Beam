@@ -2,21 +2,17 @@
  * @file The kinds of generic fixture Beam can make, as objects.
  *
  * A kind is a generator built into the app: an LED bar, a projector, a display,
- * a laser. Everything the rest of the app used to ask about one by switching
- * on a string -- which builder makes its profile, how to recognise a profile it
- * made, which Settings class holds a placement's parameters, what icon stands
- * for it, what it is called in a list -- is answered here by the kind itself.
- *
- * Before this the same question was asked in five places, each with its own
- * if/else chain: the create dialog's `create()`, `Show.createGeneratedProfile`,
- * the `Fixture` constructor's choice of Settings class, `fixtureIcon`, and the
- * type list. Adding a kind meant finding all five, and missing one showed up as
- * a different symptom each time -- the "two paths that should be one" class of
- * bug this codebase keeps meeting. Adding a kind is now one entry in
+ * a laser. Everything the rest of the app asks about one -- which builder
+ * makes its profile, how to recognise a profile it made, which Settings class
+ * holds a placement's parameters, what icon stands for it, what it is called
+ * in a list -- is answered here by the kind itself, not by a switch on a
+ * string at each call site: the create dialog's `create()`,
+ * `Show.createGeneratedProfile`, the `Fixture` constructor, `fixtureIcon` and
+ * the type list all ask the kind. Adding a kind is one entry in
  * {@link FIXTURE_KINDS}.
  *
- * The kind modules themselves (`led_bar.js`, `projector.js` ...) stay as they
- * are: pure functions and constants that know nothing about each other. This
+ * The kind modules themselves (`led_bar.js`, `projector.js` ...) are pure
+ * functions and constants that know nothing about each other. This
  * file is the one place that knows about all of them, which is why it -- and
  * not `kinds.js`, whose job is to have no imports -- holds the registry.
  */

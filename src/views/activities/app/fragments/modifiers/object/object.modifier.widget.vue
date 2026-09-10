@@ -94,27 +94,18 @@ import ObjectParamsForm from './object.params.form.vue';
  * @file Adjusts a created object, and optionally saves it as a template.
  *
  * A created object holds its own parameters in the show, so it can be widened
- * or recoloured at any time -- which is what this is for. Until 2026-08-28
- * creating one wrote a library entry and froze it, so a wider cube meant a
- * second cube and a library full of near duplicates.
+ * or recoloured at any time -- which is what this is for.
  *
  * **Save to library turns this object into a library reference.** Until then
  * it is a bare placement of its kind, and its size and colour are its own to
  * change; saved as "Stage Table", those numbers become part of a definition
- * and the placement can no longer change them -- a definition is never edited,
- * only made again. This replaced the earlier bargain, described below for the
- * record, in which the object stayed inline after saving.
+ * and the placement cannot change them -- a definition is never edited, only
+ * made again.
  *
- * **Make unique is the way back** (2026-09-10), for a placement of a library
- * shape: it takes the shape's parameters as its own and is editable again, as
- * if just created, while the library entry stays as it was. The same relation
+ * **Make unique is the way back**, for a placement of a library shape: it
+ * takes the shape's parameters as its own and is editable again, as if just
+ * created, while the library entry stays as it is. The same relation
  * un-structure has to making a structure.
- *
- * **(Superseded) Save to library copies the parameters out; it does not turn this object
- * into a reference to them.** Paul's call, and the same rule structures follow:
- * a stamp, not a block. The alternative would mean clicking Save quietly
- * changed what this object *is*, so that recolouring it afterwards recoloured
- * every object stamped from the same entry.
  *
  * An imported model has no parameters of its own, so it gets a note rather
  * than a form.
@@ -273,7 +264,7 @@ export default {
         this.message = (result && result.reason) || 'Could not save to the library.';
         return;
       }
-      // Saved means *is* a library model now: the object stops carrying its
+      // Saved means *is* a library model: the object stops carrying its
       // own parameters and references the entry, so this widget flips to the
       // library view above. The same move a fixture definition makes when it
       // is saved -- a definition is either the show's or the library's.

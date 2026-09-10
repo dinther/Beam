@@ -157,7 +157,7 @@ const GRID_PRELUDE = /* glsl */`
    * How few screen pixels a **cell** may cover before the panel stops being
    * sampled per pixel and simply draws the picture.
    *
-   * A separate question from the gaps above, and the one that was missed.
+   * A separate question from the gaps above.
    * Quantising to pixel centres is right while the cells are resolvable -- it
    * is what gives a wall its blockiness -- but once a cell is smaller than a
    * fragment, floor() jumps between distant texels from one fragment to the
@@ -213,7 +213,7 @@ const GRID_PRELUDE = /* glsl */`
     // **Each axis decides for itself.** A wall built out of vertical bars has
     // cells far wider than they are tall, so its columns are plainly visible
     // while its rows are already sub-pixel -- and judging both by the tighter
-    // one threw away gaps that were perfectly drawable. This keeps the columns
+    // one would throw away gaps that are perfectly drawable. This keeps the columns
     // and dissolves the rows, which is what the thing actually looks like.
     //
     // Faded towards each axis's own duty cycle, not towards solid. That is what
@@ -230,8 +230,7 @@ const GRID_PRELUDE = /* glsl */`
  *
  * Takes a **plain texture**, not a feed: by the time the scene draws anything
  * the bytes have been unpacked into a filterable RGBA copy with a mip chain --
- * see `video_decode.js`. That is what removed the UYVY branch that used to live
- * here, and with it the reason this shader could not simply sample.
+ * see `video_decode.js` -- so this shader can simply sample.
  *
  * @param {THREE.Texture} picture the decoded frame
  * @param {Object} panel `{ pixelsWide, pixelsHigh, fillX, fillY }`

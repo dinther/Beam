@@ -95,11 +95,10 @@ console.log('\n-- written to the show, and read back --');
   Studio.setSelectedName('Tight on the tower');
 
   const written = Studio.showData;
-  // The editor camera IS written now, flagged, and it comes first. It is the
-  // view the project was left at, and unlike a placed camera it has nowhere
-  // else to live -- so a project that did not carry it reopened looking
-  // somewhere else. This assertion used to read "the editor camera is not
-  // written"; the behaviour changed deliberately.
+  // The editor camera IS written, flagged, and it comes first. It is the view
+  // the project was left at, and unlike a placed camera it has nowhere else to
+  // live -- a project that did not carry it would reopen looking somewhere
+  // else.
   check('the editor camera is written too', written.length, 3);
   check('and is flagged as the editor', written[0].editor, true);
   check('while the placed ones are not', written[1].editor, undefined);

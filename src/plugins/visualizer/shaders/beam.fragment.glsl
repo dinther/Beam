@@ -42,11 +42,9 @@ uniform float cameraFar;
  * How much of the beam's brightness is haze texture rather than solid shaft.
  *
  * 0 is a perfectly even beam, 1 is one multiplied by the raw noise -- which
- * eats the shaft wherever the field dips, and is what "much worse" looked
- * like. The point is that this is a **constant**: it modulates the beam
- * without reading the beam's own strength, so the output stays linear in
- * intensity and two beams still add exactly. That is what the old
- * `max(field, intensity)` floor could not do.
+ * eats the shaft wherever the field dips. The point is that this is a
+ * **constant**: it modulates the beam without reading the beam's own strength,
+ * so the output stays linear in intensity and two beams still add exactly.
  *
  * Same construction `ambient_haze.js` uses for the room's air
  * (`mix(1.0, field, fieldDepth)`), so shaft and air are textured alike.
@@ -113,8 +111,7 @@ float computeFog(float minValue) {
   // No haze, no beam. A beam is only visible because something in the air
   // scatters it back at you, so the amount of haze is the amount of beam --
   // at zero there is nothing to light up and the cone has to go with it,
-  // leaving only whatever the light lands on. This used to return 1.0 and
-  // draw a fully lit cone in a clean room.
+  // leaving only whatever the light lands on.
   //
   // The switch and the slider say the same thing, so they resolve to one
   // number here, the way `SceneEnv.hazeAmount` already does for the LED glows.
@@ -123,36 +120,31 @@ float computeFog(float minValue) {
     return 0.0;
   }
 
-  // Sampled in the room's coordinates, not the screen's. `vWorldPosition` is
-  // named for what it was meant to be but carries the *clip* position -- the
-  // vertex shader assigns it straight to `gl_Position` -- so the haze was
-  // pinned to the camera. It swam whenever the view moved and never sat still
-  // in the room, which also meant orbiting was the only thing making it move
-  // at the default turbulence of zero. `vAbsoluteWorldPosition` is the real
-  // world position, and is already what `floorFade` reads.
+  // Sampled in the room's coordinates, not the screen's. `vWorldPosition`
+  // carries the *clip* position despite its name -- the vertex shader assigns
+  // it straight to `gl_Position` -- so haze sampled from it is pinned to the
+  // camera and swims whenever the view moves. `vAbsoluteWorldPosition` is the
+  // real world position, and is what `floorFade` reads.
   //
-  // All three axes, where this took x and y and put time in z. A beam rising
-  // through a room passed through no vertical structure whatsoever, so the
-  // haze had no body -- it was one flat slice repeated up the beam. Time now
-  // drives drift instead of standing in for height.
+  // All three axes, with time driving drift rather than standing in for one
+  // of them: a beam rising through a room has to pass through vertical
+  // structure, or the haze has no body -- one flat slice repeated up the beam.
   //
   // `fogScale` is the width of one haze feature in metres, so the room's
-  // coordinates divided by it land directly in noise units. It used to be the
-  // same number as the amount, which is why turning the haze up changed its
-  // grain rather than its strength.
+  // coordinates divided by it land directly in noise units. It is separate
+  // from the amount, so turning the haze up changes its strength, not its
+  // grain.
   //
   // The turbulence floors at the beam's own geometric intensity, so noise can
   // thin the beam but never eat its core.
   //
   // Softly, because a hard `max` creases along the curve where the two are
   // equal. Down a single cone that curve is an ellipse -- the beam visibly
-  // dimmed to a minimum and then brightened again below it, which attenuation
+  // dims to a minimum and then brightens again below it, which attenuation
   // alone cannot do -- and where two cones overlap it reads as a line drawn
-  // through both. Measured on a two-mover scene: the beam's contribution over
-  // background fell 56, 30, 10 and then rose back to 17 down the axis. The
-  // recovery is the giveaway; the shading either side of the corner is correct
-  // and only the corner itself was ever wrong.
-  // `fogTurbulence` is a rate in noise units a second now, worked out once in
+  // through both (on a two-mover scene, the beam's contribution over
+  // background falls 56, 30, 10 and then rises back to 17 down the axis).
+  // `fogTurbulence` is a rate in noise units a second, worked out once in
   // `SceneEnv.hazeDriftRate` -- scale-corrected, and the same for every
   // renderer that reads this field.
   float drift = time * fogTurbulence;
@@ -162,21 +154,20 @@ float computeFog(float minValue) {
   // How much the air scatters, and **nothing about the beam's own strength**.
   //
   // The colour is already scaled by intensity once, so anything intensity-
-  // dependent returned here multiplies it in again. This was `max(field,
-  // intensity)` -- a full second factor, so each fragment emitted intensity
-  // squared -- and then `mix(field, 1, intensity)`, which is better but still
-  // leaves a (1-field)*intensity^2 term. Both are convex, and a convex
-  // function of a fixed total is *smallest when the total is split evenly*:
-  // exactly where two beams contribute equally, which is the locus running
-  // from their crossing point. Measured on the two forms: 45% and 16% dips at
-  // an even split, against 0% for this one.
+  // dependent returned here multiplies it in again. `max(field, intensity)`
+  // would make each fragment emit intensity squared, and `mix(field, 1,
+  // intensity)` still leaves a (1-field)*intensity^2 term. Both are convex, and
+  // a convex function of a fixed total is *smallest when the total is split
+  // evenly*: exactly where two beams contribute equally, which is the locus
+  // running from their crossing point -- 45% and 16% dips at an even split,
+  // against 0% for this one.
   //
   // Scattered light is beam intensity times air density, and multiplying them
-  // once is the whole of it. Two beams now add the way light does.
+  // once is the whole of it. Two beams add the way light does.
   //
-  // The old floor existed so noise could not eat a strong beam's core. That is
-  // no longer needed here: the field's own contrast is the haze, and the
-  // shader's `fogFactor` already governs how much of it there is.
+  // No floor under the field to protect a strong beam's core: the field's own
+  // contrast is the haze, and the shader's `fogFactor` governs how much of it
+  // there is.
   // Solid shaft, textured by the air -- and no factor of the beam's own
   // strength, so the sum of two beams is the sum of their light.
   return mix(1.0, field, BEAM_FIELD_DEPTH) * haze;
@@ -211,17 +202,15 @@ vec3 safeNormalize(vec3 v) {
  * @param vec3 viewDir unit vector from the eye towards it
  * @returns float 0..1, the beam's brightness along this ray
  *
- * This replaces a facing ratio, `pow(abs(dot(viewDir, normal)), n)`, which was
- * never a property of the beam -- it described which way the wall happened to
- * be turned. It broke down exactly where the geometry does: looking down the
+ * Not a facing ratio, `pow(abs(dot(viewDir, normal)), n)`, which is not a
+ * property of the beam -- it describes which way the wall happens to be
+ * turned, and breaks down exactly where the geometry does: looking down the
  * barrel the wall is edge-on everywhere, the dot goes to zero across the whole
- * cone, and the beam disappears. The exponent was driven to zero by the
- * viewing angle to stop that happening, which is what left the beam flat and
- * hard-edged up close -- `pow(x, 0.0001)` is 1.0 for every x.
+ * cone, and the beam disappears.
  *
- * What is measured instead is the view ray's closest approach to the beam
- * axis. That is a property of the ray and the cone alone, so it holds at every
- * angle, and it is what the two terms below are actually functions of.
+ * What is measured is the view ray's closest approach to the beam axis. That
+ * is a property of the ray and the cone alone, so it holds at every angle, and
+ * it is what the two terms below are actually functions of.
  */
 float beamProfile(vec3 viewDir) {
   vec3 axis = safeNormalize(vDirection);
@@ -244,11 +233,10 @@ float beamProfile(vec3 viewDir) {
 
   // Where the ray crosses the cone's surface: |radial(s)| = r0 + m*z(s), which
   // is a quadratic in s. Solved outright instead of inferred from a distance
-  // ratio -- the ratio needed the closest-approach point held inside the cone
-  // by a clamp, and a clamp is continuous without being smooth. The boundary
-  // where it engaged was a hard curve across the screen, drawing exactly the
-  // line this is meant to remove. A chord, by contrast, is a continuous
-  // function of the ray everywhere.
+  // ratio -- the ratio needs the closest-approach point held inside the cone
+  // by a clamp, and a clamp is continuous without being smooth: the boundary
+  // where it engages is a hard curve across the screen. A chord is a
+  // continuous function of the ray everywhere.
   float rz = r0 + m * oz;
   float A = dot(vR, vR) - m * m * vz * vz;
   float B = 2.0 * (dot(oR, vR) - m * vz * rz);
@@ -293,11 +281,9 @@ float beamProfile(vec3 viewDir) {
       //
       // A fixed plane is a deliberately blunt answer, and it is blunt in the
       // safe direction: it can never cut a beam that should have carried on.
-      // The two sharper answers were considered and are recorded in the beam
-      // notes -- a plane from a raycast down the axis (rejected: the plane is
-      // infinite, so a beam clipping a truss loses everything below it), and a
-      // depth map rendered from each fixture, which is the real fix and is
-      // where this should end up.
+      // A plane from a raycast down the axis would not do -- the plane is
+      // infinite, so a beam clipping a truss would lose everything below it.
+      // A depth map rendered from each fixture is the real fix.
       if (abs(viewDir.z) > 1e-6) {
         float sFloor = (BEAM_FLOOR_Z - cameraPos.z) / viewDir.z;
         if (viewDir.z < 0.0) sHi = min(sHi, sFloor);
@@ -319,14 +305,13 @@ float beamProfile(vec3 viewDir) {
 
   // The chord itself, not its square.
   //
-  // `across` already *is* sqrt(1 - u*u), the length of cone a ray crosses. It
-  // used to be squared here, on an assumption that a cone is denser along its
-  // axis -- which nothing justifies, and which peaks the profile sharply. That
-  // matters where two beams begin to overlap: modelled on this rig, the squared
-  // shape carves an 87% notch between the two axes where the honest chord
-  // carves 74%, and by a couple of metres lower the squared one still dips 20%
-  // where the chord is already 17% *brighter* in the middle. That notch is the
-  // dark line where beams cross.
+  // `across` already *is* sqrt(1 - u*u), the length of cone a ray crosses.
+  // Squaring it would assume a cone is denser along its axis -- which nothing
+  // justifies, and which peaks the profile sharply. That matters where two
+  // beams begin to overlap: the squared shape carves an 87% notch between the
+  // two axes where the honest chord carves 74%, and a couple of metres lower
+  // the squared one still dips 20% where the chord is already 17% *brighter*
+  // in the middle. That notch would be a dark line where beams cross.
   //
   // The rim stays soft: a bare chord meets the wall with a vertical tangent,
   // but the penumbra below is zero with zero slope there, and the product is
@@ -360,16 +345,13 @@ float viewDistance(float depth) {
  * a hard line into it -- the beam is *in* the geometry, and geometry has no
  * business having an edge drawn on it by the air.
  *
- * This is half of what `floorFade` used to do, and the better half. The other
- * half -- ending the beam -- is the z = 0 clip in `beamProfile`, which is
- * still a hardcoded plane and still knows nothing about a floor that has been
+ * Ending the beam is a separate job, done by the z = 0 clip in `beamProfile`,
+ * which is a hardcoded plane and knows nothing about a floor that has been
  * moved, raked or deleted. Do not conflate the two: softening the crossing and
- * ending the shaft are different jobs, and an attempt to make one mechanism do
- * both is what the beam notes record as rejected.
+ * ending the shaft are different jobs, and one mechanism cannot do both.
  *
- * This is the soft-particles half of John Chapman's original technique, which
- * threex.volumetricspotlight -- the ancestor of this shader -- dropped because
- * three.js stored depth in 8 bits in 2013. It does not any more.
+ * This is the soft-particles half of John Chapman's volumetric spotlight
+ * technique, which needs a depth buffer with real precision.
  *
  * Depth testing already discards fragments behind geometry, so the comparison
  * is one-sided: this only has to soften the approach. Where nothing is behind,
@@ -405,12 +387,11 @@ void main() {
   vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
   float anglePower = 2.0 * beamProfile(viewDir);
 
-  // The hit point on the wall, which is smooth everywhere over the cone. It was
-  // briefly measured at the profile's sample point instead, for consistency,
-  // and that was a mistake: the sample point is held inside the cone by a
-  // clamp, and a clamp is continuous without being smooth. The locus where it
-  // engages is a curve across the screen, and a kink in an otherwise flat
-  // gradient is drawn by the eye as a line.
+  // The hit point on the wall, which is smooth everywhere over the cone -- not
+  // the profile's sample point, which is held inside the cone by a clamp, and
+  // a clamp is continuous without being smooth. The locus where it engages is
+  // a curve across the screen, and a kink in an otherwise flat gradient is
+  // drawn by the eye as a line.
   float distance = length(vPosition);
   float attenuation = 2.0 / (1.0 + alignmentFactor * distance + radians(vAngle) * distance * distance);
 

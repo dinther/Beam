@@ -42,17 +42,14 @@ MODEL_MATERIAL.onBeforeCompile = (shader) => {
 /**
  * How many heads the instanced buffers hold before they are grown.
  *
- * A starting size, not a limit. It was a hard `MAX_INSTANCES = 100` with
- * nothing checking it: `instanceCount++` handed out ids past the end of every
- * buffer, and three's `setMatrixAt` writes through `matrix.toArray(array, i)`,
- * where an out-of-range typed-array write is silently dropped. So the hundred
- * and first head did not fail -- it set `count` above the capacity that had
- * been allocated, which degenerates the whole instanced draw and makes *every*
- * head vanish, leaving the selection box around nothing. Two large structures
- * took the renderer down with it.
+ * A starting size, not a limit: the buffers double when a head would not fit.
+ * Three's `setMatrixAt` writes through `matrix.toArray(array, i)`, where an
+ * out-of-range typed-array write is silently dropped, and a `count` above the
+ * capacity allocated degenerates the whole instanced draw -- *every* head
+ * vanishes, not just the extra one.
  *
- * A hundred was never enough anyway. An arena rig runs to several hundred
- * movers, and the geometry side of one is cheap -- these are six instanced
+ * An arena rig runs to several hundred movers, and the geometry side of one
+ * is cheap -- these are six instanced
  * draws whatever the count. What does not scale is the `SpotLight` each head
  * carries, and that is a separate problem from this one: a head outside the
  * lighting budget still has a body and a beam to draw, and they belong here.
@@ -119,10 +116,10 @@ const SPOTLIGHT_SHADOW_FAR = 60;
 /**
  * How far a head's light reaches, in metres.
  *
- * The `SpotLight` was built with `distance = 0`, which three reads as
- * unbounded. That is fine for a handful of lights and impossible for hundreds:
- * a light with infinite reach cannot be culled, by the range test in the light
- * field now or by frustum clusters later. Sixty metres is what the shadow
+ * Not `distance = 0`, which three reads as unbounded. That is fine for a
+ * handful of lights and impossible for hundreds: a light with infinite reach
+ * cannot be culled, by the range test in the light field or by frustum
+ * clusters. Sixty metres is what the shadow
  * camera already assumed, and past it a moving head is not lighting anything a
  * viewer can see.
  *
@@ -185,10 +182,8 @@ let emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
 /**
  * Per instance: x the beam half-angle, y a change flag, z the beam's penumbra.
  *
- * Three components rather than two since the focus channel arrived. The shader
- * already declared this `vec3` while the buffer supplied two, so `z` was
- * reading the 0.0 WebGL fills a missing component with -- which is why it could
- * be widened here without touching the attribute declaration.
+ * The shader declares this `vec3`, and the buffer must supply all three: a
+ * missing component reads as the 0.0 WebGL fills it with.
  */
 let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
   new Float32Array(capacity * 3),
@@ -720,12 +715,10 @@ class MovingHead {
   /**
    * Focus, 0 fully out to 100 fully in.
    *
-   * Drives two separate things, and used to drive only the first: the
-   * SpotLight's penumbra, which softens the pool of light this fixture throws
-   * on to surfaces, and the penumbra of the visible shaft. They are different
-   * quantities in different renderers -- three's own lighting, and
-   * `beam.fragment.glsl` -- and nothing connected the second, so every beam in
-   * the room shared one hardcoded focus however the fader moved.
+   * Drives two separate things: the SpotLight's penumbra, which softens the
+   * pool of light this fixture throws on to surfaces, and the penumbra of the
+   * visible shaft. They are different quantities in different renderers --
+   * three's own lighting, and `beam.fragment.glsl` -- so both are written here.
    *
    * @type {Number}
    */
@@ -796,9 +789,8 @@ class MovingHead {
       return;
     }
     // Through the mix rather than straight onto the beam: a head with a wheel
-    // *and* CMY has both in the light path, and whichever wrote last used to
-    // win. Writing the beam here meant the wheel won for one channel and lost
-    // for the next three, every frame.
+    // *and* CMY has both in the light path, and writing the beam here would
+    // let whichever channel wrote last win.
     this.recomputeBeamColor();
   }
 
@@ -901,11 +893,11 @@ class MovingHead {
     // slot if one is in, the fixture's own white otherwise -- and the filters
     // below take from it.
     //
-    // Starting from black instead is why an Ayrton Diablo-S went dark the
-    // moment its Cyan channel was written: it has no additive emitter to sum,
-    // so the mix stayed [0,0,0] and the subtractive step multiplied zero by
-    // zero. It also discarded the colour wheel, which had been written earlier
-    // in the same frame by a lower channel number.
+    // Starting from black would take a head like the Ayrton Diablo-S dark the
+    // moment its Cyan channel is written: it has no additive emitter to sum,
+    // so the mix stays [0,0,0] and the subtractive step multiplies zero by
+    // zero. It would also discard the colour wheel, written earlier in the
+    // same frame by a lower channel number.
     if (!additive) {
       const [r, g, b] = this._wheelColor
         ? [this._wheelColor.r, this._wheelColor.g, this._wheelColor.b]
@@ -1016,19 +1008,18 @@ class MovingHead {
     // its own beam. Shadow camera fov tracks the cone angle automatically.
     //
     // Off unless asked for. Each shadow-casting light costs one fragment
-    // texture image unit and a GPU offers few of them -- 16 is common -- so a
-    // head that claimed one on sight meant two dozen movers exhausted the pool,
-    // the standard material's program failed to validate, and everything drawn
-    // with it stopped rendering. The floor going missing is what that looks
-    // like from the outside.
+    // texture image unit and a GPU offers few of them -- 16 is common -- so if
+    // every head claimed one, two dozen movers would exhaust the pool, the
+    // standard material's program would fail to validate, and everything drawn
+    // with it -- the floor included -- would stop rendering.
     this._spotLight.castShadow = !!this._castsShadow;
     // Kept as an object, hidden as a light. Every parameter a head writes --
     // colour, angle, penumbra, intensity -- still lands here, and the scene
     // graph still carries it around with the beam so its world transform is
     // maintained. What `visible = false` removes is three's *collection* of
     // it: `projectObject` returns early, so it never reaches the uniform
-    // array that could not hold two hundred of them. Its contribution now
-    // arrives through `LightField` instead.
+    // array that cannot hold two hundred of them. Its contribution arrives
+    // through `LightField` instead.
     //
     // A shadow caster is the exception, because three's shadow machinery is
     // driven from the light itself and there is no reason to reimplement it
@@ -1378,27 +1369,20 @@ class MovingHead {
       transparent: true,
       depthWrite: false,
       clipping: true,
-      // One side, not two. `beamProfile` works out the whole path a view ray
-      // takes through the cone from the ray and the axis alone, so it does not
-      // need a second fragment to accumulate anything -- and with DoubleSide it
-      // got one anyway, drawing the beam twice.
+      // DoubleSide. `beamProfile` works out the whole path a view ray takes
+      // through the cone from the ray and the axis alone, so one fragment
+      // would do -- but FrontSide meets no face at all for a ray entering
+      // through the open end, which is every ray when a beam is pointed at the
+      // camera: the beam goes hollow, leaving only the rims where the wall is
+      // still edge-on.
       //
-      // That would merely be a brightness scale if the count were constant, and
-      // it is not: the cone is an open tube, so a ray crossing both walls is
-      // drawn twice while one leaving through the open far end is drawn once.
-      // The count steps along the rim, and a 2:1 step in the middle of a smooth
-      // gradient is the dark edge -- an ellipse down one beam, a line where one
-      // cone's rim crosses another. Measured on the two-mover scene: 30 above
-      // the rim against 17 below it.
-      //
-      // FrontSide met no face at all for a ray entering through the open end,
-      // which is every ray when a beam is pointed at the camera: the beam went
-      // hollow, leaving only the rims where the wall was still edge-on.
-      //
-      // The cost is the artefact this line was written to avoid -- a ray
-      // crossing both walls is shaded twice while one leaving through the open
-      // end is shaded once, and that 2:1 step along the far rim reads as a dark
-      // edge. Paul asked for it anyway, having seen the alternative.
+      // The cost: the cone is an open tube, so a ray crossing both walls is
+      // shaded twice while one leaving through the open far end is shaded
+      // once. The count steps along the rim, and a 2:1 step in the middle of a
+      // smooth gradient reads as a dark edge -- an ellipse down one beam, a
+      // line where one cone's rim crosses another (30 above the rim against 17
+      // below it on the two-mover scene). Chosen over a back-face rework that
+      // covers properly and looks worse.
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       vertexShader: VOLUMETRIC_BEAM_VERTEX_SHADER,
@@ -1408,7 +1392,7 @@ class MovingHead {
       // Three's own banding remedy, and the beam is its textbook case: large
       // smooth gradients are where quantisation contours form and where the
       // eye's lateral inhibition (Mach banding) then draws lines that are not
-      // in the data. This was explicitly off.
+      // in the data.
       dithering: true,
       uniforms: {
         cameraDir: {
@@ -1435,10 +1419,9 @@ class MovingHead {
           type: 'f',
           value: 0.0,
         },
-        // Born at the room's current values, not at 1.0. These used to be
-        // invented here and corrected later by whoever remembered to push
-        // them, which is how a beam could be drawn through haze the room did
-        // not have. `syncEnvironment` keeps them level from here on.
+        // Born at the room's current values, not at 1.0, so a beam is never
+        // drawn through haze the room does not have. `syncEnvironment` keeps
+        // them level from here on.
         fogState: {
           type: 'b',
           value: SceneEnv.hazeEnabled,
@@ -1550,8 +1533,8 @@ class MovingHead {
    *
    * Read off the `SpotLight` rather than tracked separately, so there is one
    * account of a head's colour and cone rather than two that can disagree --
-   * the light object is still written by every setter, it simply is not
-   * collected by three any more.
+   * the light object is written by every setter, it simply is not collected
+   * by three.
    *
    * Direction is `position - target`, pointing back up the beam, because that
    * is the convention `getSpotLightInfo` uses and the field's shader does the
@@ -1610,7 +1593,7 @@ class MovingHead {
     if (needed > ABSOLUTE_MAX_INSTANCES) {
       // Refused rather than allowed to corrupt the draw. Every head shares
       // these buffers, so writing past the end loses all of them, not the
-      // extra one -- which is what used to happen, silently.
+      // extra one -- silently.
       // eslint-disable-next-line no-console
       console.error(`[movinghead] refusing to place head ${needed}: the limit is `
         + `${ABSOLUTE_MAX_INSTANCES}. Nothing has been added.`);
@@ -1680,9 +1663,8 @@ class MovingHead {
   /**
    * Objects a raycast should test.
    *
-   * The same question `LedBar` and `SceneObjects` answer, asked the same way.
-   * This used to be reachable only as `instancedMesh`, so the caller had to
-   * know heads are instanced and bars are not, and dispatch on it.
+   * The same question `LedBar` and `SceneObjects` answer, asked the same way,
+   * so the caller need not know heads are instanced and bars are not.
    *
    * @static
    * @returns {Array} pick proxies
@@ -1696,10 +1678,8 @@ class MovingHead {
    *
    * Where the instance loop belongs: reading matrices out of a shared
    * `InstancedMesh` is how *this* renderer stores positions, and no caller
-   * should have to know that. `selectFixturesInBand` used to run this loop
-   * itself, which is why adding a renderer meant remembering to edit selection
-   * code -- and why objects were silently missing from band selection until
-   * somebody noticed.
+   * should have to know that -- so adding a renderer needs no change to
+   * selection code.
    *
    * @static
    * @param {Function} visit called with (fixtureHandle, worldPosition)
@@ -1723,11 +1703,9 @@ class MovingHead {
 /**
  * Copies the room's haze onto the beam material.
  *
- * The beams pull rather than being pushed, which is what `LedField` and
- * `LedPanel` already do. Before this, four static setters on `MovingHead` were
- * written from `Visualizer`, and one of them -- `applyHaze` -- had to swallow
- * an exception because the beam mesh does not exist until the scene is built.
- * A value set before then was simply lost.
+ * The beams pull rather than being pushed, as `LedField` and `LedPanel` do:
+ * the beam mesh does not exist until the scene is built, and a value pushed
+ * before then would be lost.
  *
  * Silent before there is a mesh: the uniforms are born from `SceneEnv` when it
  * is built, so there is nothing to catch up on.

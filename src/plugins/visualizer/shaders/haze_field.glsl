@@ -2,11 +2,7 @@
 //
 // Haze is a property of the room, so a beam and an LED glow standing in the
 // same air must read the same field at the same scale -- otherwise turning the
-// haze up coarsens one and brightens the other, which is exactly what happened
-// before 2026-08-28: the beam sampled all three world axes through
-// `SceneEnv.hazeScale`, while the glows sampled a flat x/z slice with time in
-// the third axis through a private `turbulenceScale` of 4.8 m. Same word, two
-// different quantities, and the haze scale control reached only one of them.
+// haze up coarsens one and brightens the other.
 //
 // Concatenated ahead of any shader that needs it, along with the HAZE_*
 // defines, by `hazeShaderPrelude()` in haze_noise.js. It declares every uniform
@@ -36,12 +32,12 @@ float noiseAt(vec3 coord) {
 /**
  * The fractal sum, fetched rather than built.
  *
- * Octave for octave this is the shader that shipped on 2026-08-24: the same
- * 1/2/4/8 frequencies, the same 1/0.5/0.25/0.125 weights, and the same
- * 1.0/1.2/2.0/2.8 drift rates with the offset applied before the frequency
- * multiply, so finer detail travels faster the way it does in air. Only the
- * noise source changed, from four `snoise` evaluations to four filtered
- * fetches -- about 10 ms to about 1 ms across twelve full-screen beams.
+ * Octave for octave the same field as the procedural `HAZE_MODE` 0: 1/2/4/8
+ * frequencies, 1/0.5/0.25/0.125 weights, and 1.0/1.2/2.0/2.8 drift rates with
+ * the offset applied before the frequency multiply, so finer detail travels
+ * faster the way it does in air. Four filtered fetches instead of four
+ * `snoise` evaluations -- about 1 ms against 10 across twelve full-screen
+ * beams.
  *
  * Stacking one stored octave at four frequencies, rather than baking the sum,
  * is what lets every octave use the full resolution of the volume. Each octave
@@ -55,28 +51,27 @@ float fogging(vec3 coord, float drift) {
   // Each octave travels its own way, and reads the volume through its own axis
   // order.
   //
-  // All four used to drift along +X at 1.0/1.2/2.0/2.8, which is four copies of
-  // one pattern sliding in step: the field translated past you rather than
-  // turning over. Giving each a direction of its own makes them shear against
+  // All four drifting one way is four copies of one pattern sliding in step:
+  // the field translates past you rather than turning over. Giving each a
+  // direction of its own makes them shear against
   // one another, which is the motion air actually has, and swizzling the
   // coordinate puts each octave's lattice on a different set of axes so they
   // stop reinforcing at the same places.
   //
   // **Both are free.** A swizzle is register selection, not arithmetic, and a
-  // direction is the same multiply-add the old +X drift was. Neither changes an
+  // direction is the same multiply-add a fixed drift is. Neither changes an
   // octave's value distribution -- same volume, same trilinear fetch, read
   // somewhere else -- so `HAZE_FIELD_GAIN` still holds; checked, not assumed.
   //
-  // Directions are unit length, so the turbulence control means the same speed
-  // it did, and mostly horizontal with a little vertical: air in a room moves
+  // Directions are unit length, so the turbulence control means one speed,
+  // and mostly horizontal with a little vertical: air in a room moves
   // across it, and haze that rises visibly reads as smoke.
   // Each octave's *heading* turns, rather than a straight line with a wobble
   // added to it.
   //
   // A bounded offset on an unbounded drift is a wiggle on a conveyor: within a
-  // few seconds the travel dwarfs the wobble and the eye reads the conveyor,
-  // which is exactly what it looked like -- Paul: "turbulence has all movement
-  // in the same direction". Rotating the direction instead makes the
+  // few seconds the travel dwarfs the wobble and the eye reads the conveyor --
+  // all movement in the same direction. Rotating the direction instead makes the
   // displacement the integral of a velocity that changes, which is a curve.
   //
   // One sine and one cosine for the whole field. A heading a quarter turn away
@@ -105,16 +100,15 @@ float fogging(vec3 coord, float drift) {
   // the swirl is everywhere the field has structure, which is everywhere.
   //
   // **Three fetches, no trig, and that is the cheap direction on this engine**:
-  // four fetches were measured costing what one did, so bandwidth is where the
+  // four fetches cost what one does, so bandwidth is where the
   // headroom is and arithmetic is what the baked volume was bought to avoid.
   // The three reads are the same volume at one coarse scale, offset far enough
   // apart to be independent.
   //
   // The warp travels with the air, so it folds *and* moves rather than sitting
   // still while the haze slides through it.
-  // The warp travels along a heading of its own, and a turning one: it used to
-  // slide along +X like everything else, which is half of why the whole field
-  // looked like it was on rails.
+  // The warp travels along a heading of its own, and a turning one, so the
+  // field does not look like it is on rails.
   vec3 warpAt = coord * HAZE_WARP_SCALE + head1 * (drift * 0.35);
   vec3 warp = vec3(
     noiseAt(warpAt),
@@ -140,15 +134,14 @@ float fogging(vec3 coord, float drift) {
   // brightness sweeps along the field's own iso-contours. It rides on fetches
   // that already happened, so it costs a cos and three multiplies.
   //
-  // The constants are deliberately gentle. The first attempt ran 3 bands over a
-  // field spanning 0..1.9 at a 9:1 contrast swing -- about six cosine cycles
-  // through the value range, which is banding by construction and is what Paul
-  // saw on 2026-08-28. `sweep` averages 0.5, so the remap averages 1.0 and the
-  // haze keeps the brightness it had as cycling comes in.
+  // The constants are deliberately gentle: 3 bands over a field spanning
+  // 0..1.9 at a 9:1 contrast swing is about six cosine cycles through the
+  // value range, which is banding by construction. `sweep` averages 0.5, so
+  // the remap averages 1.0 and the haze keeps its brightness as cycling comes
+  // in.
   //
-  // Always compiled rather than sitting behind a mode, because a mode made the
-  // debug slider a liar: it was live, it was set to 37, and the uniform it
-  // wrote to was not in any material. A cos and three multiplies against four
+  // Always compiled rather than sitting behind a mode, so the debug slider
+  // always writes to a uniform some material has. A cos and three multiplies against four
   // texture fetches is not worth a switch.
   // Phase comes off `drift` rather than off `time`, so the chunk needs no
   // uniform the caller owns -- it is prepended, and every caller declares

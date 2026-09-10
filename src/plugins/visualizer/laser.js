@@ -29,9 +29,9 @@ const LASER_DEPTH = new DepthAtlas({
 /**
  * Debug-panel knobs, applied to every laser's material each frame.
  *
- * The numbers are where Paul settled them against the church with MadMapper
- * running, rather than round values chosen up front -- a laser that looks right
- * out of the box beats one that needs six sliders moved before it does.
+ * The numbers are set by eye against a real venue with MadMapper running,
+ * rather than round values -- a laser that looks right out of the box beats one
+ * that needs six sliders moved before it does.
  */
 let scatterGainValue = 0.55;
 let hazeBaseValue = 0.4;
@@ -63,15 +63,14 @@ const scratchClip = new THREE.Matrix4();
 /**
  * Whether beams are truncated at the first surface via the aperture depth pass.
  *
- * Two things had to be right before this could be turned on. The scene's
- * background was being clear-blitted into every atlas tile by `WebGLBackground`
- * on each `renderer.render`, so empty sky unpacked to a surface about 22 m out
- * and beams were cut against open air; and the floor packed as noise, because
- * `MeshDepthMaterial` derives depth from an interpolated varying and a ground
- * plane is two triangles running from behind the camera to far in front, which
- * makes that varying meaningless. Both are fixed in `projector_depth.js` -- the
- * background stands down for the pass, and the atlas packs linear view distance
- * taken from `gl_FragCoord.z`, which the rasteriser computes after clipping.
+ * It relies on two things in `projector_depth.js`. The scene's background
+ * stands down for the pass -- `WebGLBackground` would otherwise clear-blit it
+ * into every atlas tile, empty sky would unpack to a surface about 22 m out,
+ * and beams would be cut against open air. And the atlas packs linear view
+ * distance taken from `gl_FragCoord.z`, which the rasteriser computes after
+ * clipping -- `MeshDepthMaterial` derives depth from an interpolated varying,
+ * and a ground plane of two triangles running from behind the camera to far in
+ * front makes that varying meaningless, so the floor would pack as noise.
  */
 const OCCLUSION_ENABLED = true;
 
@@ -177,8 +176,8 @@ let beamTailValue = 0.7;
  * fewer triangle than this and updated in place every frame rather than
  * reallocated.
  */
-// Raised from 4096 for Ponk, where one circle arrives as 8,146 points. This is
-// the frame's whole budget now, not a cut: `flattenPaths` spreads it over the
+// Room for Ponk, where one circle arrives as 8,146 points. This is the frame's
+// whole budget, not a cut: `flattenPaths` spreads it over the
 // frame's total length, so a dense frame comes back a little coarser
 // everywhere rather than missing the shapes that did not fit.
 const MAX_POINTS = 8192;
@@ -220,7 +219,7 @@ const LIT_EPSILON = 0.004;
  * In normalised galvo units, so a fraction of the full scan field. A drawn
  * line arrives as points a hair apart; the jump from the end of one figure to
  * the start of the next is a leap across the field. Connecting across that leap
- * is what used to smear a bright sheet between two unrelated strokes.
+ * would smear a bright sheet between two unrelated strokes.
  */
 const JUMP_LIMIT = 0.05;
 
@@ -317,7 +316,7 @@ function makeBeamMaterial() {
       depthReady: { value: false },
       depthView: { value: new THREE.Matrix4() },
       depthFar: { value: 120 },
-      // Metres now that the compare is linear, not window-depth thousandths.
+      // Metres: the compare is linear, not window-depth thousandths.
       depthBias: { value: 0.05 },
       ...hazeUniforms(),
     },
@@ -413,7 +412,7 @@ function makeBeamMaterial() {
               float here = -(depthView * vec4(vWorld, 1.0)).z;
               // Past the first surface the light never arrived. An empty scene
               // reads far (1), so nothing is cut; a close floor reads its real
-              // depth now that the near plane is small enough to resolve it.
+              // depth, the near plane being small enough to resolve it.
               if (here > surface + depthBias) discard;
             }
           }
@@ -456,13 +455,13 @@ function makeBeamMaterial() {
           PHASE_BACK_WEIGHT);
         // Anchored at the head-on peak, not at side-on.
         //
-        // Both put the same shape on the beam, but normalising to side-on made
-        // every angle except exactly perpendicular *brighter* than before -- at
-        // forty-five degrees already five times -- so the whole scene lifted and
-        // no amount of turning the gain down fixed it. Dividing by the peak
-        // instead leaves a beam aimed at the eye exactly where the brightness
-        // was tuned and lets every other angle fall away below it. The control
-        // is then how far they fall, and it can only ever darken.
+        // Both put the same shape on the beam, but normalising to side-on
+        // makes every angle except exactly perpendicular *brighter* -- at
+        // forty-five degrees already five times -- so the whole scene lifts
+        // and turning the gain down cannot fix it. Dividing by the peak leaves
+        // a beam aimed at the eye exactly where the brightness was tuned and
+        // lets every other angle fall away below it. The control is then how
+        // far they fall, and it can only ever darken.
         float ratio = mix(1.0, PHASE_CEILING, clamp(scatterAmount, 0.0, 1.0));
         float phase = min(lobes / max(sideOn, 1e-6), ratio) / ratio;
 
@@ -1170,9 +1169,9 @@ class Laser {
    *
    * Answered here rather than worked out again in the widget, and from
    * `resolveSource` -- the same resolution the beam is drawn from. Matching a
-   * report row on protocol alone made every laser on a protocol claim the
-   * first live stream on it, so two lasers both said they were receiving while
-   * one of them drew nothing.
+   * report row on protocol alone would make every laser on a protocol claim
+   * the first live stream on it, so two lasers would both say they were
+   * receiving while one of them drew nothing.
    *
    * @static
    * @param {Object} fixture
@@ -1316,10 +1315,9 @@ class Laser {
 
     // A laser's own fixture is not hidden for the pass, and does not need to
     // be: only shadow casters are drawn into the atlas, and nothing on a laser
-    // -- body, aperture, aim, beam -- sets `castShadow`. Hiding them was
-    // guarding against a chassis cutting its own beam off at the muzzle, which
-    // could not happen. If a laser body is ever made to cast, this is where the
-    // fixture has to stand down again.
+    // -- body, aperture, aim, beam -- sets `castShadow`, so a chassis cannot
+    // cut its own beam off at the muzzle. If a laser body is ever made to
+    // cast, this is where the fixture has to stand down.
     LASER_DEPTH.render(renderer, scene, projections);
     const texture = LASER_DEPTH.texture();
     list.forEach((laser) => {

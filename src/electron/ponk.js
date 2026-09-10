@@ -11,7 +11,7 @@
  * order. "Publish to PONK" is a toggle beside an output's Destination, so the
  * real laser keeps its DAC stream and Beam gets a named copy.
  *
- * **What the stream is, measured 2026-09-09 rather than read.** It is
+ * **What the stream is, measured on the wire rather than read.** It is
  * MadMapper's render thread publishing each output's vectorised content at the
  * app's own 60 Hz: one path per surface per frame, points at a fixed density
  * in canvas pixels (about 1.3 px apart, so 0.0025 in the -1..1 field at 1024),
@@ -42,16 +42,14 @@
  *
  * **The format byte is per path.** `PonkDefs.h` draws it once at the front of
  * the packet data and the README lists it inside "for each path"; the stream
- * follows the README (a six-path frame walked cleanly to its last byte that
- * way, and not the other). Reading it once decoded a one-path frame perfectly
- * and rejected every frame with two or more -- the second path's format byte
- * read as its meta count -- which showed up as a dashed line that only
- * appeared when it was continuous, and a masked circle that vanished with the
- * mask on.
+ * follows the README (a six-path frame walks cleanly to its last byte that
+ * way, and not the other). Read once per frame, a one-path frame decodes
+ * perfectly and every frame with two or more is rejected -- the second path's
+ * format byte reads as its meta count.
  *
- * The CRC rule is stated loosely in the spec ("sum of all data") and was
- * pinned against the live stream: a byte sum modulo 2^32 matched twenty of
- * twenty frames, a 32-bit word sum and a 16-bit sum none. A frame whose sum
+ * The CRC rule is stated loosely in the spec ("sum of all data"); against the
+ * live stream a byte sum modulo 2^32 matches twenty frames of twenty, a
+ * 32-bit word sum and a 16-bit sum none. A frame whose sum
  * disagrees is dropped, which is what the field is for.
  *
  * Receive only, like the DACs. Multicast by default, which is what lets

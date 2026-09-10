@@ -46,15 +46,13 @@ import SceneEnv from './scene_env';
  * lux, street lighting ten to twenty, a mapping rig on a facade fifty to a
  * hundred and fifty. Taking the area from the frustum means a zoom or a shift
  * is accounted for without being asked about: narrow the lens and the same
- * lumens land on less wall and it gets brighter, exactly as they do. That was
- * missing before -- brightness was lumens over distance squared and the lens
- * did not enter into it, so zooming changed nothing.
+ * lumens land on less wall and it gets brighter, exactly as they do.
  *
  * Only the last step needs a decision: lux to a value the tone curve can eat.
  * This is it, and it is the only number here set by looking.
  *
- * Anchored on Paul's own rig, which is the reference to check against if this
- * ever drifts: a 10000-lumen machine, throw ratio 1.5, 1920x1200, twenty-seven
+ * Anchored on a reference rig, the one to check against if this ever drifts:
+ * a 10000-lumen machine, throw ratio 1.5, 1920x1200, twenty-seven
  * metres off a church. That is a 17 x 10.5 m image at **about 60 lux**, which
  * at this value reads as a projection that clearly owns the facade against a
  * dark venue -- which is what sixty lux on a wall at night looks like.
@@ -68,15 +66,14 @@ const LUX_SCALE = 0.022;
 /**
  * How far a surface may sit behind what the projector saw and still count.
  *
- * **In metres**, and that is the whole point. This used to be a constant in the
- * projector's own window depth, which is not a distance: window depth runs as
- * `1 - near/d`, so a fixed slice of it is worth centimetres up close and tens
- * of metres far away. At 0.0015 with a 0.1 near plane it bought about sixteen
- * metres of slack at thirty, which is how the far side of a church came out
- * lit -- the wall behind was well inside the tolerance meant for surface acne.
+ * **In metres**, and that is the whole point. The projector's own window depth
+ * is not a distance: it runs as `1 - near/d`, so a fixed slice of it is worth
+ * centimetres up close and tens of metres far away -- 0.0015 with a 0.1 near
+ * plane is about sixteen metres of slack at thirty, enough to light the far
+ * side of a building through the one in front.
  *
- * Compared in metres instead, against the linearised atlas, this means what it
- * says at any distance. Ten centimetres covers the atlas's own grain on a
+ * Compared in metres, against the linearised atlas, this means what it says at
+ * any distance. Ten centimetres covers the atlas's own grain on a
  * slanted facade without letting anything real through.
  *
  * @constant {Number}
@@ -102,10 +99,8 @@ const SHAFT_STEPS = 32;
  * Measured from the **camera**, not from the lens: it bounds the ray being
  * walked, so on a wide shot it is the eye's distance that runs out first.
  *
- * It was seventy while the steps were spread across the whole ray -- a long
- * reach then meant a coarse stride and a stippled beam. `frustumSpan` removed
- * that trade: the march is confined to the lit stretch whatever the reach, so
- * distance is now nearly free and the cap only exists to bound the loop. Three
+ * `frustumSpan` confines the march to the lit stretch whatever the reach, so
+ * distance is nearly free and the cap only exists to bound the loop. Three
  * hundred metres is past any room, stage or facade, and the extinction term has
  * long since eaten the beam by then anyway.
  *
@@ -119,9 +114,9 @@ const SHAFT_MAX = 300;
  * A deliberately blurred mip, and the number that decides whether the beam
  * reads as haze or as lasers.
  *
- * At 4.5 each view ray picked up an almost pure sample of the picture, so the
- * image's colour bands came through the air as hard radial streaks -- Paul:
- * *"bright streaks its not a laser"*. Air does not work that way. Light
+ * A fine mip gives each view ray an almost pure sample of the picture, so the
+ * image's colour bands come through the air as hard radial streaks, like
+ * lasers. Air does not work that way. Light
  * scattered off haze has bounced before it reaches the eye, and every bounce
  * mixes directions, so structure inside a beam washes out even though the same
  * picture lands crisp on the wall behind it. Reading a broad average in the air
@@ -137,12 +132,11 @@ const SHAFT_LOD = 8.0;
 /**
  * Nearest the lens the shaft's falloff is allowed to go, metres.
  *
- * The real cause of the stipple, and not the dither it looked like. Inverse
- * square off a *point* is unbounded: clamped at 5 cm, a sample landing near the
- * lens is four hundred times one a metre away, so with the steps jittered per
- * pixel the few that land close dominate their pixel's whole sum and neighbours
- * disagree wildly. That is the grain -- and it is why it was always worst at
- * the projector end, which should have said so from the start.
+ * What keeps the shaft from stippling. Inverse square off a *point* is
+ * unbounded: clamped at 5 cm, a sample landing near the lens is four hundred
+ * times one a metre away, so with the steps jittered per pixel the few that
+ * land close dominate their pixel's whole sum and neighbours disagree wildly --
+ * grain, worst at the projector end.
  *
  * Three metres, which is further out than the physics alone would justify and
  * deliberately so. A lens has area rather than being a point, so the falloff
@@ -165,7 +159,7 @@ const SHAFT_FIELD_SCALE = 3.5;
  * A projector's frustum is a hard-edged solid: the picture stops at the frame,
  * and on a wall it should. In haze it should not -- scattering carries light
  * sideways out of the cone, so the boundary is a gradient rather than a cut.
- * Left sharp it reads as a laser, which is the complaint this answers. At 0.22
+ * Left sharp it reads as a laser. At 0.22
  * nearly a quarter of the beam's half-width is gradient, which is far more than
  * physics alone would give -- a projector's frame really is fairly hard -- but
  * it is what makes a cone read as light in air rather than as a solid.
@@ -197,9 +191,9 @@ const SHAFT_BLUR_PER_METRE = 0.1;
 /**
  * How fast the beam is eaten by the air it is lighting, per metre per unit haze.
  *
- * Beer-Lambert, and the piece that was missing: the shaft only ever gained
- * in-scatter and never paid extinction, so it kept its strength far past where
- * a real beam has been absorbed into the room. Tied to haze density because it
+ * Beer-Lambert: the shaft pays extinction as well as gaining in-scatter, or it
+ * keeps its strength far past where a real beam has been absorbed into the
+ * room. Tied to haze density because it
  * is the same air doing both -- thicker haze scatters more light towards the
  * eye *and* swallows the beam sooner, which is why a heavily hazed room has
  * short fat beams rather than long ones.
@@ -213,12 +207,11 @@ const SHAFT_FADE_PER_METRE = 0.06;
 /**
  * Scattering, from lux in the air to something the tone curve can use.
  *
- * Paul's value, and lower than the physics alone would suggest -- deliberately.
- * A shaft is what the haze happens to pick up, not the subject: the picture on
- * the building is what a coverage preview is for, and a beam bright enough to
- * compete with it is in the way. It started at 0.5, which put the cone's 99th
- * percentile at 245 out of 255 -- a white core with the colour boiled out of
- * it -- and came down in two steps to here at Paul's call.
+ * Lower than the physics alone would suggest -- deliberately. A shaft is what
+ * the haze happens to pick up, not the subject: the picture on the building is
+ * what a coverage preview is for, and a beam bright enough to compete with it
+ * is in the way. At 0.5 the cone's 99th percentile sits at 245 out of 255 -- a
+ * white core with the colour boiled out of it.
  *
  * There is no separate control for this and there should not be: the haze
  * density scales it and the projector's own dimmer scales it, which is the
@@ -411,8 +404,8 @@ const FRAGMENT = /* glsl */`
     //
     // **Not skipped when nothing was drawn.** An empty pixel has no surface to
     // light, but it has air in it, and a beam crossing open sky is the normal
-    // case for a projector on a building. Returning early here is what glued
-    // the shaft to the floor: it only survived where some surface happened to
+    // case for a projector on a building. Returning early here would glue the
+    // shaft to the floor: it would only survive where some surface happened to
     // lie behind it. With depth at 1.0 this lands on the far plane, which is
     // exactly the ray the march wants.
     bool hasSurface = depth < 1.0;
@@ -468,13 +461,12 @@ const FRAGMENT = /* glsl */`
       // Straight on is full value, edge on is nothing, facing away is nothing at
       // all -- measured to the lens, which is what lights this surface.
       //
-      // This used to take the magnitude and then floor it at 0.15, on the
-      // grounds that the reconstructed normal's winding was unknown. Both were
-      // wrong: the magnitude lights a wall that faces away as brightly as one
-      // that faces the lens, and the floor guaranteed light on every surface in
-      // the frustum whatever its angle. The winding is not unknown either -- we
-      // are looking at this surface, so its outward normal is the one pointing
-      // back at the camera, and from there the sign means something.
+      // Signed, not the magnitude, and no floor: the magnitude would light a
+      // wall that faces away as brightly as one that faces the lens, and a
+      // floor would put light on every surface in the frustum whatever its
+      // angle. The winding is known -- we are looking at this surface, so its
+      // outward normal is the one pointing back at the camera, and from there
+      // the sign means something.
       vec3 toLens = normalize(lensPos[i] - world);
       float facing = max(dot(surfaceNormal, toLens), 0.0);
 

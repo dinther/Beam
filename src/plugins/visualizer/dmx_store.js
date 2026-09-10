@@ -35,12 +35,11 @@ const USABLE_CHANNELS = 510;
  * height, typically 16384, which is about as many universes as Art-Net
  * addressing offers anyway.
  *
- * 512 was not enough, and the way it failed is the reason this is documented
- * rather than merely raised. A 256 x 256 tile driven from MadMapper arrived as
- * 777 universes; the 265 past the end were dropped, which put roughly a third
- * of the tile in the dark with nothing on screen to say why. The number here
- * has to clear the whole stream, not the fixture: a rig's last universe is set
- * by where its fixtures are patched, not by how many channels they use.
+ * The number has to clear the whole stream, not the fixture: a 256 x 256 tile
+ * driven from MadMapper arrives as 777 universes, and any universe past the end
+ * is dropped, with nothing on screen to say why part of the tile is dark. A
+ * rig's last universe is set by where its fixtures are patched, not by how
+ * many channels they use.
  *
  * 2048 rather than the full 16384 because the texture is re-uploaded whole on
  * any frame that changed. At 2048 that is a megabyte a frame; at 16384 it
@@ -101,8 +100,8 @@ let unsubscribe = null;
  * One contiguous span rather than a list of runs, because a sender walks its
  * universes in order and a rig's fixtures are patched together, so the span is
  * what actually arrived, near enough. It can only over-estimate, and its worst
- * case -- one universe at each end of the texture -- is exactly the
- * whole-texture upload it replaces. There is no input on which it loses.
+ * case -- one universe at each end of the texture -- is a whole-texture
+ * upload. There is no input on which it loses.
  */
 let dirtyFirst = -1;
 let dirtyLast = -1;
@@ -110,10 +109,10 @@ let dirtyLast = -1;
 /**
  * Bumped by every write, and the signal LED panels refresh against.
  *
- * `texture.version` used to serve that, because setting `needsUpdate` bumps it.
- * A partial upload never touches `needsUpdate`, so the texture's own version
- * stops moving and anything gated on it would never see new DMX again. This is
- * that signal, detached from how the bytes get there.
+ * Not `texture.version`: setting `needsUpdate` bumps it, but a partial upload
+ * never touches `needsUpdate`, so the texture's own version stops moving and
+ * anything gated on it would never see new DMX again. This is that signal,
+ * detached from how the bytes get there.
  */
 let version = 0;
 
@@ -185,7 +184,7 @@ function upload(renderer) {
  *
  * Called on every frame rather than only on the ones that upload, so an idle
  * rig reads 0 MB/s rather than holding whatever it last managed. A stale
- * number here would have hidden exactly the waste this gate was added for.
+ * number here would hide exactly the waste this gate exists to avoid.
  *
  * @param {Number} rows universes uploaded this frame
  */
@@ -212,7 +211,7 @@ function meter(rows) {
  * `wanted` is how the caller says whether anything reads the texture. Art-Net
  * arrives whether or not the show has a use for it, and this store has no
  * notion of a show -- it is the wire, on the GPU. An empty scene with a
- * 256 x 256 tile streaming past was uploading 7.5 MB/s to nobody. The dirty
+ * 256 x 256 tile streaming past would upload 7.5 MB/s to nobody. The dirty
  * span is deliberately **kept** when an upload is skipped, so a panel created
  * later gets current data on its first frame rather than waiting for each of
  * its universes to arrive again.

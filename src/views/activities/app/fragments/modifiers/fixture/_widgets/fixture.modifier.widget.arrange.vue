@@ -119,9 +119,7 @@
       </uk-flex>
 
       <!-- AIM: shared by every shape, because it means the same thing in all
-           of them. It used to be a dropdown per shape with its own words --
-           "Along the line", "Outward" -- which could not say "tangential" or
-           "square to the line", and gave the grid no aim at all. -->
+           of them, and gives the grid an aim too. -->
       <uk-flex
         v-if="kind !== 'align'"
         col
@@ -206,8 +204,8 @@
       <span class="arrange_note">{{ summary }}</span>
       <!-- Together, and cancel first, as every popup in the app puts it: one
            throws the preview away and the other commits it, so they are two
-           answers to the same question and belong side by side. Apply used to
-           sit in the widget's header, a panel's length from what undoes it. -->
+           answers to the same question and belong side by side, not a panel's
+           length apart. -->
       <uk-flex :gap="6">
         <uk-button
           label="Cancel"
@@ -359,8 +357,7 @@ export default {
        *
        * Stated as what it refuses rather than what it does, and off by
        * default, so arranging a set aims it -- which is what arranging a set
-       * is usually for. The old wording made not-aiming the default and read
-       * as a feature to switch on rather than one to decline.
+       * is usually for.
        */
       aim: { keep: false, angle: 0, fromIndex: 0 },
       axisLabels: ['Leave', 'Align', 'Spread'],
@@ -528,8 +525,8 @@ export default {
      * re-parents their 3D dummies under the gizmo's own node *and* rewrites
      * their coordinates relative to the selection's bounding box, so a world
      * position written to a renderer while that is live lands at roughly the
-     * box's centre plus itself -- which is how a fixture flies off and looks
-     * deleted. Flushing puts every dummy back in the scene in world space.
+     * box's centre plus itself, and the fixture flies off and looks deleted.
+     * Flushing puts every dummy back in the scene in world space.
      *
      * Flushing also commits whatever the dummies are holding, and mid-preview
      * that is an arrangement nobody asked to keep, so the baseline goes back
@@ -752,14 +749,9 @@ export default {
      * @public
      */
     dismiss() {
-      // Closes the panel without dropping the selection.
-      //
-      // This called `deselectAll`, which hid the panel only as a side effect:
-      // the widget is gated on `showsManyItems`, so emptying the selection made
-      // it disappear. The panel closing was the intent; losing the selection
-      // was collateral -- and it threw away the very set that had just been
-      // arranged, so nudging it, arranging it again or moving it all began with
-      // selecting it a second time.
+      // Closes the panel without dropping the selection, so the set just
+      // arranged can be nudged, arranged again or moved without selecting it a
+      // second time.
       //
       // Re-announcing the selection is what closes it: the patch bay closes the
       // arrange panel on any new selection, so a stale arrangement cannot act

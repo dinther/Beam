@@ -26,13 +26,11 @@ const LED_FIXTURE_BAR_CAPACITY = 256;
  * Every LED fixture is built by `Fixture.prepare3DModelInstance`, which hands
  * its bar an addressing function, and a bar with one draws through the panel
  * renderer -- a single surface, whatever its pixel count. The billboard path
- * that this number sizes is left with no callers, so 20,000 of them bought
- * megabytes of instance matrices and attributes that were allocated at startup
- * and never written to.
+ * that this number sizes has no callers, and any capacity here is megabytes of
+ * instance matrices and attributes allocated at startup that nothing writes to.
  *
  * Zero builds none of it. Raise it to bring the path back for anything that
- * cannot be a surface -- a strip bent along a polyline is the case it was
- * written for.
+ * cannot be a surface -- a strip bent along a polyline is the case it serves.
  */
 const LED_FIXTURE_LED_CAPACITY = 0;
 
@@ -229,15 +227,15 @@ const USE_BLOOM = true;
 /**
  * The opening view: where the camera sits and what it looks at.
  *
- * Read off the running camera on 2026-08-29, from a viewpoint Paul set by hand
- * and judged right -- 16 degrees off the front axis and 24 above the horizon.
+ * A viewpoint set by hand: 16 degrees off the front axis and 24 above the
+ * horizon.
  *
  * Fixed rather than computed. Framing the scene sounds better and is not: an
  * axis-aligned box fits the extremes, so a single outlier moves the centre and
  * inflates the radius. One ceiling object at x = 17.2 in a rig that otherwise
- * ends at x = 4 pulled the centre to x = 6.4 and the camera to 31 m out, which
- * opened the show looking at the gap beside it. A view that is always the same
- * is worth more than one that is occasionally better framed and often wrong.
+ * ends at x = 4 pulls the centre to x = 6.4 and the camera to 31 m out, and the
+ * show opens looking at the gap beside it. A view that is always the same is
+ * worth more than one that is occasionally better framed and often wrong.
  *
  * @constant {Object}
  */
@@ -253,17 +251,15 @@ const BLOOM_BY_FOG = {
   // Haze off is not glow off: a bright emitter still glares in any lens or eye.
   // Density adds the extra spread the air contributes on top of that floor.
   //
-  // The FLOOR is the number that matters and it was set too high. At no haze at
-  // all the old values ran intensity 1.8 against pmndrs' own default of 1.0,
-  // with a luminance threshold of 0.30 -- so anything past a third brightness
-  // bloomed before any air was involved, and the whole image washed. Paul:
-  // "bloom might be a bit much". Now the floor is glare on genuinely bright
-  // things only, and haze opens it up exactly as it did.
+  // The FLOOR is the number that matters. At no haze it is glare on genuinely
+  // bright things only -- intensity near pmndrs' own default of 1.0 and a
+  // threshold high enough that ordinary brightness does not bloom; a low
+  // threshold washes the whole image before any air is involved. Haze opens
+  // it up from there.
   //
   // Deliberately NOT a preference. Bloom already answers to haze density, which
   // is a scene control the user sets; a second control over the same quantity
-  // is how the LED glows ended up with a private turbulence scale that the haze
-  // slider could not reach.
+  // would be one the haze slider cannot reach.
   intensity: { min: 0.70, max: 5.0 },
   radius: { min: 0.40, max: 1.0 },
   threshold: { min: 0.45, max: 0.05 },
@@ -297,11 +293,8 @@ const DEFAULT_PREFERENCES = {
   BRIGHTNESS_HOUSE_OFF: 30,
 };
 
-// The haze defaults used to live here too, and disagreed with the ones in
-// `preferences.js` -- turbulence was 100 in this table, 70 in that one, and 0
-// in `SceneEnv`'s constructor. Which of the three you got depended on the order
-// the scene happened to be built in. There is now one set, in `preferences.js`,
-// and `SceneEnv` reads it.
+// The haze defaults live in `preferences.js` only, and `SceneEnv` reads them.
+// One set, so the order the scene is built in cannot decide which applies.
 
 /**
  * @class
@@ -355,11 +348,8 @@ class Visualizer {
     // rather than flickering through defaults.
     await Preferences.load();
     // Straight onto the room, before a renderer or a debug panel can read it.
-    // The panel used to be built in `main()` and take its numbers from a
-    // `SceneEnv` nothing had filled in yet, so it displayed zeros for the rest
-    // of the session while the scene ran on the stored values -- the panel and
-    // the room disagreeing is what "I don't know what value comes from where"
-    // looked like from the outside.
+    // A panel that reads `SceneEnv` before this shows zeros for the rest of
+    // the session while the scene runs on the stored values.
     SceneEnv.adopt(Preferences.all());
     // After the preferences are in, so the name is known, and unawaited so a
     // sender that has gone off the network cannot hold up the whole visualizer.
@@ -607,8 +597,6 @@ class Visualizer {
    *
    * Size, not amount -- a small value gives fine wisps and a large one slow
    * billows, while `globalFoggingDensity` decides how much of it there is.
-   * The two were the same control until 2026-08-24, which is why turning the
-   * haze up used to change its grain rather than its strength.
    *
    * @type {Number} metres
    */
@@ -1100,12 +1088,10 @@ class Visualizer {
     // screen. See the note in `grid.js`.
     const gridHelper = new InfiniteGridHelper(spacing);
     gridHelper.rotateX(Math.PI / 2.0);
-    // Just above the floor rather than below it. It sat at -0.3, which was
-    // under the old floor slab and therefore hidden wherever that slab was --
-    // the grid only ever showed in the gap beyond its 50 metres. Now that the
-    // floor is an ordinary plane at z = 0, a hair above it puts the grid back
-    // on top where it can do its job, and it is still occluded by anything
-    // genuinely standing on the stage because the depth test is untouched.
+    // Just above the floor rather than below it. The floor is an ordinary
+    // plane at z = 0, so a hair above it keeps the grid on top where it can do
+    // its job, and anything genuinely standing on the stage still occludes it
+    // because the depth test is untouched.
     gridHelper.position.setZ(0.01);
     // Drawn after the floor, so it overlays rather than fighting it for the
     // same depth. The material declines to write depth of its own.
@@ -1129,14 +1115,12 @@ class Visualizer {
       new THREE.Color('#4da6ff')  // Z
     );
 
-    // The floor is an object in the show now, not a fixture of the renderer --
-    // see `DEFAULT_FLOOR`. What stood here was a `BoxGeometry(50, 50, 0.5)`
-    // with a checkerboard on its top face: a cube pretending to be a surface,
-    // which nobody could move, resize, replace or delete and which the item
-    // list never knew existed.
+    // The floor is an object in the show, not a fixture of the renderer --
+    // see `DEFAULT_FLOOR` -- so it can be moved, resized, replaced or deleted,
+    // and the item list shows it.
     //
-    // The global light needs something to aim at, and it is no longer the
-    // floor: aiming at an object the user is allowed to delete would put the
+    // The global light needs something to aim at, and not the floor: aiming
+    // at an object the user is allowed to delete would put the
     // key light wherever that object last stood. An empty node at the origin
     // is what a directional light actually wants -- only its direction is
     // read, and the origin is the one point a show cannot move.
@@ -1188,7 +1172,7 @@ class Visualizer {
       maxLeds: LED_FIXTURE_LED_CAPACITY,
     });
 
-    // Nothing is built into the field up front any more, so the watermark that
+    // Nothing is built into the field up front, so the watermark that
     // protects scene furniture from a fixture rebuild sits at zero.
     LEDField.mark();
 
@@ -1340,14 +1324,14 @@ class Visualizer {
     // does its blur in `update()` -- before that shader runs -- over the pass's
     // *input*, which is the scene as the RenderPass left it. So anything added
     // inside the merged shader is invisible to bloom: the beam in the air
-    // glowed, being real geometry, while the figure painted on the stone could
-    // not, however far its gain was pushed. A laser line without bloom reads as
-    // matte paint rather than light. Landing it in an earlier pass puts it into
-    // the buffer bloom then samples.
+    // glows, being real geometry, while a figure painted in the merged shader
+    // cannot, however far its gain is pushed. A laser line without bloom reads
+    // as matte paint rather than light. Landing it in an earlier pass puts it
+    // into the buffer bloom then samples.
     //
-    // The projector deliberately stays behind bloom, where it has always been:
-    // its brightness is calibrated in lux against a real rig, and giving it a
-    // glow it never had would quietly change every mapping show.
+    // The projector deliberately stays behind bloom: its brightness is
+    // calibrated in lux against a real rig, and a glow would change how every
+    // mapping show looks.
     finalComposer.addPass(new EffectPass(this.camera, laserEffect));
     const effects = bloomEffect
       ? [projectorEffect, ambientHazeEffect, bloomEffect, toneMapping]
@@ -1574,15 +1558,14 @@ class Visualizer {
   /**
    * Lifts the camera and its target together, straight up the world.
    *
-   * The vertical half of what `screenSpacePanning` used to give for free: a
-   * plain middle-drag now walks the floor, which is right for crossing a room
-   * and useless for rising above it. This is the other half, put back on its
-   * own gesture rather than traded against the first.
+   * A plain middle-drag walks the floor, which is right for crossing a room
+   * and useless for rising above it. This is the vertical move, on its own
+   * gesture rather than traded against the first.
    *
    * The rate is the one `OrbitControls` pans at -- the world distance a pixel
    * covers at the target's depth -- so a lift and a walk move ground under the
-   * pointer at the same speed. Dragging down raises the camera, which is the
-   * same grab-the-world direction the pan has always had.
+   * pointer at the same speed. Dragging down raises the camera, the same
+   * grab-the-world direction as the pan.
    *
    * @public
    * @param {Number} pixels vertical drag since the last move
@@ -1605,16 +1588,14 @@ class Visualizer {
    */
   prepareControls() {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    // `screenSpacePannning` -- three n's -- was setting a property that does not
-    // exist, so the real one kept its default of true and a vertical pan slid
-    // the camera up the screen rather than across the floor. False is what was
-    // meant: pan along the ground, which is how you cross a room.
+    // Pan along the ground, which is how you cross a room. Three's default,
+    // true, slides the camera up the screen on a vertical drag instead.
     this.controls.screenSpacePanning = false;
     // Zoom towards whatever is under the pointer instead of towards the orbit
     // target. This is the single thing that makes the camera feel aimed rather
     // than fought: with a fixed pivot you slide *past* the fixture you are
     // closing on, because the point you are converging towards is somewhere
-    // behind it. Off by default in three, and it is why moving about grated.
+    // behind it. Off by default in three.
     this.controls.zoomToCursor = true;
     // Weight. Without damping every drag stops dead on mouse-up, which reads as
     // twitchy on a large scene; the update loop that makes it work is already
@@ -1622,14 +1603,13 @@ class Visualizer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 0.2;
-    // A hundred metres is inside a big room, let alone a building being mapped
-    // -- the camera hit the stop while the venue was still growing.
+    // Far enough out for a building being mapped: a hundred metres is inside
+    // a big room.
     this.controls.maxDistance = 400;
     this.controls.target.set(0, 0, 4.1);
-    // Was PI / 2.1, which pinned the orbit just above horizontal. Fixtures
-    // aimed downward can only be seen from underneath, so the camera has to be
-    // able to get below them; stopping just short of the pole avoids the
-    // gimbal flip at straight-up.
+    // Fixtures aimed downward can only be seen from underneath, so the camera
+    // has to be able to get below them; stopping just short of the pole avoids
+    // the gimbal flip at straight-up.
     this.controls.maxPolarAngle = Math.PI * 0.98;
     // Left is reserved for picking and rubber-band selection, so the camera
     // moves on the other two: middle pans, right orbits.
@@ -1667,10 +1647,10 @@ class Visualizer {
       this.height = height;
       // Buffer only, never the canvas's own style. setSize writes inline
       // width and height by default, and a ResizeObserver is watching this
-      // very element -- so each resize restyled what it was measuring, while
-      // the stylesheet's `!important` sizing overrode it again. The buffer and
-      // the displayed size disagreed for a frame every frame of a drag, which
-      // is the flicker. CSS sizes the canvas; this only sizes what is drawn.
+      // very element -- so each resize would restyle what it measures, while
+      // the stylesheet's `!important` sizing overrides it again. The buffer
+      // and the displayed size would disagree for a frame on every frame of a
+      // drag: flicker. CSS sizes the canvas; this only sizes what is drawn.
       this.renderer.setSize(width, height, false);
       // Sized to the drawing buffer, so the depth texture it carries lines up
       // with `gl_FragCoord` in the beam shader without a scale factor.
@@ -1901,10 +1881,10 @@ class Visualizer {
       //
       // Skipped entirely when nothing reads it. Art-Net arrives whether or not
       // the show has anything patched -- an empty scene with a 256 x 256 tile
-      // on the wire was uploading 7.5 MB/s into a texture with no readers,
+      // on the wire would upload 7.5 MB/s into a texture with no readers,
       // because the store accepts every universe on the wire and has no notion
-      // of a show. `refresh` already returns early on the same condition; this
-      // is the upload that fed it.
+      // of a show. `refresh` returns early on the same condition; this is the
+      // upload that feeds it.
       DMXStore.flush(this.renderer, LEDPanel.hasReaders());
       LEDPanel.refresh(this.renderer);
       // Objects are instanced, so the gizmo cannot drag one directly -- it
@@ -1915,17 +1895,15 @@ class Visualizer {
       }
       // Handed over per frame, not once at build time: the composer creates
       // its stable depth texture lazily, so at build time there is nothing to
-      // bind and the beams were left sampling an empty texture. An unbound
-      // depth reads 0, which `surfaceFade` would take for a surface at the
-      // near plane -- and that removed every beam in the scene.
+      // bind. An unbound depth reads 0, which `surfaceFade` takes for a surface
+      // at the near plane -- removing every beam in the scene.
       //
       // It is last frame's depth. A shader cannot sample the depth buffer it
       // is writing into, and the beams are drawn in the same pass as the
       // geometry they fade against, so the blit is always one frame behind.
-      // Invisible on a fade spanning more than a metre, and free: a depth
-      // prepass was built first and measured 10 ms on the 100-mover ring --
-      // the extra target switch, not fill rate, since halving its resolution
-      // changed nothing.
+      // Invisible on a fade spanning more than a metre, and free, where a
+      // depth prepass costs 10 ms on the 100-mover ring -- the extra target
+      // switch, not fill rate, since halving its resolution changes nothing.
       //
       // Only opaque geometry is in it: beams write no depth, so they never
       // fade against each other, which is right. A beam is air, not a wall.

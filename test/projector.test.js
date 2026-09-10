@@ -235,7 +235,7 @@ console.log('\n-- the frustum a coverage preview is drawn from --');
 console.log('\n-- what the lumen rating actually buys --');
 {
   const p = { ...DEFAULT_PROJECTOR_PARAMS, lumens: 10000, pixelsWide: 1920, pixelsHigh: 1200 };
-  // Paul's own rig, and the anchor the renderer is calibrated against.
+  // The reference rig the renderer is calibrated against.
   const at27 = illuminanceAt(27, 1.5, p);
   check('a 10k machine 27 m off a facade', Math.round(at27), 49);
 
@@ -243,7 +243,7 @@ console.log('\n-- what the lumen rating actually buys --');
   const at54 = illuminanceAt(54, 1.5, p);
   check('twice the distance is a quarter the light', (at27 / at54).toFixed(3), '4.000');
 
-  // The part that was missing before: the lens decides the area, so zoom is
+  // The lens decides the area, so zoom is
   // brightness. A longer throw ratio is a narrower lens.
   const narrow = illuminanceAt(27, 3.0, p);
   check('doubling the throw ratio quadruples the light', (narrow / at27).toFixed(3), '4.000');

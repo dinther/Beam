@@ -11,8 +11,8 @@
  * dimmer still because the point rate is all there is. Ponk carries none of
  * that -- it is MadMapper's geometry *before* the ILDA rasteriser, at a fixed
  * density in canvas pixels, whatever the point rate or frame rate is set to
- * (measured 2026-09-09: 20 kpps and 30 kpps, 30 fps and 60 fps, all the same
- * stream). So the renderer has to do the rasteriser's sums itself, and this
+ * (20 kpps and 30 kpps, 30 fps and 60 fps, all give the same stream). So the
+ * renderer has to do the rasteriser's sums itself, and this
  * is that: given the fixture's point rate, how many points each path would
  * have been given, and therefore how bright it is.
  *
@@ -172,10 +172,9 @@ export function flattenPaths(paths, {
   // cut when it does not.
   //
   // **Truncating loses the tail, which is whole materials.** Paths arrive
-  // layer by layer, so a frame cut at a capacity drops the last shapes
-  // entirely while the first ones keep every point -- Paul, layering laser
-  // materials: *"I noticed when I layer laser materials that I lost bits of
-  // it."* Spreading the same capacity over the frame's total length instead
+  // layer by layer, so a frame cut at a capacity drops the last shapes --
+  // whole layered materials -- while the first ones keep every point.
+  // Spreading the same capacity over the frame's total length instead
   // costs a little resolution everywhere and never loses a shape. Greedy
   // thinning keeps at most `length/step` points a path plus its two ends, so
   // this step cannot overrun the buffer.

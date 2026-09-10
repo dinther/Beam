@@ -135,16 +135,16 @@ export default {
   width: 100%;
   stroke: var(--secondary-lighter);
   /* Hidden rather than removed, so ticking cannot shift the layout. An
-     unticked box must not show a tick at all: only its colour used to change,
-     which read as a checked-but-disabled control. */
+     unticked box must not show a tick at all: a tick that only changes colour
+     reads as a checked-but-disabled control. */
   visibility: hidden;
 }
 .uikit_checkbox_label {
   font-size: 12px;
   padding-left: 8px;
-  /* Same tone as every other field label. It used to sit at --secondary-light
-     (20% white) until checked, which is the disabled tone, so an unchecked
-     option looked unavailable rather than simply off. */
+  /* Same tone as every other field label. --secondary-light (20% white) is
+     the disabled tone, and would make an unchecked option look unavailable
+     rather than simply off. */
   color: var(--secondary-lighter);
 }
 

@@ -224,7 +224,7 @@ export default {
    * Locks or unlocks a camera.
    *
    * A locked camera stops following the view. You can still orbit while it is
-   * live -- the viewport moves as it always did -- but the camera keeps the
+   * live -- the viewport moves as usual -- but the camera keeps the
    * framing it was locked at, so cutting away and back returns to it. That is
    * the whole point: without it, looking around while a camera is live silently
    * rewrites the shot you set up.
@@ -415,9 +415,8 @@ export default {
    *
    * Ids are left out. They identify a camera for as long as the app is running
    * and nothing else in the file refers to one, so writing them down would
-   * only invite a stale id from one show to answer for another -- which is
-   * exactly how an object's geometry cache started handing shows each other's
-   * shapes.
+   * only invite a stale id from one show to answer for another, the way a
+   * cache keyed on ids hands one show's shapes to the next.
    *
    * @public
    * @returns {Array<Object>}
@@ -429,8 +428,8 @@ export default {
     // that was never anywhere else -- unlike a placed camera, the editor view
     // has no other home.
     //
-    // A file written before this carries no flagged record, and `loadCameras`
-    // then leaves the current view alone exactly as it always did.
+    // A file with no flagged record makes `loadCameras` leave the current view
+    // alone.
     return state.cameras.map((camera) => ({
       name: camera.name,
       fov: camera.fov,

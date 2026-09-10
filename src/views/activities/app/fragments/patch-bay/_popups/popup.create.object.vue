@@ -39,12 +39,10 @@ import ObjectParamsForm, {
 /**
  * @file Adds a created object to the scene.
  *
- * **This writes nothing to the library.** Until 2026-08-28 it did, and every
- * experiment became a permanent artefact -- a library filling with near
- * identical shapes, and no way to widen one or recolour it without making
- * another. A created object now goes straight into the show carrying its own
- * parameters, stays editable through the object widget, and reaches the library
- * only when the user asks for it with Save to library.
+ * **This writes nothing to the library.** A created object goes straight into
+ * the show carrying its own parameters, stays editable through the object
+ * widget, and reaches the library only when the user asks for it with Save to
+ * library -- so experiments do not fill the library with near duplicates.
  *
  * So this dialog is a thin wrapper. The fields are `ObjectParamsForm`, shared
  * with the widget that edits them afterwards -- the two are the same fields by
@@ -72,8 +70,7 @@ export default {
       params: defaultParams(),
       /**
        * How many to place. Every other way of adding to the show asks this --
-       * a shape built here is no different, and building one truss leg at a
-       * time to make four was the only way to do it.
+       * a shape built here is no different.
        */
       amount: 1,
     };
@@ -102,13 +99,11 @@ export default {
      * `PopupMixin.state` is a *copy* of `modelValue`, and nothing sends a
      * change back up unless `update()` is called. Every close path -- submit,
      * cancel, the header X, Escape -- sets `state` locally, so without this the
-     * parent's flag stayed true after the dialog had gone. The next time the
-     * parent was rebuilt, this component was constructed with
-     * `state: this.modelValue` -- still true -- and opened on its own before
-     * the user had touched anything.
+     * parent's flag stays true after the dialog has gone, and the next rebuild
+     * of the parent opens it again on its own.
      *
      * Watched rather than emitted from `create()` so that cancelling and
-     * closing are covered too, not only the one path that happened to be hit.
+     * closing are covered too.
      */
     state(open) {
       this.update();

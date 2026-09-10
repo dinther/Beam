@@ -334,7 +334,7 @@ export default {
         this.elapsed = take.elapsed;
         this.bytes = take.bytes;
         this.message = { text: readableSize(take.bytes), error: false };
-        // An encoder that fails mid-take used to leave the button lit forever.
+        // An encoder that fails mid-take must not leave the button lit forever.
         if (take.error) this.stop();
       }, 500);
     },

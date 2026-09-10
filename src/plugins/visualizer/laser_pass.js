@@ -49,7 +49,7 @@ const DEPTH_BIAS = 0.08;
  * the inverse square, the cosine, the colour -- is computed. A laser's figure
  * is not an illuminance a designer quotes in lux the way a projector's picture
  * is, so there is no external anchor to calibrate against; this is tuned
- * against Paul's 7.5 W LaserCube on a facade and belongs on the debug panel.
+ * against a 7.5 W LaserCube on a facade and belongs on the debug panel.
  */
 const SURFACE_GAIN = 12.0;
 

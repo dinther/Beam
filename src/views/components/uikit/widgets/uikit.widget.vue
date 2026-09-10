@@ -157,14 +157,12 @@ export default {
   display: flex;
   flex-direction: row;
   /* Top, not centred. A widget's content reads from the top like anything
-     else, and centring it floated short content in the middle of a tall panel
-     with a gap above it -- Paul has asked for this three times, each time
-     fixed in whichever widget he was looking at while the shared default here
-     went on centring the rest.
+     else, and centring it floats short content in the middle of a tall panel
+     with a gap above it. Set here, in the shared default, so every widget
+     follows.
 
-     It also removes the reason `safe` was needed: centring put overflow half
-     above the container, where no scrollbar can reach, so tall content lost its
-     top for good. Aligned to the start there is nothing above to lose. */
+     Centring would also put overflow half above the container, where no
+     scrollbar can reach. Aligned to the start there is nothing above to lose. */
   align-items: flex-start;
   height: 100%;
   width: 100%;

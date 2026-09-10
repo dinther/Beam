@@ -67,10 +67,10 @@ const FINE_PIXELS_PER_STEP = 500;
 /**
  * What Shift multiplies a step by.
  *
- * Alt was already the fine control and there was nothing on the other side of
- * it: every route into the value moved a step at a time, so 2 to 23 was
- * twenty-one notches of the wheel or a thousand pixels of drag. Ten is the
- * factor Alt gives away, so the three speeds read as one scale -- and it is
+ * Alt is the fine control and this is the other side of it: without it every
+ * route into the value moves a step at a time, so 2 to 23 is twenty-one
+ * notches of the wheel or a thousand pixels of drag. Ten is the factor Alt
+ * gives away, so the three speeds read as one scale -- and it is
  * the three.js editor's own: its number field divides the drag distance by 5
  * with Shift held where it divides by 50 without, which is this same ten.
  *
@@ -163,12 +163,12 @@ export default {
      * way they do. Precision decides what is *shown*; it has nothing to say
      * about how fast the value travels.
      *
-     * Tying the two together is what made this control unusable on anything
-     * with decimals. A spacing field showing two of them stepped by 0.01, so
-     * three to twenty-three was two thousand notches of the wheel or a hundred
-     * thousand pixels of drag. The same field now steps by 1: twenty notches,
-     * or the thousand pixels the three.js editor asks for -- and Alt still
-     * reaches the hundredths for placing something exactly.
+     * Tying the two together makes this control unusable on anything with
+     * decimals: a spacing field showing two of them would step by 0.01, so
+     * three to twenty-three would be two thousand notches of the wheel. By 1
+     * it is twenty notches, or the thousand pixels the three.js editor asks
+     * for -- and Alt still reaches the hundredths for placing something
+     * exactly.
      *
      * A field whose whole range is smaller than a unit is the case for
      * stating a step of its own.
@@ -371,9 +371,8 @@ export default {
       // A warp is not a gesture. Locking or unlocking the pointer -- or the
       // window changing size under it -- lands as one enormous delta, and a
       // hand at sixty frames a second does not move a thousand pixels between
-      // two of them. Measured at 1159 when Alt summoned the Windows menu bar
-      // mid-drag; that is now removed, but a resize can come from anywhere and
-      // one bogus event should not throw a fixture across the room.
+      // two of them, and one bogus event should not throw a fixture across the
+      // room.
       if (Math.abs(event.movementX) > MAX_PLAUSIBLE_MOVE
         || Math.abs(event.movementY) > MAX_PLAUSIBLE_MOVE) return;
       const moved = event.movementX - event.movementY;
@@ -403,10 +402,10 @@ export default {
       // three.js editor's own number field does with Shift held -- and it is
       // what makes a wide range reachable without dragging across the desk.
       //
-      // Added move by move rather than recomputed from where the drag began.
-      // The old sum multiplied the *whole* distance by the current speed, so
+      // Added move by move rather than recomputed from where the drag began:
+      // multiplying the *whole* distance by the current speed would make
       // reaching for Alt halfway through re-read every pixel already travelled
-      // and the value jumped. Accumulated, each pixel is spent at the speed it
+      // and jump the value. Accumulated, each pixel is spent at the speed it
       // was travelled at, and a modifier can be picked up and put down without
       // rewriting the part of the drag that came before it.
       const perStep = event.altKey ? FINE_PIXELS_PER_STEP : PIXELS_PER_STEP;
@@ -461,22 +460,19 @@ export default {
      * @param {Boolean} doEmit whether or not to emit changes back to parent element.
      */
     updateValue(doEmit = true) {
-      // Parsed as a number and kept as one. This used to run through
-      // `.toFixed()` first, which returns a *string* -- so `Number.isNaN(val)`
-      // was asking whether the string "NaN" was the number NaN, which it never
-      // is. An empty or unparseable field therefore sailed past the guard and
-      // emitted a real NaN, which reached fixture positions and, through
-      // JSON.stringify, was written to the show file as null. A fixture with a
-      // null position has a NaN world matrix and simply stops being drawn.
+      // Parsed as a number and kept as one -- `.toFixed()` returns a *string*,
+      // and `Number.isNaN` of a string is never true, so an unparseable field
+      // would sail past the guard and emit a real NaN. That reaches fixture
+      // positions and, through JSON.stringify, the show file as null; a fixture
+      // with a null position has a NaN world matrix and stops being drawn.
       const parsed = parseFloat(this.content);
       const min = parseFloat(this.min);
       const max = parseFloat(this.max);
       // Nothing usable typed: fall back to zero, or to whichever end of the
       // range is nearest it when zero is out of bounds.
       const fallback = Math.min(Math.max(0, min), max);
-      // Clamped both ways. Under-range used to land on zero rather than on the
-      // minimum whenever the minimum was negative, so -2000 in a field ranging
-      // to -1000 became 0 instead of -1000.
+      // Clamped both ways, to the minimum even when it is negative: -2000 in a
+      // field ranging to -1000 becomes -1000, not 0.
       const value = Number.isNaN(parsed) ? fallback : Math.min(Math.max(parsed, min), max);
 
       this.content = value.toFixed(this.precision);
@@ -565,8 +561,8 @@ export default {
   border-color: var(--secondary-dark);
 }
 /* An axis field is marked by a rule under it and by nothing else. Colouring
-   the value and the label as well was tried and is too much: every number in
-   the app reads as a value first, and making some of them red or green says
+   the value and the label as well is too much: every number in the app reads
+   as a value first, and making some of them red or green says
    they are a different *kind* of thing rather than the same thing on another
    axis. The rule carries the identity without competing with what the field
    is for, and it is also the only one that survives focus -- the value goes

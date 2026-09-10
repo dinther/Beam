@@ -67,10 +67,9 @@ let modalDepth = 0;
 /**
  * Where a modal layer starts, above `.popup`'s own 200.
  *
- * A backdrop used to be z-index 100 against every popup's 200, so it covered
- * the app but never another popup: the dialog underneath stayed clickable and
- * "modal" meant nothing between popups. A modal now takes a pair of levels
- * above all of them -- backdrop first, its own window one above that.
+ * A backdrop below the popups' 200 would cover the app but never another
+ * popup, leaving the dialog underneath clickable. A modal takes a pair of
+ * levels above all of them -- backdrop first, its own window one above that.
  */
 const MODAL_BASE_Z = 300;
 
@@ -197,12 +196,9 @@ export default {
     /**
      * Takes the backdrop off the page, if this popup still has one up.
      *
-     * The reference is dropped as well as the node. It was not before, so a
-     * popup that had been opened and closed still held a detached element, and
-     * unmounting it called `removeChild` on a node that was no longer a child
-     * -- `NotFoundError: The node to be removed is not a child of this node`.
-     * Only a modal popup that unmounts during a session reaches that, which is
-     * why it surfaced the day the first nested one was made modal.
+     * The reference is dropped as well as the node, or a popup opened and
+     * closed would hold a detached element, and unmounting it would call
+     * `removeChild` on a node that is no longer a child -- `NotFoundError`.
      *
      * `remove()` rather than `removeChild` so a node already gone is not an
      * error in the first place.

@@ -9,11 +9,9 @@ const dgram = require('dgram');
  * @file Who is sending DMX at this machine, on both wires.
  *
  * `artnet-log.js` answers "what are the bytes"; this answers "who is putting
- * them there", which is the other question that costs an evening. Two sources
- * writing one universe is the failure that made MadMapper's 65,535-channel
- * ceiling look like LEDfx losing alignment: each one's limit reads as the
- * other's fault, and until sACN there was nothing on the wire that said which
- * application a packet came from.
+ * them there", which is the other question that costs an evening. With two
+ * sources writing one universe, each one's limit reads as the other's fault,
+ * and only sACN says on the wire which application a packet came from.
  *
  * sACN packets name their source and carry a priority, so those are printed as
  * they arrive. Art-Net carries no identity at all, so a sender there can only
