@@ -92,6 +92,13 @@ export const DEFAULT_BAR_PARAMS = {
   /** Component order down the wire. 'GRB' is what most cheap strips use. */
   order: 'GRB',
   /**
+   * The profile's colour, `#rrggbb`. Part of the definition, like its size:
+   * the same bar comes in black and in bare aluminium, and they are two
+   * products. A definition written before this existed says nothing, and the
+   * renderer gives it this.
+   */
+  bodyColor: '#2a2d31',
+  /**
    * Whether a pixel may be split across a universe boundary.
    *
    * A property of the model rather than of any one patch of it: the same strip

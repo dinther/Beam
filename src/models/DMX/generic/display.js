@@ -90,6 +90,8 @@ export const DEFAULT_DISPLAY_PARAMS = {
   /** The dead border around the picture, and how deep the box is. */
   bezel: 0.02,
   depth: 0.06,
+  /** The bezel and casing's colour, `#rrggbb`, part of the definition. */
+  bodyColor: '#35383c',
   /**
    * Peak brightness in nits.
    *

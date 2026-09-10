@@ -9,7 +9,10 @@ import { DepthAtlas } from './projector_depth';
 import { flattenPaths } from './laser_dwell';
 import FIGURE_ATLAS, { LaserFigure, setLineWidth, lineWidth } from './laser_figure';
 import LaserStream, { POINT_STRIDE } from '../laser_stream';
-import { apertureOrigin, scanHalfAngles } from '../../models/DMX/generic/laser';
+import {
+  DEFAULT_LASER_PARAMS, apertureOrigin, scanHalfAngles,
+} from '../../models/DMX/generic/laser';
+import BodyFinish from './body_finish';
 import { castsContactShadow } from './contact_shadows';
 
 /**
@@ -113,12 +116,13 @@ APERTURE_GEOMETRY.rotateX(Math.PI / 2);
  * laser should still look black, so it sits much darker than the projector's
  * light-grey install chassis, but the small emissive floor keeps its faces
  * from collapsing into the background. The aperture carries most of the read.
+ * The near-black is the default; a definition may pick its own colour.
  */
-const BODY_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x303336,
-  emissive: 0x1c1f22,
+const BODY = new BodyFinish({
+  colour: DEFAULT_LASER_PARAMS.bodyColor,
   roughness: 0.5,
   metalness: 0.3,
+  lift: 0.6,
 });
 
 /**
@@ -491,7 +495,7 @@ class Laser {
     this._dummy = new THREE.Object3D();
     SceneManager.add(this._dummy);
 
-    this._body = new THREE.Mesh(BOX_GEOMETRY, BODY_MATERIAL);
+    this._body = new THREE.Mesh(BOX_GEOMETRY, BODY.material(this._params.bodyColor));
     this._body.userData.pickOwner = this;
     this._dummy.add(this._body);
     castsContactShadow(this._body);

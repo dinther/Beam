@@ -242,6 +242,7 @@ class LedBar {
       length: params.length,
       width: params.width,
       height: params.height,
+      color: params.bodyColor,
     });
 
     // A grid is a surface. Handing the panel a dozen numbers costs the same

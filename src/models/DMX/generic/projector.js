@@ -133,6 +133,12 @@ export const DEFAULT_PROJECTOR_PARAMS = {
   height: 0.20,
   depth: 0.55,
   /**
+   * The case's colour, `#rrggbb`, part of the definition. Light grey by
+   * default, as install projectors mostly are -- and the only way one reads
+   * in a dark room; see the body material in the renderer.
+   */
+  bodyColor: '#a8aeb4',
+  /**
    * Where the lens sits on the front panel, in metres from its centre.
    *
    * **Measured as you stand looking at the front of the machine**: positive is

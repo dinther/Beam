@@ -70,6 +70,11 @@
             :max="2000"
           />
         </uk-flex>
+        <uk-colour-input
+          v-model="bodyColor"
+          label="Colour"
+          aria-label="Body colour"
+        />
 
         <span class="create_section">Pixels</span>
         <uk-flex :gap="8">
@@ -263,6 +268,11 @@
             :max="3000"
           />
         </uk-flex>
+        <uk-colour-input
+          v-model="bodyColor"
+          label="Colour"
+          aria-label="Body colour"
+        />
 
         <span class="create_section">Lens placement (mm from centre of front)</span>
         <uk-flex :gap="8">
@@ -435,6 +445,11 @@
             :max="180"
           />
         </uk-flex>
+        <uk-colour-input
+          v-model="bodyColor"
+          label="Colour"
+          aria-label="Body colour"
+        />
 
         <span class="create_section">Pixels</span>
         <uk-flex :gap="8">
@@ -579,6 +594,11 @@
             :max="3000"
           />
         </uk-flex>
+        <uk-colour-input
+          v-model="bodyColor"
+          label="Colour"
+          aria-label="Body colour"
+        />
 
         <span class="create_section">Aperture (mm from centre of front)</span>
         <uk-flex :gap="8">
@@ -775,6 +795,17 @@ export default {
       apertureY: DEFAULT_LASER_PARAMS.apertureY * MM,
       apertureDiameter: DEFAULT_LASER_PARAMS.apertureDiameter * MM,
       laserControls: blankRecords(LASER_CONTROL_DEFS, DEFAULT_LASER_PARAMS),
+      /**
+       * The body's colour, per kind -- kept apart for the same reason the
+       * sizes are, so a bar's black does not follow the type onto a
+       * projector. Part of the definition: fixed once created, like the size.
+       */
+      bodyColors: {
+        [GENERIC_KINDS.BAR]: DEFAULT_BAR_PARAMS.bodyColor,
+        [GENERIC_KINDS.PROJECTOR]: DEFAULT_PROJECTOR_PARAMS.bodyColor,
+        [GENERIC_KINDS.DISPLAY]: DEFAULT_DISPLAY_PARAMS.bodyColor,
+        [GENERIC_KINDS.LASER]: DEFAULT_LASER_PARAMS.bodyColor,
+      },
     };
   },
   computed: {
@@ -1200,12 +1231,24 @@ export default {
      * @type {Object}
      */
     kindParams() {
-      return {
+      const params = {
         [GENERIC_KINDS.BAR]: this.barParams,
         [GENERIC_KINDS.PROJECTOR]: this.projectorParams,
         [GENERIC_KINDS.DISPLAY]: this.displayParams,
         [GENERIC_KINDS.LASER]: this.laserParams,
       }[this.builder];
+      // Every kind has a body and says its colour the same way, so it is added
+      // here once rather than to each of the four.
+      return { ...params, bodyColor: this.bodyColor };
+    },
+    /**
+     * The selected kind's body colour, `#rrggbb`.
+     *
+     * @type {String}
+     */
+    bodyColor: {
+      get() { return this.bodyColors[this.builder]; },
+      set(value) { this.bodyColors[this.builder] = value; },
     },
     /**
      * Whether the selected kind's geometry makes sense, by kind. None of them

@@ -183,6 +183,8 @@ export const DEFAULT_LASER_PARAMS = {
   width: 0.30,
   height: 0.16,
   depth: 0.34,
+  /** The chassis colour, `#rrggbb`, part of the definition. */
+  bodyColor: '#303336',
   /**
    * Where the aperture sits on the front panel, in metres from its centre.
    *

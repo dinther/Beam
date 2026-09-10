@@ -3,8 +3,9 @@ import SceneManager from './scene_manager';
 import { PROJECTOR_NEAR, PROJECTOR_FAR } from './projector_depth';
 import { castsContactShadow } from './contact_shadows';
 import {
-  lensOrigin, throwAngles, throwFrustum, throwRange,
+  DEFAULT_PROJECTOR_PARAMS, lensOrigin, throwAngles, throwFrustum, throwRange,
 } from '../../models/DMX/generic/projector';
+import BodyFinish from './body_finish';
 
 /**
  * @file Renderer for a generic projector: a box with a barrel on its front.
@@ -77,15 +78,19 @@ GLASS_GEOMETRY.rotateX(Math.PI / 2);
  * first and disappeared -- a lit material in an unlit room reflects nothing, so
  * the colour has to carry it.
  *
- * The small `emissive` is a floor, not a glow: it stops the unlit faces going
- * to absolute black while leaving the lit ones free to shade normally, so the
- * box still reads as a box rather than as a flat grey card.
+ * The small emissive `lift` is a floor, not a glow: it stops the unlit faces
+ * going to absolute black while leaving the lit ones free to shade normally,
+ * so the box still reads as a box rather than as a flat grey card.
+ *
+ * The grey is the default; a definition may pick its own colour, and the
+ * finish keeps the same floor relative to it. A black one will be hard to see
+ * in a dark room, which is true of the real thing.
  */
-const BODY_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0xa8aeb4,
-  emissive: 0x767d84,
+const BODY = new BodyFinish({
+  colour: DEFAULT_PROJECTOR_PARAMS.bodyColor,
   roughness: 0.9,
   metalness: 0.05,
+  lift: 0.72,
 });
 
 /** The barrel, much darker, because a lens housing is. */
@@ -179,7 +184,7 @@ class Projector {
     // Both solid parts are pickable. A barrel sticking a long way out of a
     // shallow body is most of what you can see of some projectors, and a pick
     // that only tested the box would miss it.
-    this._body = new THREE.Mesh(BOX_GEOMETRY, BODY_MATERIAL);
+    this._body = new THREE.Mesh(BOX_GEOMETRY, BODY.material(this._params.bodyColor));
     this._body.userData.pickOwner = this;
     this._dummy.add(this._body);
 

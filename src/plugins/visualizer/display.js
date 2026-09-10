@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import SceneManager from './scene_manager';
 import VideoRouter from './video_router';
 import { createPanelMaterial } from './video_material';
-import { pixelFill, displayCurve } from '../../models/DMX/generic/display';
+import { DEFAULT_DISPLAY_PARAMS, pixelFill, displayCurve } from '../../models/DMX/generic/display';
+import BodyFinish from './body_finish';
 import { castsContactShadow } from './contact_shadows';
 
 /**
@@ -260,14 +261,15 @@ function recessFor(bezel, depth) {
 }
 
 /**
- * The casing: dark, because a screen's bezel is, and because anything lighter
- * competes with the picture it frames.
+ * The casing: dark by default, because a screen's bezel is, and because
+ * anything lighter competes with the picture it frames. A definition may pick
+ * its own colour -- white monitors exist.
  */
-const BODY_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x35383c,
-  emissive: 0x0d0e0f,
+const BODY = new BodyFinish({
+  colour: DEFAULT_DISPLAY_PARAMS.bodyColor,
   roughness: 0.7,
   metalness: 0.15,
+  lift: 0.25,
 });
 
 /**
@@ -311,7 +313,7 @@ class Display {
     SceneManager.add(this._dummy);
 
     // Filled in by `applyGeometry`, which is the only thing that shapes it.
-    this._body = new THREE.Mesh(new THREE.BufferGeometry(), BODY_MATERIAL);
+    this._body = new THREE.Mesh(new THREE.BufferGeometry(), BODY.material(this._params.bodyColor));
     this._body.userData.pickOwner = this;
     this._dummy.add(this._body);
     castsContactShadow(this._body);

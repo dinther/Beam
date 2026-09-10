@@ -80,23 +80,10 @@
     </uk-flex>
 
     <span class="object_params_section">Colour</span>
-    <uk-flex
-      :gap="8"
-      class="object_params_colour"
-    >
-      <input
-        v-model="color"
-        type="color"
-        class="object_params_swatch"
-        aria-label="Object colour"
-      >
-      <uk-txt-input
-        v-model="color"
-        auto-update
-        style="flex: 1"
-        label="Hex"
-      />
-    </uk-flex>
+    <uk-colour-input
+      v-model="color"
+      aria-label="Object colour"
+    />
 
     <slot />
   </uk-flex>
@@ -311,20 +298,6 @@ export default {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--secondary-light-alt);
-}
-
-.object_params_colour {
-  align-items: flex-end;
-}
-
-.object_params_swatch {
-  width: 48px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--primary-dark);
-  border-radius: 3px;
-  background: none;
-  cursor: pointer;
 }
 
 .object_params_field {

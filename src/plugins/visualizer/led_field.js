@@ -4,6 +4,8 @@ import SceneEnv from './scene_env';
 // eslint-disable-next-line import/no-unresolved, import/extensions
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import { castsContactShadow } from './contact_shadows';
+import BodyFinish from './body_finish';
+import { DEFAULT_BAR_PARAMS } from '../../models/DMX/generic/led_bar';
 
 /**
  * @file Every LED strip in the scene, drawn as three meshes.
@@ -383,8 +385,19 @@ const field = {
   baseLeds: 0,
 };
 
+/**
+ * A bar's profile: metallic, and dark unless its definition says otherwise.
+ * No emissive floor -- a bar is read by its emitters, not its silhouette.
+ */
+const BODY = new BodyFinish({
+  colour: DEFAULT_BAR_PARAMS.bodyColor,
+  roughness: 0.35,
+  metalness: 0.9,
+});
+
 const scratch = {
   matrix: new THREE.Matrix4(),
+  colour: new THREE.Color(),
   basis: new THREE.Matrix4(),
   quaternion: new THREE.Quaternion(),
   offset: new THREE.Vector3(),
@@ -460,12 +473,17 @@ function update(elapsed) {
 function buildProfiles(maxBars) {
   // Unit box: every bar carries its own dimensions in the instance matrix.
   const geometry = new THREE.BoxGeometry(1, 1, 1);
+  // White, because every body brings its own colour as an instance colour --
+  // one draw for every bar in the rig whatever each is painted.
   const material = new THREE.MeshStandardMaterial({
-    color: 0x2a2d31,
-    metalness: 0.9,
-    roughness: 0.35,
+    color: 0xffffff,
+    metalness: BODY.metalness,
+    roughness: BODY.roughness,
   });
   const mesh = new THREE.InstancedMesh(geometry, material, maxBars);
+  // Made now rather than on the first `setColorAt`, which would change the
+  // shader the mesh needs part-way through and compile it twice.
+  mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxBars * 3), 3);
   mesh.count = 0;
   mesh.frustumCulled = false;
   // Bodies are solid objects in the rig and take part in lighting like any
@@ -658,6 +676,8 @@ function init({ scene, maxBars, maxLeds }) {
  * @param {Number} [options.standoff] how far the emitters sit proud of the body
  * @param {Boolean} [options.body] whether to draw a body at all; a strip is
  *   emitters with nothing to mount them on
+ * @param {String} [options.color] the body's colour, `#rrggbb`; the default
+ *   bar's when absent
  * @param {Number} [options.channelsPerPixel] channels one pixel occupies
  * @param {Array} [options.componentOffsets] [r,g,b,w] offsets from the pixel's
  *   first channel, -1 for a component the emitter lacks
@@ -675,6 +695,7 @@ function addBar({
   beamAngle = DEFAULT_BEAM_ANGLE,
   standoff = LED_STANDOFF,
   body = true,
+  color = null,
   channelsPerPixel = DEFAULT_CHANNELS_PER_PIXEL,
   componentOffsets = DEFAULT_COMPONENT_OFFSETS,
   texelAt = null,
@@ -713,6 +734,7 @@ function addBar({
     scratch.scale.set(profileLength, width, height);
     scratch.matrix.compose(scratch.offset, scratch.quaternion, scratch.scale);
     field.profiles.setMatrixAt(field.barCount, scratch.matrix);
+    field.profiles.setColorAt(field.barCount, scratch.colour.set(BODY.colourOf(color)));
     field.barCount += 1;
     field.profiles.count = field.barCount;
   }
@@ -766,6 +788,7 @@ function addBar({
   field.glow.count = field.ledCount;
 
   field.profiles.instanceMatrix.needsUpdate = true;
+  field.profiles.instanceColor.needsUpdate = true;
   field.emitters.instanceMatrix.needsUpdate = true;
   field.glow.instanceMatrix.needsUpdate = true;
   field.texelAttribute.needsUpdate = true;
@@ -808,7 +831,8 @@ function mark() {
 }
 
 /**
- * Adds one body: a box, drawn black, that emitters stand proud of.
+ * Adds one body: a box, in its definition's colour, that emitters stand proud
+ * of.
  *
  * @public
  * @param {Object} options
@@ -817,18 +841,21 @@ function mark() {
  * @param {Number} options.length along local X
  * @param {Number} options.width along local Y
  * @param {Number} options.height along local Z, the emitters' normal
+ * @param {String} [options.color] `#rrggbb`; the default bar's when absent
  * @returns {Boolean} whether it fitted
  */
 function addBody({
-  position, quaternion, length, width, height,
+  position, quaternion, length, width, height, color = null,
 }) {
   if (field.barCount >= field.maxBars) return false;
   scratch.scale.set(length, width, height);
   scratch.matrix.compose(position, quaternion, scratch.scale);
   field.profiles.setMatrixAt(field.barCount, scratch.matrix);
+  field.profiles.setColorAt(field.barCount, scratch.colour.set(BODY.colourOf(color)));
   field.barCount += 1;
   field.profiles.count = field.barCount;
   field.profiles.instanceMatrix.needsUpdate = true;
+  field.profiles.instanceColor.needsUpdate = true;
   return true;
 }
 
