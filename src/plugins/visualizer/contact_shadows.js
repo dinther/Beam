@@ -98,9 +98,6 @@ const MAX_EXTENT = 64;
 /** Room left round the casters, beyond the widest penumbra. */
 const MARGIN = 0.5;
 
-/** How soft the stain is where something touches, in metres. */
-const SHARP_RADIUS = 0.03;
-
 /**
  * How much wider the penumbra gets per metre of height: a thing 1 m up has a
  * stain about 30 cm softer than its footprint, one 4 m up about 1.2 m.
@@ -123,6 +120,14 @@ const DEFAULTS = {
    * after 0.6 m and then 1.8 m proved too short to see things lifted clear.
    */
   reach: 8,
+  /**
+   * How soft the stain is where something touches, in metres -- the blur
+   * every height starts from. At 3 cm a thing resting on the floor hid its
+   * edge under its own footprint, and only one lifted a little showed the
+   * thin dark line round its base; Paul liked the line and asked for it on
+   * everything, with a slider to find the look.
+   */
+  edge: 0.1,
 };
 
 /**
@@ -301,6 +306,7 @@ class ContactShadows {
     this._enabled = DEFAULTS.enabled;
     this._strength = DEFAULTS.strength;
     this._reach = DEFAULTS.reach;
+    this._edge = DEFAULTS.edge;
     /** What the textures were last drawn from; unchanged means nothing to do. */
     this._key = '';
     this._built = false;
@@ -316,6 +322,9 @@ class ContactShadows {
 
   /** @returns {Number} */
   reach() { return this._reach; }
+
+  /** @returns {Number} metres */
+  edge() { return this._edge; }
 
   /**
    * @public
@@ -347,6 +356,18 @@ class ContactShadows {
    */
   setReach(metres) {
     this._reach = Math.max(Number(metres) || DEFAULTS.reach, 0.05);
+    this._key = '';
+  }
+
+  /**
+   * How soft the stain is where something touches -- see `DEFAULTS.edge`.
+   *
+   * @public
+   * @param {Number} metres 0 for a hard edge
+   */
+  setEdge(metres) {
+    const value = Number(metres);
+    this._edge = Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : DEFAULTS.edge;
     this._key = '';
   }
 
@@ -479,7 +500,7 @@ class ContactShadows {
    * @returns {String}
    */
   _keyOf(casters) {
-    const parts = [this._reach, casters.length];
+    const parts = [this._reach, this._edge, casters.length];
     casters.forEach((mesh) => {
       const m = mesh.matrixWorld.elements;
       // The geometry's id as well: a display rebuilds its casing by swapping
@@ -561,7 +582,7 @@ class ContactShadows {
     box.getCenter(scratchCentre);
     box.getSize(scratchSize);
     // Room for the widest penumbra either side, as well as the casters.
-    const widest = SHARP_RADIUS + PENUMBRA_PER_METRE * this._reach;
+    const widest = this._edge + PENUMBRA_PER_METRE * this._reach;
     const size = Math.min(
       Math.max(scratchSize.x, scratchSize.y) + (MARGIN + widest) * 2,
       MAX_EXTENT,
@@ -592,7 +613,7 @@ class ContactShadows {
     // Metres into texels of the full-size texture.
     const texels = RESOLUTION / size;
     const { uniforms } = this._resolveMaterial;
-    uniforms.uSharp.value = SHARP_RADIUS * texels;
+    uniforms.uSharp.value = this._edge * texels;
     uniforms.uPerRise.value = PENUMBRA_PER_METRE * this._reach * texels;
     // The blocker search looks as far as the widest penumbra could reach.
     uniforms.uBlockerLod.value = Math.log2(Math.max(widest * texels, 1));

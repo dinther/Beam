@@ -76,6 +76,7 @@ const CONTROLS = {
   contactShadows: (value) => ContactShadows.setEnabled(value),
   contactStrength: (value) => ContactShadows.setStrength(value),
   contactReach: (value) => ContactShadows.setReach(value),
+  contactEdge: (value) => ContactShadows.setEdge(value),
   airScale: (value, vis) => {
     if (vis.ambientHaze) vis.ambientHaze.setScaleMultiplier(value);
   },

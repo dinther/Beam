@@ -91,6 +91,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     contactShadows: ContactShadows.enabled(),
     contactStrength: ContactShadows.strength(),
     contactReach: ContactShadows.reach(),
+    contactEdge: ContactShadows.edge(),
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -281,6 +282,9 @@ export default function createLEDDebugPanel(visualizer, host) {
   tuning.add(state, 'contactReach', 0.05, 20, 0.05)
     .name('contact reach m')
     .onChange((v) => Tuning.write('contactReach', v, visualizer));
+  tuning.add(state, 'contactEdge', 0, 0.5, 0.005)
+    .name('contact edge blur m')
+    .onChange((v) => Tuning.write('contactEdge', v, visualizer));
 
   // Environment fill at full house lights. The scene had none until
   // 2026-08-28: one directional light meant every surface facing away from it
