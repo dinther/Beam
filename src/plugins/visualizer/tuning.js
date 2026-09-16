@@ -23,6 +23,7 @@ import LEDPanel from './led_panel';
 import Laser from './laser';
 import { setAmbientCeiling } from './ambient';
 import ContactShadows from './contact_shadows';
+import PatchSingleton from '../../models/DMX/patch.model';
 
 const PREFIX = 'tune.';
 
@@ -75,6 +76,8 @@ const CONTROLS = {
   contactStrength: (value) => ContactShadows.setStrength(value),
   contactReach: (value) => ContactShadows.setReach(value),
   contactEdge: (value) => ContactShadows.setEdge(value),
+  // Off, the patch accepts any address and new fixtures keep the one given.
+  strictPatch: (value) => { PatchSingleton.strict = !!value; },
   airScale: (value, vis) => {
     if (vis.ambientHaze) vis.ambientHaze.setScaleMultiplier(value);
   },

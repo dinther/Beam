@@ -1207,6 +1207,11 @@ export default {
       // an empty mode rather than none, so there is nothing to measure before
       // a profile is loaded either.
       if (!this.addressable || !this.fixture.loaded) return;
+      // With the patch not strict, the address typed is the address used.
+      if (!this.$show.patch.strict) {
+        this.checkPatch();
+        return;
+      }
       // The guarded reader. `loadFixture` calls this the moment a profile
       // lands, so a mode index that does not exist reaches it before anything
       // else has a chance to notice.

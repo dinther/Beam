@@ -111,14 +111,23 @@ function alignedStart(address, pixelSize = 1) {
 class PatchMap {
   constructor() {
     /**
-     * Fixtures by absolute start address.
+     * Every patched fixture. Held by identity rather than keyed by address,
+     * because with `strict` off two fixtures may start on the same channel.
      *
-     * @type {Map<Number, Object>}
+     * @type {Set<Object>}
      */
-    this._patch = new Map();
+    this._patch = new Set();
     /**
-     * Every patched fixture as one span, in address order and never
-     * overlapping.
+     * Whether the patch refuses fixtures that overlap, and whether new
+     * fixtures are given the first free address instead of the one they came
+     * with. Off, any address is accepted as given.
+     *
+     * @type {Boolean}
+     */
+    this.strict = true;
+    /**
+     * Every patched fixture as one span, in address order. Spans never
+     * overlap while `strict` is on.
      *
      * Not one entry per DMX channel: a 512 x 512 panel is 786,432 channels,
      * and a per-channel map would be 786,432 entries saying "these all belong
@@ -185,10 +194,12 @@ class PatchMap {
   }
 
   /**
-   * Index of the first run ending at or after an address.
+   * Index of the first run that reaches an address.
    *
-   * Runs never overlap and are held in address order, so this doubles as the
-   * insertion point for a new run starting there.
+   * Searched on `reach`, the furthest end of any run up to and including this
+   * one, rather than on each run's own end. Without overlaps the two are the
+   * same. With them, ends are not in order -- a short fixture can sit inside
+   * a long one -- and a search on `end` would skip the long one.
    *
    * @public
    * @param {Number} address absolute channel
@@ -200,10 +211,42 @@ class PatchMap {
     while (lo < hi) {
       // eslint-disable-next-line no-bitwise
       const mid = (lo + hi) >> 1;
-      if (this._runs[mid].end < address) lo = mid + 1;
+      if (this._runs[mid].reach < address) lo = mid + 1;
       else hi = mid;
     }
     return lo;
+  }
+
+  /**
+   * Where a new run starting at an address goes to keep the list in order.
+   *
+   * @public
+   * @param {Number} address absolute start address
+   * @return {Number} index into the run list, possibly its length
+   */
+  insertionIndex(address) {
+    let lo = 0;
+    let hi = this._runs.length;
+    while (lo < hi) {
+      // eslint-disable-next-line no-bitwise
+      const mid = (lo + hi) >> 1;
+      if (this._runs[mid].start <= address) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /**
+   * Recomputes every run's `reach` after the list changes.
+   *
+   * @public
+   */
+  reindex() {
+    let reach = -1;
+    this._runs.forEach((run) => {
+      reach = Math.max(reach, run.end);
+      run.reach = reach;
+    });
   }
 
   /**
@@ -242,6 +285,24 @@ class PatchMap {
    * @return {Boolean} whether the run can be patched
    */
   canPatch(address, chCount, ignore = null, pixelSize = 1) {
+    if (!this.strict) return address >= 0 && chCount > 0;
+    return this.isFree(address, chCount, ignore, pixelSize);
+  }
+
+  /**
+   * Whether a run of channels is unoccupied, whatever `strict` says.
+   *
+   * `canPatch` is the rule and this is the fact: finding a free address asks
+   * this, so it still finds one with the rule turned off.
+   *
+   * @public
+   * @param {Number} address absolute start address
+   * @param {Number} chCount how many channels the run occupies
+   * @param {Object} [ignore] fixture whose own channels should not count
+   * @param {Number} [pixelSize] channels per pixel
+   * @return {Boolean} whether nothing else holds those channels
+   */
+  isFree(address, chCount, ignore = null, pixelSize = 1) {
     if (address < 0 || chCount <= 0) return false;
     // The start address is where the first channel actually is, so a fixture
     // keeping its pixels whole may not start so late in a universe that its
@@ -250,12 +311,14 @@ class PatchMap {
       && DMX_UNIVERSE_LENGTH - (address % DMX_UNIVERSE_LENGTH) < pixelSize) {
       return false;
     }
-    const ignoreAddress = ignore ? ignore.address : null;
+    const ignored = ignore ? toRaw(ignore) : null;
     const end = channelAddress(address, chCount - 1, pixelSize);
     for (let i = this.seekRun(address); i < this._runs.length; i += 1) {
       const run = this._runs[i];
       if (run.start > end) break;
-      if (run.start !== ignoreAddress) return false;
+      // A run can sit inside an earlier, longer one and end before this
+      // address; `seekRun` finds the longer one, not that.
+      if (run.end >= address && run.fixture !== ignored) return false;
     }
     return true;
   }
@@ -307,11 +370,28 @@ class PatchMap {
    * @return {Boolean} whether the whole run can be patched
    */
   canPatchMany(address, chCount, amount, pixelSize = 1) {
+    return this.fitsMany(address, chCount, amount, pixelSize, this.strict);
+  }
+
+  /**
+   * Whether a batch fits the address space, and optionally whether every
+   * instance lands on free channels.
+   *
+   * @public
+   * @param {Number} address absolute start address
+   * @param {Number} chCount per-instance channel count
+   * @param {Number} amount how many instances
+   * @param {Number} pixelSize channels per pixel
+   * @param {Boolean} mustBeFree whether occupied channels refuse it
+   * @return {Boolean}
+   */
+  fitsMany(address, chCount, amount, pixelSize, mustBeFree) {
     const run = this.addressRun(address, chCount, amount, pixelSize);
     if (!run.length || run.length !== amount) return false;
     const last = channelAddress(run[run.length - 1], chCount - 1, pixelSize);
     if (last >= this.addressSpaceLength) return false;
-    return run.every((start) => this.canPatch(start, chCount, null, pixelSize));
+    if (!mustBeFree) return true;
+    return run.every((start) => this.isFree(start, chCount, null, pixelSize));
   }
 
   /**
@@ -334,7 +414,7 @@ class PatchMap {
     const limit = this.addressSpaceLength - total;
     let i = Math.max(from, 0);
     while (i <= limit) {
-      if (this.canPatchMany(i, chCount, amount, pixelSize)) return i;
+      if (this.fitsMany(i, chCount, amount, pixelSize, true)) return i;
       // Skip past whatever blocked us rather than retesting every address in
       // between: stepping one channel at a time would walk a free gap merely
       // too small for the run byte by byte -- for a panel's channel counts,
@@ -374,8 +454,11 @@ class PatchMap {
    *
    * @public
    * @param {Object} fixture Fixture instance carrying an absolute address
+   * @param {Boolean} [force] patch it even over another fixture. Loading a
+   *                          show does this: the file says where everything
+   *                          is, and refusing part of it loses the rest.
    */
-  patchFixture(handle) {
+  patchFixture(handle, force = false) {
     // The show is reactive, so a fixture arriving from the UI is a Vue proxy
     // while the one stored here is raw. The map is keyed on identity, and a
     // proxy never equals its target, so re-addressing would silently do
@@ -392,12 +475,12 @@ class PatchMap {
     // the dialog's, and it takes the rest of the rig with it.
     if (chCount <= 0) return;
     const pixelSize = fixture.alignmentPixelSize;
-    if (!this.canPatch(fixture.address, chCount, fixture, pixelSize)) {
+    if (!force && !this.canPatch(fixture.address, chCount, fixture, pixelSize)) {
       throw new Error('Cannot patch fixture on this interval');
     }
     this.unpatchFixture(fixture);
-    this._patch.set(fixture.address, fixture);
-    this._runs.splice(this.seekRun(fixture.address), 0, {
+    this._patch.add(fixture);
+    this._runs.splice(this.insertionIndex(fixture.address), 0, {
       start: fixture.address,
       end: channelAddress(fixture.address, chCount - 1, pixelSize),
       chCount,
@@ -406,6 +489,7 @@ class PatchMap {
       // Asked once, here, rather than per universe per frame.
       takesRange: !!fixture.takesChannelRange,
     });
+    this.reindex();
     // The new fixture's channels start at zero regardless of what a shadow
     // remembers for those addresses.
     this.invalidateInputShadow();
@@ -419,11 +503,11 @@ class PatchMap {
    */
   unpatchFixture(handle) {
     const fixture = toRaw(handle);
-    const existing = this._patch.get(fixture.address);
-    if (existing !== fixture) return;
-    this._patch.delete(fixture.address);
-    const at = this.seekRun(fixture.address);
-    if (this._runs[at] && this._runs[at].start === fixture.address) this._runs.splice(at, 1);
+    if (!this._patch.has(fixture)) return;
+    this._patch.delete(fixture);
+    const at = this._runs.findIndex((run) => run.fixture === fixture);
+    if (at > -1) this._runs.splice(at, 1);
+    this.reindex();
     this.invalidateInputShadow();
   }
 
@@ -447,8 +531,7 @@ class PatchMap {
    * @return {Boolean} whether it is patched
    */
   isPatched(handle) {
-    const fixture = toRaw(handle);
-    return this._patch.get(fixture.address) === fixture;
+    return this._patch.has(toRaw(handle));
   }
 
   /**
