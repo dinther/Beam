@@ -281,8 +281,18 @@ contextBridge.exposeInMainWorld('videoRecorder', {
 contextBridge.exposeInMainWorld('documentStore', {
   /** @returns {Promise<Object|null>} the show, or null when unreadable */
   read: (target) => ipcRenderer.invoke('document:read', target),
-  /** @returns {Promise<Object>} resources an export carries, keyed by entry */
-  resources: (target) => ipcRenderer.invoke('document:resources', target),
+  /**
+   * Makes a document the open one. What it carries -- an export's collected
+   * profiles, overrides and models -- is unpacked and consulted ahead of the
+   * library until the next mount or unmount.
+   *
+   * @param {String} target
+   * @returns {Promise<Object>} `{ profiles, overrides }`, keyed as the library
+   *   keys them; models are found through `library.objects()`
+   */
+  mount: (target) => ipcRenderer.invoke('document:mount', target),
+  /** Forgets the open document: a new or imported show has none. */
+  unmount: () => ipcRenderer.invoke('document:unmount'),
   /**
    * @param {String} target
    * @param {String} json serialised show
@@ -291,6 +301,16 @@ contextBridge.exposeInMainWorld('documentStore', {
    * @returns {Promise<Boolean>} whether the write succeeded
    */
   write: (target, json, resources) => ipcRenderer.invoke('document:write', target, json, resources),
+  /**
+   * Writes an export: the show with every profile and model it references
+   * collected into the file, found by key in the library and shipped assets.
+   *
+   * @param {String} target
+   * @param {String} json serialised show
+   * @param {Object} wanted `{ profiles, objects }`, each an array of keys
+   * @returns {Promise<Object>} `{ ok, collected, missing }`
+   */
+  export: (target, json, wanted) => ipcRenderer.invoke('document:export', target, json, wanted),
   /** @returns {Promise<String|null>} chosen path, or null when cancelled */
   open: () => ipcRenderer.invoke('document:open'),
   /** @returns {Promise<String|null>} chosen path, or null when cancelled */

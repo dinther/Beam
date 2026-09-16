@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { is } from '@electron-toolkit/utils';
+import documentstore from './documentstore';
 import library from './library';
+import paths from './paths';
 
 /**
  * @file 3D models the user has dropped into their library.
@@ -63,11 +64,23 @@ const ENVIRONMENT_EXTENSIONS = ['.hdr', '.exr'];
  * environment folder serves radiance images and nothing else. A null list means
  * the model set.
  *
+ * `project` is the models an opened export carries, unpacked by the document
+ * store. Its folder moves with the open document, so it is asked for each
+ * time rather than fixed here, and there is none at all when the open
+ * document carried nothing.
+ *
  * @constant {Object}
  */
 const SERVED_DIRS = {
   objects: { dir: OBJECTS_DIR, extensions: null },
   environments: { dir: ENVIRONMENTS_DIR, extensions: ENVIRONMENT_EXTENSIONS },
+  project: {
+    base: () => {
+      const mounted = documentstore.mountRoot();
+      return mounted ? path.join(mounted, OBJECTS_DIR) : null;
+    },
+    extensions: null,
+  },
 };
 
 /**
@@ -160,21 +173,13 @@ function objectsRoot() {
 /**
  * Absolute path of the models that ship with the app.
  *
- * Two places, because the renderer's assets are in two places. Packaged, they
- * sit beside the built renderer -- the same root the `static://` handler
- * serves from. In development Vite serves `public/` straight from the project,
- * and this file is bundled into `out/main`, so the project root is two levels
- * up.
- *
  * Nothing here is writable: it is inside the install. Save to library always
  * writes to the user's own.
  *
  * @returns {String} absolute path
  */
 function shippedRoot() {
-  return is.dev
-    ? path.join(__dirname, '..', '..', 'public', SHIPPED_DIR)
-    : path.join(__dirname, '..', 'renderer', SHIPPED_DIR);
+  return paths.rendererAssets(SHIPPED_DIR);
 }
 
 /**
@@ -265,10 +270,16 @@ function keyFor(folder, name) {
  *
  * @param {String} root the catalogue root this belongs to
  * @param {String|null} folder the folder under it, or null for the root itself
- * @param {Boolean} [shipped] whether this root ships with the app
+ * @param {String} [origin] `shipped`, `library`, or `project` for the models an
+ *   opened export carries
  * @returns {Array<Object>}
  */
-function entriesIn(root, folder, shipped = false) {
+function entriesIn(root, folder, origin = 'library') {
+  const shipped = origin === 'shipped';
+  const collected = origin === 'project';
+  // Served under the host that names the folder: a collected model is not in
+  // the library, and `resolve` finds it through the open document instead.
+  const host = collected ? 'project' : 'objects';
   const dir = folder ? path.join(root, folder) : root;
   let entries = [];
   try {
@@ -306,7 +317,7 @@ function entriesIn(root, folder, shipped = false) {
     if (!found) return null;
     return shipped
       ? { thumbnailStaticPath: [SHIPPED_DIR, ...segmentsFor(found)].map(encodeURIComponent).join('/') }
-      : { thumbnailUrl: `library://objects/${segmentsFor(found).map(encodeURIComponent).join('/')}` };
+      : { thumbnailUrl: `library://${host}/${segmentsFor(found).map(encodeURIComponent).join('/')}` };
   };
 
   // A user model is served over `library://`, which exists because the user's
@@ -317,7 +328,7 @@ function entriesIn(root, folder, shipped = false) {
   // so main hands over the relative path and lets the renderer address it.
   const urlFor = (file) => (shipped
     ? null
-    : `library://objects/${segmentsFor(file).map(encodeURIComponent).join('/')}`);
+    : `library://${host}/${segmentsFor(file).map(encodeURIComponent).join('/')}`);
   const staticPathFor = (file) => (shipped
     ? [SHIPPED_DIR, ...segmentsFor(file)].map(encodeURIComponent).join('/')
     : null);
@@ -346,6 +357,7 @@ function entriesIn(root, folder, shipped = false) {
         staticPath: staticPathFor(entry.name),
         ...(thumbnailFor(path.basename(entry.name, path.extname(entry.name))) || {}),
         shipped,
+        collected,
         bytes: stats.size,
         modified: stats.mtimeMs,
         ...metadataFor(entry.name, folder, root),
@@ -369,6 +381,7 @@ function entriesIn(root, folder, shipped = false) {
         kind: PRIMITIVE_KIND,
         primitive,
         shipped,
+        collected,
         ...(thumbnailFor(path.basename(entry.name, '.json')) || {}),
         bytes: stats.size,
         modified: stats.mtimeMs,
@@ -400,7 +413,7 @@ function entriesIn(root, folder, shipped = false) {
  * @public
  * @returns {Array<Object>} sorted by folder, then name
  */
-function catalogue(root, shipped) {
+function catalogue(root, origin) {
   let top = [];
   try {
     top = fs.readdirSync(root, { withFileTypes: true });
@@ -409,19 +422,20 @@ function catalogue(root, shipped) {
     // put anything there yet, and a build may ship none at all.
     return [];
   }
-  const all = entriesIn(root, null, shipped);
+  const all = entriesIn(root, null, origin);
   top
     .filter((entry) => entry.isDirectory())
-    .forEach((entry) => all.push(...entriesIn(root, entry.name, shipped)));
+    .forEach((entry) => all.push(...entriesIn(root, entry.name, origin)));
   return all;
 }
 
 function list() {
-  // Shipped first, then the user's over the top of it. A key present in both
-  // resolves to the user's -- the same order profiles follow, project-local
-  // then user library then shipped -- so somebody can replace a supplied truss
-  // with their own without deleting anything, and get the supplied one back by
-  // removing theirs.
+  // Shipped first, then the user's over the top of it, then what the open
+  // document carries over both. A key present twice resolves to the later --
+  // the same order profiles follow, project-local then user library then
+  // shipped -- so somebody can replace a supplied truss with their own without
+  // deleting anything, and get the supplied one back by removing theirs; and
+  // an export opened on another machine draws the truss it was made with.
   // Merged case-insensitively. The keys come from file names on a filesystem
   // that does not distinguish `Sub_Speaker` from `Sub_speaker`, so two spellings
   // of one model are one model -- and a user copy has to override the supplied
@@ -430,8 +444,12 @@ function list() {
   // is what a show records and what the browser shows.
   const merged = new Map();
   const fold = (key) => String(key).toLowerCase();
-  catalogue(shippedRoot(), true).forEach((entry) => merged.set(fold(entry.key), entry));
-  catalogue(objectsRoot(), false).forEach((entry) => merged.set(fold(entry.key), entry));
+  catalogue(shippedRoot(), 'shipped').forEach((entry) => merged.set(fold(entry.key), entry));
+  catalogue(objectsRoot(), 'library').forEach((entry) => merged.set(fold(entry.key), entry));
+  const mountedObjects = SERVED_DIRS.project.base();
+  if (mountedObjects) {
+    catalogue(mountedObjects, 'project').forEach((entry) => merged.set(fold(entry.key), entry));
+  }
 
   return [...merged.values()].sort((a, b) => {
     // Root objects first, then folders alphabetically, then by name -- so the
@@ -570,6 +588,10 @@ function writePrimitive(name, primitive, folder = null, { overwrite = false } = 
 function writeThumbnail(key, dataUrl) {
   const entry = list().find((candidate) => candidate.key === key);
   if (!entry) return { ok: false, reason: 'No such object.' };
+  // A collected model lives in a cache that goes when the document closes; a
+  // preview written there would be lost, and one written to the library would
+  // sit beside no model.
+  if (entry.collected) return { ok: false, reason: 'The object belongs to the open export.' };
 
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
   if (!match) return { ok: false, reason: 'Not a PNG data url.' };
@@ -621,7 +643,6 @@ function resolve(requestPath) {
   const [kind, ...rest] = requestPath.split('/').filter(Boolean);
   const served = SERVED_DIRS[String(kind || '').toLowerCase()];
   if (!served || !rest.length) return null;
-  const { dir } = served;
 
   // `path.resolve` collapses `..` before the containment test, so the test is
   // made against where the path actually lands rather than how it is written.
@@ -630,7 +651,8 @@ function resolve(requestPath) {
   // library root, `environments/../x.hdr` would land on a file beside the
   // folder and be served -- inside the library, with an allowed extension, so
   // nothing else would stop it.
-  const base = path.join(root, dir);
+  const base = served.base ? served.base() : path.join(root, served.dir);
+  if (!base) return null;
   const target = path.resolve(base, `.${path.sep}${rest.join(path.sep)}`);
   const relative = path.relative(base, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
@@ -666,10 +688,12 @@ export default {
   resolve,
   metadataFor,
   objectsRoot,
+  shippedRoot,
   writePrimitive,
   writeThumbnail,
   safeName,
   MODEL_EXTENSIONS,
+  OBJECTS_DIR,
   ENVIRONMENTS_DIR,
   ENVIRONMENT_EXTENSIONS,
   PRIMITIVE_TYPES,

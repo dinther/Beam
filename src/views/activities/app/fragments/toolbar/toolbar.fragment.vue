@@ -13,7 +13,6 @@
     <license-popup v-model="licensePopupState" />
     <credits-popup v-model="creditsPopupState" />
     <newshow-popup v-model="newProjectPopupState" />
-    <saveas-popup v-model="saveasPopupState" />
     <artnet-popup v-model="artnetPopupState" />
     <video-popup v-model="videoPopupState" />
     <madmapper-popup v-model="madmapperPopupState" />
@@ -26,7 +25,6 @@ import VisualizerPopup from './_popups/popup.visualizer.vue';
 import LicensePopup from './_popups/popup.license.vue';
 import CreditsPopup from './_popups/popup.credits.vue';
 import NewshowPopup from './_popups/popup.newshow.vue';
-import SaveasPopup from './_popups/popup.saveas.vue';
 import ArtnetPopup from './_popups/popup.artnet.vue';
 import VideoPopup from './_popups/popup.video.vue';
 import MadmapperPopup from './_popups/popup.madmapper.vue';
@@ -42,7 +40,6 @@ export default {
     LicensePopup,
     CreditsPopup,
     NewshowPopup,
-    SaveasPopup,
     ArtnetPopup,
     MadmapperPopup,
     VideoPopup,
@@ -83,10 +80,6 @@ export default {
        * Credits popup state
        */
       creditsPopupState: false,
-      /**
-       * Save as popup state
-       */
-      saveasPopupState: false,
       /**
        * I/O popup state
        */
@@ -130,11 +123,11 @@ export default {
               },
             },
             {
-              name: 'Export Showfile',
+              name: 'Export Project to...',
               shortcut: 'Ctrl+Shift+S',
               icon: 'export',
               callback: () => {
-                this.saveasPopupState = true;
+                this.exportShow();
               },
             },
             {
@@ -258,6 +251,19 @@ export default {
     this.$show.on('documentError', (target) => {
       EventBus.emit('app_error', new Error(`Could not open ${target}. It may not be a Beam project.`));
     });
+    // An export that could not be written, or that is missing something the
+    // show names, has to say so: the file it leaves would open with holes in
+    // it on another machine, which is the one thing an export is for.
+    this.$show.on('exported', ({ target, ok, missing }) => {
+      if (!ok) {
+        EventBus.emit('app_error', new Error(`Could not write ${target}.`));
+      } else if (missing && missing.length) {
+        EventBus.emit('app_error', new Error(
+          `Exported ${target}, but ${missing.length} item(s) the show uses could not be found `
+          + `and are not in it: ${missing.join(', ')}`,
+        ));
+      }
+    });
     EventBus.on('app_ready', () => {
       this.project = this.$show.documentTitle;
     });
@@ -314,6 +320,16 @@ export default {
       // Save means save the document. With nowhere to write yet this becomes
       // Save As, because choosing where a first save lands is the user's.
       await this.$show.saveDocument();
+    },
+    /**
+     * Writes a frozen copy of the show, with everything it references, to a
+     * file the user picks.
+     *
+     * @public
+     * @async
+     */
+    async exportShow() {
+      await this.$show.exportDocument();
     },
     /**
      * Display visualizer popup

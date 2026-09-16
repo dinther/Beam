@@ -216,11 +216,13 @@ function filesUnder(root, depth) {
  * Reads every item of one kind.
  *
  * @param {String} kind key of `KINDS`
+ * @param {String} [base] a library root other than the user's -- the files an
+ *   opened export carries are laid out the same way
  * @returns {Object} key to contents; empty when the kind has nothing stored
  */
-function readAll(kind) {
-  const root = kindRoot(kind);
-  if (!root) return {};
+function readAll(kind, base) {
+  if (!KINDS[kind]) return {};
+  const root = base ? path.join(base, KINDS[kind].dir) : kindRoot(kind);
   const items = {};
   filesUnder(root, KINDS[kind].depth).forEach((file) => {
     try {

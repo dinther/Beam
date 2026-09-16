@@ -145,6 +145,14 @@ class Show extends EventEmitter {
      */
     this.generatedProfiles = {};
     /**
+     * What the open document carries with it: the profiles and overrides an
+     * export collected, keyed like the library. Resolved after the show's own
+     * definitions and ahead of the library, so an export opened on another
+     * machine shows the fixtures it was made with. Models an export carries
+     * arrive through the object library instead, served by the main process.
+     */
+    this.collected = Show.nothingCollected();
+    /**
      * Fixture definitions that belong to this show and not (yet) to the
      * library -- see `definition_store.js`. Resolved ahead of the library, so a
      * show's own definition wins over a library entry of the same name.
@@ -363,7 +371,9 @@ class Show extends EventEmitter {
    * @public
    */
   async patchFixtures() {
-    this.fixturePool.fixtures.forEach((fixture) => this.patchFixture(fixture));
+    // Forced: the file says where every fixture is, and one refused overlap
+    // would throw here and leave the rest of the rig unpatched.
+    this.fixturePool.fixtures.forEach((fixture) => PatchSingleton.patchFixture(fixture, true));
   }
 
   /**
@@ -507,11 +517,20 @@ class Show extends EventEmitter {
       this.emit('documentError', target);
       return false;
     }
-    await this.loadFromData(showData);
+    await this.loadFromData(showData, { document: target });
     await this.setDocument(target);
     this.isSaved = true;
     this.emit('saveState', this.isSaved);
     return true;
+  }
+
+  /**
+   * The shape of `collected` when the open document carries nothing.
+   *
+   * @returns {Object} `{ profiles, overrides }`, both empty
+   */
+  static nothingCollected() {
+    return { profiles: {}, overrides: {} };
   }
 
   /**
@@ -539,6 +558,52 @@ class Show extends EventEmitter {
     // Cancelling a save dialog is an ordinary answer, not a failure.
     if (!target) return false;
     return this.writeDocument(target);
+  }
+
+  /**
+   * Writes a frozen copy of the show to a document the user picks.
+   *
+   * A save names what the show uses and leaves it in the library, so that
+   * editing a profile reaches every show placing it. An export is the one
+   * deliberate freeze: every profile, override and model the show references
+   * goes into the file, so it opens the same way anywhere. It is a copy -- the
+   * show stays on the document it was on, and stays as saved or unsaved as
+   * it was.
+   *
+   * @public
+   * @async
+   * @returns {Promise<Boolean>} whether anything was written
+   */
+  async exportDocument() {
+    if (typeof window === 'undefined' || !window.documentStore) return false;
+    const target = await window.documentStore.saveAs(this.projectName, 'Export project');
+    // Cancelling is an ordinary answer, not a failure.
+    if (!target) return false;
+    const json = JSON.stringify(this.showData, null, 2);
+    const result = await window.documentStore.export(target, json, this.referencedResources());
+    this.emit('exported', { target, ...result });
+    return !!result.ok;
+  }
+
+  /**
+   * What the show references outside itself, by key.
+   *
+   * Profiles are named `manufacturer/model`, one key however many fixtures
+   * share it. The show's own definitions are left out: they already travel
+   * in the show. Objects are named by library key; an inline shape carries its
+   * own parameters and has nothing to collect.
+   *
+   * @public
+   * @returns {Object} `{ profiles, objects }`, each an array of keys
+   */
+  referencedResources() {
+    const profiles = new Set(this.fixturePool.fixtures
+      .map((fixture) => fixture.profileKey)
+      .filter((key) => !this.definitions.has(key)));
+    const objects = new Set(this.objects
+      .filter((object) => !object.isInline && object.model)
+      .map((object) => object.model));
+    return { profiles: [...profiles], objects: [...objects] };
   }
 
   /**
@@ -619,11 +684,15 @@ class Show extends EventEmitter {
   /**
    * Prepares and sets up a show from provided show data configuration
    *
-   * @param {Object} showData raw show configuration data to be parsed/loaded
+   * @param {Object} rawShowData raw show configuration data to be parsed/loaded
+   * @param {Object} [options]
+   * @param {String} [options.document] the `.beam` the data came from, mounted
+   *   so that what it carries resolves ahead of the library; a show from
+   *   anywhere else unmounts whatever was open
    * @public
    * @async
    */
-  async loadFromData(rawShowData) {
+  async loadFromData(rawShowData, options = {}) {
     // A load clears the show and then rebuilds it across several awaits. Two
     // overlapping calls would both clear first and then both append, leaving
     // one copy of every fixture per caller, so run them strictly in sequence.
@@ -634,7 +703,7 @@ class Show extends EventEmitter {
     // at "Finalizing" for good over a show that loaded fine.
     const run = async () => {
       try {
-        return await this.loadShowData(rawShowData);
+        return await this.loadShowData(rawShowData, options);
       } finally {
         this.loading.state = false;
       }
@@ -648,16 +717,21 @@ class Show extends EventEmitter {
    * serialises these.
    *
    * @param {Object} rawShowData raw show configuration data to be parsed/loaded
-   * @param {Object} options load options
+   * @param {Object} options load options, as `loadFromData` takes them
    * @private
    * @async
    */
-  async loadShowData(rawShowData) {
+  async loadShowData(rawShowData, options = {}) {
     const showData = migrateShowData(rawShowData);
     this.loading.state = true;
     this.loading.message = 'Clearing Show Data';
     this.loading.percentage = 20;
     this.clearShowData();
+
+    // Mounted inside the load rather than before it, because loads queue: two
+    // documents opened in quick succession must each load against their own
+    // files, not both against whichever was mounted last.
+    await this.mountDocument(options.document || null);
 
     this.loading.message = 'Preloading fixture library';
     this.loading.percentage = 40;
@@ -797,7 +871,40 @@ class Show extends EventEmitter {
     }
     // Nothing overridden is a perfectly ordinary state; every fixture then
     // falls back to its library profile and the renderer's own defaults.
-    this.fixtureOverrides = (await window.library.readAll('overrides')) || {};
+    // What the open document carries wins over the library's, for the same
+    // profile: an export freezes the corrections it was made with.
+    this.fixtureOverrides = {
+      ...((await window.library.readAll('overrides')) || {}),
+      ...this.collected.overrides,
+    };
+  }
+
+  /**
+   * Makes a document the open one, taking on what it carries.
+   *
+   * An export carries its profiles, overrides and models; a plain save
+   * carries nothing, and then this is only bookkeeping. No document at all --
+   * a template, an imported showfile -- unmounts, so that nothing of the last
+   * document lingers to resolve a name in this one.
+   *
+   * @private
+   * @async
+   * @param {String|null} target absolute path of the `.beam`, or null
+   */
+  async mountDocument(target) {
+    this.collected = Show.nothingCollected();
+    if (typeof window === 'undefined' || !window.documentStore) return;
+    if (!target) {
+      await window.documentStore.unmount();
+      return;
+    }
+    const carried = (await window.documentStore.mount(target)) || {};
+    // Bars are stored without their channels, as the library stores them.
+    this.collected = {
+      profiles: Object.fromEntries(Object.entries(carried.profiles || {})
+        .map(([key, profile]) => [key, expandLedBarProfile(profile)])),
+      overrides: carried.overrides || {},
+    };
   }
 
   /**
@@ -1469,6 +1576,11 @@ class Show extends EventEmitter {
     const fixtures = [...this.loadedFixturesById.values()];
     fixtures.forEach((fixture) => {
       fixture.name = this.fixturePool.uniqueName(fixture.name, fixture.id);
+      // With the patch not strict, a copy keeps the address it was copied with.
+      if (!PatchSingleton.strict) {
+        PatchSingleton.patchFixture(fixture);
+        return;
+      }
       const address = PatchSingleton.findFreeAddress(
         fixture.channels.length,
         1,
@@ -1751,9 +1863,9 @@ class Show extends EventEmitter {
   }
 
   /**
-   * A profile the app made, wherever it lives: this show's own definitions
-   * first, then the library's generated profiles. Null for a shipped OFL
-   * profile, which is fetched.
+   * A profile held locally, wherever it lives: this show's own definitions
+   * first, then what the open document carries, then the library's generated
+   * profiles. Null for a shipped OFL profile, which is fetched.
    *
    * The one lookup both the load path and the Add-to-Show list use, so the
    * two cannot disagree about which wins when a show and the library both
@@ -1764,7 +1876,10 @@ class Show extends EventEmitter {
    * @returns {Object|null}
    */
   localProfile(key) {
-    return this.definitions.get(key) || this.generatedProfiles[key] || null;
+    return this.definitions.get(key)
+      || this.collected.profiles[key]
+      || this.generatedProfiles[key]
+      || null;
   }
 
   /**
@@ -1857,6 +1972,22 @@ class Show extends EventEmitter {
   }
 
   /**
+   * Profiles the open document carries that neither the library nor the
+   * shipped set has, keyed `manufacturer/model`.
+   *
+   * @private
+   * @returns {Object}
+   */
+  collectedOnlyProfiles() {
+    const shipped = new Set(this.rawOFLFixtures
+      .filter((entry) => !entry.generated)
+      .flatMap((entry) => (entry.fixtures || [])
+        .map((fixture) => `${entry.name}/${String(fixture.file).replace(/\.json$/i, '')}`)));
+    return Object.fromEntries(Object.entries(this.collected.profiles)
+      .filter(([key]) => !this.generatedProfiles[key] && !shipped.has(key)));
+  }
+
+  /**
    * Re-lays the library index over the current generated profiles.
    *
    * @public
@@ -1921,9 +2052,14 @@ class Show extends EventEmitter {
    */
   generatedFixtureList() {
     const byManufacturer = {};
-    Object.keys(this.generatedProfiles).forEach((key) => {
+    // The library's profiles, and those the open document carries that this
+    // machine has nowhere else: an export opened elsewhere can still place
+    // another of the bars it was built with. A carried copy of a shipped
+    // profile is left out, since the shipped list already offers it.
+    const listed = { ...this.collectedOnlyProfiles(), ...this.generatedProfiles };
+    Object.keys(listed).forEach((key) => {
       const [manufacturer, model] = key.split('/');
-      const profile = this.generatedProfiles[key];
+      const profile = listed[key];
       byManufacturer[manufacturer] = byManufacturer[manufacturer] || [];
       byManufacturer[manufacturer].push({
         file: model,

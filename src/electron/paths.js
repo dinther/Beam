@@ -44,4 +44,24 @@ function seedRoot() {
     : path.join(app.getAppPath(), 'resources', 'library');
 }
 
-export default { beamRoot, seedRoot };
+/**
+ * A folder of the renderer's static assets, on disk.
+ *
+ * Two places, because the renderer's assets are in two places. Packaged, they
+ * sit beside the built renderer -- the same root the `static://` handler
+ * serves from. In development Vite serves `public/` straight from the
+ * project, and the main bundle runs from `out/main`, so the project root is
+ * two levels up.
+ *
+ * Nothing here is writable: it is inside the install.
+ *
+ * @param {String} dir folder name under the assets, e.g. `objects`
+ * @returns {String} absolute path
+ */
+function rendererAssets(dir) {
+  return app.isPackaged
+    ? path.join(__dirname, '..', 'renderer', dir)
+    : path.join(__dirname, '..', '..', 'public', dir);
+}
+
+export default { beamRoot, seedRoot, rendererAssets };
