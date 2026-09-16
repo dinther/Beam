@@ -9,6 +9,7 @@ import { ambientCeiling } from './ambient';
 import Tuning from './tuning';
 import ContactShadows from './contact_shadows';
 import { hazeWarp, hazeTurn } from './haze_noise';
+import PatchSingleton from '../../models/DMX/patch.model';
 
 /**
  * @file Debug panel for the LED bar proof of concept.
@@ -92,6 +93,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     contactStrength: ContactShadows.strength(),
     contactReach: ContactShadows.reach(),
     contactEdge: ContactShadows.edge(),
+    strictPatch: PatchSingleton.strict,
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -100,6 +102,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     laserTail: Laser.beamTail(),
     laserScatter: Math.round(Laser.scatterAmount() * 100),
     laserDwell: Laser.dwellModel(),
+    laserOcclusion: Laser.occlusion(),
     // Measurement
     passes: Perf.getPasses(),
   };
@@ -279,6 +282,12 @@ export default function createLEDDebugPanel(visualizer, host) {
     .name('contact edge blur m')
     .onChange((v) => Tuning.write('contactEdge', v, visualizer));
 
+  // Off, any DMX address is accepted, overlaps included, and new or pasted
+  // fixtures keep the address they were given instead of the first free one.
+  tuning.add(state, 'strictPatch')
+    .name('strict DMX patch')
+    .onChange((v) => Tuning.write('strictPatch', v, visualizer));
+
   // Environment fill at full house lights. With one directional light alone,
   // every surface facing away from it renders pure black. Too much washes the
   // show out, too little brings the black faces back, and only the eye can
@@ -346,6 +355,13 @@ export default function createLEDDebugPanel(visualizer, host) {
   laser.add(state, 'laserDwell')
     .name('scanner dwell')
     .onChange((v) => Tuning.write('laserDwell', v, visualizer));
+  // Diagnostics, not preferences: neither is stored, so a session cannot start
+  // with beams passing through walls because a switch was left off last time.
+  laser.add(state, 'laserOcclusion')
+    .name('stop at surfaces')
+    .onChange((v) => Laser.setOcclusion(v));
+  laser.add({ dump: () => Laser.dumpDepthTiles() }, 'dump')
+    .name('log depth tiles');
 
   const perf = gui.addFolder('Measurement');
   perf.add(state, 'passes', 1, 16, 1)

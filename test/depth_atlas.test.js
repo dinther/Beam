@@ -43,18 +43,45 @@ function check(label, got, want) {
  * The scissor box is recorded **at the moment of each clear**, which is the
  * whole question: a clear taken with the scissor covering the atlas wipes the
  * tiles that were being kept.
+ *
+ * It keeps the real renderer's rule for targets: `setRenderTarget` applies the
+ * target's own viewport, scissor and scissor test, replacing whatever was set
+ * on the renderer. And its `render` does what the real one does when a light
+ * casts a shadow -- switches to the shadow map and back -- so a tile bound
+ * that lives only on the renderer is gone by the time the scene is drawn.
  */
 function fakeRenderer() {
   const calls = { clears: [], renders: [] };
+  let target = null;
   let scissor = null;
   let scissorTest = false;
+  let viewport = null;
+  const box = (v) => ({
+    x: v.x, y: v.y, w: v.z, h: v.w,
+  });
+  const setRenderTarget = (next) => {
+    target = next;
+    if (next) {
+      viewport = box(next.viewport);
+      scissor = box(next.scissor);
+      scissorTest = next.scissorTest;
+    } else {
+      viewport = {
+        x: 0, y: 0, w: 1920, h: 1080,
+      };
+      scissor = viewport;
+      scissorTest = false;
+    }
+  };
+  const shadowMap = { autoUpdate: true };
   return {
     calls,
     autoClear: true,
-    getRenderTarget: () => null,
-    setRenderTarget: () => {},
+    shadowMap,
+    getRenderTarget: () => target,
+    setRenderTarget,
     getClearAlpha: () => 1,
-    getClearColor: (target) => target,
+    getClearColor: (colour) => colour,
     setClearColor: () => {},
     setScissorTest: (on) => { scissorTest = on; },
     setScissor: (x, y, w, h) => {
@@ -62,10 +89,20 @@ function fakeRenderer() {
         x, y, w, h,
       };
     },
-    setViewport: () => {},
-    getSize: (target) => target.set(1920, 1080),
+    setViewport: (x, y, w, h) => {
+      viewport = {
+        x, y, w, h,
+      };
+    },
+    getSize: (size) => size.set(1920, 1080),
     clear: () => { calls.clears.push({ scissorTest, scissor }); },
-    render: (scene, camera) => { calls.renders.push(camera.uuid); },
+    render: (scene, camera) => {
+      // The shadow pass, when it runs, ends by restoring the target.
+      if (shadowMap.autoUpdate) setRenderTarget(target);
+      calls.renders.push({
+        camera: camera.uuid, scissorTest, scissor, viewport, shadows: shadowMap.autoUpdate,
+      });
+    },
   };
 }
 
@@ -151,7 +188,7 @@ console.log('\n-- moving one fixture costs one tile, not the rig --');
   projections[2].camera.position.x += 1;
   projections[2].camera.updateMatrixWorld(true);
   check('one tile redrawn', atlas.render(renderer, scene, projections), 1);
-  check('and it is that fixture', renderer.calls.renders[0], projections[2].camera.uuid);
+  check('and it is that fixture', renderer.calls.renders[0].camera, projections[2].camera.uuid);
   check('one clear, on its tile', renderer.calls.clears.length, 1);
   // Slot 2 of a 2x2 atlas of 64 px tiles is the bottom-left of the top row.
   check('at that slot', `${renderer.calls.clears[0].scissor.x},${renderer.calls.clears[0].scissor.y}`, '0,64');
@@ -168,7 +205,7 @@ console.log('\n-- a zoom moves no camera and must still redraw --');
   // or shift: the frustum is rewritten, the lens stays exactly where it is.
   projections[1].camera.projectionMatrix.makePerspective(-0.4, 0.4, 0.25, -0.25, 0.5, 100);
   check('the zoomed tile redrawn', atlas.render(renderer, scene, projections), 1);
-  check('and it is that fixture', renderer.calls.renders[0], projections[1].camera.uuid);
+  check('and it is that fixture', renderer.calls.renders[0].camera, projections[1].camera.uuid);
 }
 
 console.log('\n-- geometry moving is everybody\'s business --');
@@ -212,7 +249,7 @@ console.log('\n-- a tile nobody owns is not left answering for the next fixture 
   check('keys trimmed to what is owned', atlas.tileKeys.length, 3);
   renderer.calls.renders.length = 0;
   check('the returning fixture draws', atlas.render(renderer, scene, projections), 1);
-  check('into its own slot', renderer.calls.renders[0], projections[3].camera.uuid);
+  check('into its own slot', renderer.calls.renders[0].camera, projections[3].camera.uuid);
 }
 
 console.log('\n-- more fixtures than slots is a cap, not a crash --');
@@ -224,6 +261,26 @@ console.log('\n-- more fixtures than slots is a cap, not a crash --');
   const { scene } = makeScene();
   const renderer = fakeRenderer();
   check('drawn up to the cap', atlas.render(renderer, scene, makeProjections(5)), 2);
+}
+
+console.log('\n-- a tile survives the shadow pass inside render --');
+
+{
+  // With a shadow-casting light in the scene, `render` switches to the shadow
+  // map and back, and the way back reapplies the target's own viewport and
+  // scissor. A bound set on the renderer alone is lost there: the tile is
+  // then drawn over the whole atlas, each slot overwriting the others, and a
+  // fixture reads a corner of the last view drawn instead of its own.
+  const { renderer } = primed(4);
+  check('every scene pass scissored', renderer.calls.renders.every((r) => r.scissorTest), true);
+  check('to one tile', renderer.calls.renders.every((r) => r.scissor.w === 64 && r.viewport.w === 64), true);
+  const boxes = renderer.calls.renders.map((r) => `${r.scissor.x},${r.scissor.y}`);
+  check('one tile each', new Set(boxes).size, 4);
+  check('viewport and scissor agree', renderer.calls.renders.every((r) => r.scissor.x === r.viewport.x && r.scissor.y === r.viewport.y), true);
+  // Not merely survived: the shadow maps are not redrawn for a depth tile,
+  // which an override material never reads.
+  check('shadow maps left alone during the pass', renderer.calls.renders.every((r) => !r.shadows), true);
+  check('and updated again afterwards', renderer.shadowMap.autoUpdate, true);
 }
 
 console.log(`\n${failures ? `${failures} failed` : 'all passed'}`);

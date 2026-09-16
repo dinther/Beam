@@ -71,8 +71,18 @@ const scratchClip = new THREE.Matrix4();
  * clipping -- `MeshDepthMaterial` derives depth from an interpolated varying,
  * and a ground plane of two triangles running from behind the camera to far in
  * front makes that varying meaningless, so the floor would pack as noise.
+ *
+ * A debug-panel switch, not a preference: off, every beam runs its full length
+ * whatever is in the way, which is how a cut that should not be there is told
+ * apart from a surface that is.
  */
-const OCCLUSION_ENABLED = true;
+let occlusionEnabled = true;
+
+/** Set by the debug panel; the next depth pass reads its tiles back and logs them. */
+let depthDumpPending = false;
+
+/** Texels sampled across a tile when it is logged as numbers. */
+const DEPTH_DUMP_GRID = 24;
 
 /**
  * @file Renderer for a generic RGB show laser: a box with an aperture.
@@ -1284,9 +1294,13 @@ class Laser {
    * @param {Object} scene
    */
   static renderDepth(renderer, scene) {
-    if (!OCCLUSION_ENABLED) return;
     const list = [...instances];
     if (!list.length) return;
+    if (!occlusionEnabled) {
+      // Not just an early return: a tile bound last frame would go on cutting.
+      list.forEach((laser) => { laser._beamMaterial.uniforms.depthReady.value = false; });
+      return;
+    }
     // The viewport, so the beam ribbons keep a constant pixel width. Set here
     // because this is the per-frame call that has the renderer to hand.
     renderer.getSize(scratchResolution);
@@ -1334,6 +1348,104 @@ class Laser {
       u.depthTile.value.set(tile.x, tile.y, tile.width, tile.height);
       u.depthReady.value = true;
     });
+    if (depthDumpPending) {
+      depthDumpPending = false;
+      const casters = [];
+      scene.traverse((object) => {
+        if (!object.isMesh || !object.castShadow) return;
+        const label = object.userData.sceneObjectModel || object.name || object.type;
+        casters.push(`${label}${object.isInstancedMesh ? ` x${object.count}` : ''}${object.visible ? '' : ' hidden'}`);
+      });
+      console.log(`[laser depth] casters: ${casters.join(', ')}`);
+      Laser.logDepthTiles(renderer, list);
+    }
+  }
+
+  /**
+   * Reads every laser's depth tile back and logs it: a coarse grid of metres,
+   * and the whole tile as a PNG data URL. Diagnostic only -- a readback stalls
+   * the GPU, so this runs once per press of the debug-panel button.
+   *
+   * @static
+   * @param {Object} renderer
+   * @param {Array} list the lasers, in slot order
+   */
+  static logDepthTiles(renderer, list) {
+    const { target } = LASER_DEPTH;
+    if (!target) return;
+    const { tile, far } = LASER_DEPTH;
+    const pixels = new Uint8Array(tile * tile * 4);
+    // Undo `packDepthToRGBA`: three's `UnpackFactors4` on bytes, red the most
+    // significant and alpha the least.
+    const unpack = (i) => (
+      (255 / 256) * (pixels[i] / 255 + pixels[i + 1] / 255 / 256 + pixels[i + 2] / 255 / 65536)
+      + pixels[i + 3] / 255 / 16777216
+    ) * far;
+    list.forEach((laser) => {
+      if (laser._depthSlot < 0) return;
+      const column = laser._depthSlot % LASER_DEPTH.columns;
+      const row = Math.floor(laser._depthSlot / LASER_DEPTH.columns);
+      renderer.readRenderTargetPixels(target, column * tile, row * tile, tile, tile, pixels);
+      const name = laser.fixtureHandle && laser.fixtureHandle.name ? laser.fixtureHandle.name : `laser ${laser._depthSlot}`;
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const d = unpack(i);
+        if (d < min) min = d;
+        if (d > max) max = d;
+      }
+      // Rows top to bottom, like the ray-cast tables this is compared with.
+      const lines = [];
+      for (let r = DEPTH_DUMP_GRID - 1; r >= 0; r -= 1) {
+        const y = Math.floor(((r + 0.5) / DEPTH_DUMP_GRID) * tile);
+        const cells = [];
+        for (let c = 0; c < DEPTH_DUMP_GRID; c += 1) {
+          const x = Math.floor(((c + 0.5) / DEPTH_DUMP_GRID) * tile);
+          cells.push(unpack((y * tile + x) * 4).toFixed(1).padStart(6));
+        }
+        lines.push(cells.join(''));
+      }
+      const eye = new THREE.Vector3().setFromMatrixPosition(laser._depthCam.matrixWorld);
+      const aim = new THREE.Vector3(0, 0, -1).transformDirection(laser._depthCam.matrixWorld);
+      const fmt = (v) => v.toArray().map((x) => x.toFixed(2)).join(' ');
+      console.log(`[laser depth] ${name} slot ${laser._depthSlot} min ${min.toFixed(2)} m max ${max.toFixed(2)} m`
+        + ` eye ${fmt(eye)} aim ${fmt(aim)} fov ${laser._depthCam.fov.toFixed(1)} aspect ${laser._depthCam.aspect.toFixed(2)}`
+        + ` body ${fmt(laser._position)} rot ${fmt(laser._rotation)}\n${lines.join('\n')}`);
+      // The picture: near is bright, 20 m and beyond is black, top row at top.
+      const canvas = document.createElement('canvas');
+      canvas.width = tile;
+      canvas.height = tile;
+      const context = canvas.getContext('2d');
+      const image = context.createImageData(tile, tile);
+      for (let y = 0; y < tile; y += 1) {
+        for (let x = 0; x < tile; x += 1) {
+          const d = unpack(((tile - 1 - y) * tile + x) * 4);
+          const g = Math.round(255 * (1 - Math.min(d, 20) / 20));
+          const o = (y * tile + x) * 4;
+          image.data[o] = g;
+          image.data[o + 1] = g;
+          image.data[o + 2] = g;
+          image.data[o + 3] = 255;
+        }
+      }
+      context.putImageData(image, 0, 0);
+      console.log(`[laser depth png] ${name} ${canvas.toDataURL('image/png')}`);
+    });
+  }
+
+  /** @public @param {Boolean} on whether beams stop at the first surface */
+  static setOcclusion(on) {
+    occlusionEnabled = !!on;
+  }
+
+  /** @public @returns {Boolean} whether beams stop at the first surface */
+  static occlusion() {
+    return occlusionEnabled;
+  }
+
+  /** @public Logs every laser's depth tile on the next frame. */
+  static dumpDepthTiles() {
+    depthDumpPending = true;
   }
 
   /**

@@ -378,6 +378,8 @@ export class DepthAtlas {
     const wasAlpha = renderer.getClearAlpha();
     renderer.getClearColor(previousColour);
     const wasAutoClear = renderer.autoClear;
+    const wasShadowUpdate = renderer.shadowMap.autoUpdate;
+    const { target } = this;
 
     try {
       if (this.linear) {
@@ -387,25 +389,36 @@ export class DepthAtlas {
       scene.overrideMaterial = this.linear ? LINEAR_DEPTH_MATERIAL : DEPTH_MATERIAL;
       scene.background = null;
       renderer.autoClear = false;
-      renderer.setRenderTarget(this.target);
       renderer.setClearColor(FAR_COLOUR, 1);
-      // Clears obey the scissor box, which is the whole point: each tile is
-      // wiped to the far plane immediately before it is redrawn, and the tiles
-      // belonging to fixtures that have not moved are never touched.
-      renderer.setScissorTest(true);
+      // The lights' shadow maps are not wanted here: an override material
+      // ignores them, and with a shadow-casting light in the scene `render`
+      // would redraw every shadow map once per tile. Off for the pass; the
+      // main render that follows updates them once.
+      renderer.shadowMap.autoUpdate = false;
 
+      // The tile bounds are set on the target, not on the renderer. Anything
+      // inside `render` that switches targets and back -- the shadow-map pass
+      // does, when a light casts -- reapplies the target's own viewport and
+      // scissor on the way back, and a bound set on the renderer alone is then
+      // gone: the tile is drawn over the whole atlas with no scissor, every
+      // slot overwrites every other, and each fixture reads some corner of the
+      // last view drawn. Clears obey the scissor too, which is the whole point:
+      // each tile is wiped to the far plane immediately before it is redrawn,
+      // and the tiles belonging to fixtures that have not moved are never
+      // touched.
+      target.scissorTest = true;
       slots.forEach((slot) => {
         const column = slot % this.columns;
         const row = Math.floor(slot / this.columns);
         const x = column * tile;
         const y = row * tile;
-        renderer.setViewport(x, y, tile, tile);
-        renderer.setScissor(x, y, tile, tile);
+        target.viewport.set(x, y, tile, tile);
+        target.scissor.set(x, y, tile, tile);
+        renderer.setRenderTarget(target);
         renderer.clear(true, true, false);
         renderer.render(scene, drawn[slot].camera);
       });
 
-      renderer.setScissorTest(false);
       renderer.setRenderTarget(wasTarget);
       renderer.setClearColor(previousColour, wasAlpha);
       renderer.autoClear = wasAutoClear;
@@ -418,6 +431,10 @@ export class DepthAtlas {
     } finally {
       // Restored whatever happened above. The scene is shared, and every one of
       // these left set is a fault somewhere else entirely.
+      target.scissorTest = false;
+      target.viewport.set(0, 0, target.width, target.height);
+      target.scissor.set(0, 0, target.width, target.height);
+      renderer.shadowMap.autoUpdate = wasShadowUpdate;
       renderer.setScissorTest(false);
       renderer.setRenderTarget(wasTarget);
       renderer.setClearColor(previousColour, wasAlpha);

@@ -26,6 +26,7 @@ import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
 import documentstore from './documentstore';
+import projectexport from './projectexport';
 import videorecorder from './videorecorder';
 import environmentstore from './environmentstore';
 import fileexport from './fileexport';
@@ -288,6 +289,22 @@ function createWindow() {
     else mainWindow.show();
   });
 
+  // A tooling launch can ask for the laser depth tiles to be logged without
+  // anyone pressing the debug-panel button: the value is seconds after load to
+  // wait for the show and its models to be in. Vite serves one instance of a
+  // module per URL, so the import below reaches the module the app is running.
+  const depthDumpDelay = Number(process.env.BEAM_LASER_DEPTH_DUMP);
+  if (!app.isPackaged && depthDumpDelay > 0) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      setTimeout(() => {
+        if (!mainWindow) return;
+        mainWindow.webContents.executeJavaScript(
+          'import("/src/plugins/visualizer/laser.js").then((m) => m.default.dumpDepthTiles())',
+        ).catch((error) => console.error('[laser depth] dump failed', error));
+      }, depthDumpDelay * 1000);
+    });
+  }
+
   mainWindow.on('closed', () => {
     // Before the window is gone: a recording still running has just lost the
     // page that was feeding it, and an unclosed write stream loses its tail.
@@ -488,8 +505,16 @@ function setupVideoRecorder() {
  */
 function setupDocumentStore() {
   ipcMain.handle('document:read', (_event, target) => documentstore.read(target));
-  ipcMain.handle('document:resources', (_event, target) => documentstore.readResources(target));
+  // An export left unpacked by a crash is nobody's document now.
+  documentstore.clearCache();
+  // Opening a document mounts it: what it carries is unpacked and consulted
+  // ahead of the library until another document, or none, takes its place.
+  ipcMain.handle('document:mount', (_event, target) => documentstore.mount(target));
+  ipcMain.handle('document:unmount', () => documentstore.unmount());
   ipcMain.handle('document:write', (_event, target, json, resources) => documentstore.write(target, json, resources));
+  // The renderer names what the show references; the files are found here,
+  // where the library and the shipped assets are, so no model crosses IPC.
+  ipcMain.handle('document:export', (_event, target, json, wanted) => projectexport.exportTo(target, json, wanted));
   ipcMain.handle('document:open', () => documentstore.openDialog());
   ipcMain.handle('document:saveAs', (_event, name, title) => documentstore.saveDialog(name, title));
   ipcMain.handle('document:projectName', (_event, target) => documentstore.projectNameFor(target));
