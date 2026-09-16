@@ -794,6 +794,19 @@ class Fixture extends withTransform(Proxify) {
     return this._panSpeed || DEFAULT_PAN_SPEED;
   }
 
+  /**
+   * How tall the real fixture is, in metres, or null when the profile does not
+   * say. OFL keeps dimensions as width, height and depth in millimetres.
+   *
+   * @readonly
+   * @type {Number|null}
+   */
+  get bodyHeight() {
+    const { dimensions } = (this.OFLData || {}).physical || {};
+    const height = Array.isArray(dimensions) ? Number(dimensions[1]) : NaN;
+    return height > 0 ? height / 1000 : null;
+  }
+
   set tiltSpeed(value) {
     this._tiltSpeed = Number(value) || DEFAULT_TILT_SPEED;
     if (this._3DModel) this._3DModel.tiltSpeed = this._tiltSpeed;
@@ -1251,9 +1264,10 @@ class Fixture extends withTransform(Proxify) {
           // better than refusing to build the fixture.
           colorTemp: (this.OFLData.physical.bulb || {}).colorTemperature || DEFAULT_COLOR_TEMP,
           // Absent from OFL, which has no notion of how fast a head travels.
-          // Supplied per fixture by fixture_overrides.json when it matters.
+          // A profile may carry its own `panSpeed` and `tiltSpeed` keys.
           panSpeed: this.panSpeed,
           tiltSpeed: this.tiltSpeed,
+          bodyHeight: this.bodyHeight,
           intensity: 0.0, // Setting moving head's default intensity
           pan: 128, // Setting moving head's default pan value
           tilt: 128, // Setting moving head's default tilt value

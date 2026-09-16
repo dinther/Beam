@@ -71,6 +71,15 @@ const BEAM_RESOLUTION = 100;
 const BEAM_SEGMENTS = 1;
 const BEAM_LENGTH = 100;
 const BEAM_TOP_RADIUS = 0.09;
+
+/**
+ * How bright an unlit lens is: dark glass, not a hole in the head.
+ *
+ * @constant {Number}
+ */
+const LENS_DARK = 0.05;
+/** Scratch for the lens colour write. */
+const lensColor = new THREE.Color();
 const BEAM_MAX_ANGLE = 45;
 /**
  * How much of the cone's radius is at full brightness, before the penumbra.
@@ -273,6 +282,15 @@ function grownMesh(mesh) {
   grown.instanceMatrix.array.set(mesh.instanceMatrix.array);
   grown.instanceMatrix.setUsage(mesh.instanceMatrix.usage);
   grown.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    grown.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(capacity * 3).fill(LENS_DARK),
+      3,
+    );
+    grown.instanceColor.array.set(mesh.instanceColor.array);
+    grown.instanceColor.setUsage(mesh.instanceColor.usage);
+    grown.instanceColor.needsUpdate = true;
+  }
   grown.count = mesh.count;
   grown.frustumCulled = mesh.frustumCulled;
   grown.castShadow = mesh.castShadow;
@@ -335,7 +353,7 @@ const WHITE_EMITTERS = ['white', 'warmwhite', 'coldwhite', 'coolwhite'];
  * A real head accelerates and decelerates, and how long a move takes depends on
  * the fixture. None of that is simulated: this is a flat rate, chosen to look
  * plausible rather than to match any particular mover. A fixture may override it
- * through `fixture_overrides.json`.
+ * with `panSpeed` and `tiltSpeed` keys in its profile.
  *
  * @constant {Number}
  */
@@ -353,10 +371,44 @@ const TILT_SPEED_DEG_PER_SEC = 210;
  */
 const MAX_STEP_SECONDS = 0.1;
 
-/** Half-extent of a head's selection box, in metres. */
+/** Half-extent of a head's selection box, in metres, at the model's own size. */
 const SELECTION_HALF_EXTENT = 0.51;
 /** Scratch box for measuring one part of a head against the world. */
 const partBounds = new THREE.Box3();
+
+/**
+ * Bounds on how far a body may be scaled from the shipped model. Library
+ * dimensions are hand-typed, and a slipped digit must not produce a head the
+ * size of a truck or a matchbox.
+ *
+ * @constant {Number}
+ */
+const BODY_SCALE_MIN = 0.2;
+const BODY_SCALE_MAX = 3;
+
+/**
+ * Where the lens face sits along the head's axis in the shipped model, metres
+ * from the tilt pivot. The lens cap and the beam start here.
+ *
+ * @constant {Number}
+ */
+const LENS_FACE_OFFSET = 0.255;
+
+/**
+ * The shipped model's height, and how far its base reaches below the origin,
+ * measured from the geometry once it is loaded. A profile's physical height is
+ * scaled against the first; the second keeps a scaled base on the floor.
+ */
+let modelHeight = 0;
+let modelBaseDepth = 0;
+
+/** Scratch for taking the body's scale back out of the beam's frame. */
+const unitScale = new THREE.Vector3(1, 1, 1);
+const rigidPosition = new THREE.Vector3();
+const rigidQuaternion = new THREE.Quaternion();
+const rigidScale = new THREE.Vector3();
+const rigidMatrix = new THREE.Matrix4();
+const beamAxis = new THREE.Vector3();
 
 /** Scratch corner, reused while growing a selection box. */
 const boundsCorner = new THREE.Vector3();
@@ -431,6 +483,8 @@ class MovingHead {
      */
     this._emitters = {};
     this._highlighted = false;
+    // Every head draws the same body; this is how much of it this one is.
+    this._bodyScale = MovingHead.bodyScaleFor(data.bodyHeight);
 
     this.prepareInstance();
 
@@ -502,10 +556,30 @@ class MovingHead {
     this._spotLight.color = this._color;
     color_buffer_attribute.setXYZ(this._id, this._color.r, this._color.g, this._color.b);
     color_buffer_attribute.needsUpdate = true;
+    this.updateLensColor();
   }
 
   get color() {
     return this._color || new THREE.Color('white');
+  }
+
+  /**
+   * Paints the lens with what the lamp is putting through it.
+   *
+   * Dark glass when the lamp is off, the beam's colour at full, and the mix in
+   * between, so the lens reads as lit or unlit from any angle -- the beam
+   * itself is invisible looked at end-on.
+   *
+   * @private
+   */
+  updateLensColor() {
+    const lit = this.intensity;
+    lensColor.copy(this.color).multiplyScalar(lit);
+    lensColor.r += LENS_DARK * (1 - lit);
+    lensColor.g += LENS_DARK * (1 - lit);
+    lensColor.b += LENS_DARK * (1 - lit);
+    capMesh.setColorAt(this._id, lensColor);
+    capMesh.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -594,6 +668,7 @@ class MovingHead {
     this._spotLight.intensity = SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY * this._intensity;
     intensity_buffer_attribute.setX(this._id, this._intensity);
     intensity_buffer_attribute.needsUpdate = true;
+    this.updateLensColor();
   }
 
   get intensity() {
@@ -634,7 +709,8 @@ class MovingHead {
     this._dummy.position.set(
       positionVector.x,
       positionVector.y,
-      Math.max(positionVector.z, 0.51),
+      // The base bottom stays on the floor, whatever size the body is.
+      Math.max(positionVector.z, modelBaseDepth * this._bodyScale + 0.01),
     );
     this._matrixNeedsUpdate = true;
   }
@@ -1046,6 +1122,12 @@ class MovingHead {
 
     this._spotLight.target = this._targetDummy;
 
+    // On the root, so the yoke pivot, the head, the lens and the selection box
+    // all shrink or grow together. The beam is taken back out: see
+    // `rigidBeamMatrix`. Set only now: `attach` above keeps each child's world
+    // transform, and would have cancelled a scale already on the root.
+    this._dummy.scale.setScalar(this._bodyScale);
+
     baseMesh.count = instanceCount;
     yokeMesh.count = instanceCount;
     headMesh.count = instanceCount;
@@ -1074,7 +1156,9 @@ class MovingHead {
       baseMesh.setMatrixAt(this._id, this._dummy.matrixWorld);
       yokeMesh.setMatrixAt(this._id, this._yokeDummy.matrixWorld);
       headMesh.setMatrixAt(this._id, this._headDummy.matrixWorld);
-      beamMesh.setMatrixAt(this._id, this._beamDummy.matrixWorld);
+      this.rigidBeamMatrix();
+      beamMesh.setMatrixAt(this._id, rigidMatrix);
+      // The lens is part of the body, so it takes the scaled frame.
       capMesh.setMatrixAt(this._id, this._targetDummy.matrixWorld);
       boundingBoxMesh.setMatrixAt(this._id, this._dummy.matrixWorld);
       baseMesh.instanceMatrix.needsUpdate = true;
@@ -1084,6 +1168,25 @@ class MovingHead {
       capMesh.instanceMatrix.needsUpdate = true;
       boundingBoxMesh.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  /**
+   * The beam's frame with the body's scale taken back out, left in
+   * `rigidMatrix`.
+   *
+   * The beam hangs under the scaled head, but a beam is optics, not bodywork:
+   * its length and spread come from the profile's angle, and a scaled instance
+   * matrix would shorten and narrow it. So it takes the head's position and
+   * orientation only, moved along the axis to where the scaled head's face now
+   * is, since its geometry carries the model's own lens offset.
+   *
+   * @private
+   */
+  rigidBeamMatrix() {
+    this._beamDummy.matrixWorld.decompose(rigidPosition, rigidQuaternion, rigidScale);
+    beamAxis.set(0, 0, 1).applyQuaternion(rigidQuaternion);
+    rigidPosition.addScaledVector(beamAxis, LENS_FACE_OFFSET * (this._bodyScale - 1));
+    rigidMatrix.compose(rigidPosition, rigidQuaternion, unitScale);
   }
 
   updateDirectionVector() {
@@ -1113,6 +1216,7 @@ class MovingHead {
     this._spotLight.intensity = SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY * this.intensity * this._shutter;
     intensity_buffer_attribute.setX(this._id, this.intensity * this._shutter);
     intensity_buffer_attribute.needsUpdate = true;
+    this.updateLensColor();
   }
 
   /**
@@ -1176,16 +1280,17 @@ class MovingHead {
   }
 
   expandBounds(box) {
+    const halfExtent = SELECTION_HALF_EXTENT * this._bodyScale;
     boundsCorner.set(
-      this._position.x - SELECTION_HALF_EXTENT,
-      this._position.y - SELECTION_HALF_EXTENT,
-      this._position.z - SELECTION_HALF_EXTENT,
+      this._position.x - halfExtent,
+      this._position.y - halfExtent,
+      this._position.z - halfExtent,
     );
     box.expandByPoint(boundsCorner);
     boundsCorner.set(
-      this._position.x + SELECTION_HALF_EXTENT,
-      this._position.y + SELECTION_HALF_EXTENT,
-      this._position.z + SELECTION_HALF_EXTENT,
+      this._position.x + halfExtent,
+      this._position.y + halfExtent,
+      this._position.z + halfExtent,
     );
     box.expandByPoint(boundsCorner);
   }
@@ -1276,6 +1381,19 @@ class MovingHead {
     return degAngle * (Math.PI / 180);
   }
 
+  /**
+   * How much to scale the shipped body so it stands `height` metres tall.
+   *
+   * A profile without a usable height keeps the model's own size.
+   *
+   * @param {Number} height fixture height in metres, from the profile
+   * @returns {Number}
+   */
+  static bodyScaleFor(height) {
+    if (!(height > 0) || !(modelHeight > 0)) return 1;
+    return THREE.MathUtils.clamp(height / modelHeight, BODY_SCALE_MIN, BODY_SCALE_MAX);
+  }
+
   static prepareModelInstance() {
     const model = ModelInstancer.models.visualizer.models.scenography.beam.scene.children[0];
     const base = model.children[0];
@@ -1288,6 +1406,16 @@ class MovingHead {
 
     base.geometry.translate(0, 0, -0.5);
     yoke.geometry.translate(0, 0, -0.40);
+
+    // Measured after the parts are posed, so the numbers describe the model as
+    // it stands.
+    partBounds.makeEmpty();
+    [base, yoke, head].forEach((part) => {
+      part.geometry.computeBoundingBox();
+      partBounds.union(part.geometry.boundingBox);
+    });
+    modelHeight = partBounds.max.z - partBounds.min.z;
+    modelBaseDepth = -partBounds.min.z;
 
     THREE.BufferGeometry.prototype.copy.call(baseGeo, base.geometry);
     THREE.BufferGeometry.prototype.copy.call(yokeGeo, yoke.geometry);
@@ -1480,7 +1608,7 @@ class MovingHead {
       side: THREE.DoubleSide,
     });
 
-    capGeometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, 0.255));
+    capGeometry.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, LENS_FACE_OFFSET));
 
     THREE.BufferGeometry.prototype.copy.call(targetGeo, capGeometry);
 
@@ -1489,6 +1617,13 @@ class MovingHead {
     capMesh.count = instanceCount;
     capMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     capMesh.instanceMatrix.needsUpdate = true;
+    // Per-instance colour, so each lens shows its own lamp. Allocated up front
+    // rather than on the first write, so the material compiles with it once.
+    capMesh.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(capacity * 3).fill(LENS_DARK),
+      3,
+    );
+    capMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
   }
 
   static prepareBoxHelperInstance() {
