@@ -21,7 +21,7 @@
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",
     "@vue/compat": "^3.3.0",
-    "axios": "^0.26.1",
+    "axios": "^1.18.0",
     "events": "^3.3.0",
     "fflate": "^0.8.3",
     "grandi": "^2.0.2",
