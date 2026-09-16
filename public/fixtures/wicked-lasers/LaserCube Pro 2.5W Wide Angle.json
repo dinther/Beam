@@ -1,0 +1,49 @@
+{
+  "name": "LaserCube Pro 2.5W Wide Angle",
+  "categories": [
+    "Other"
+  ],
+  "meta": {
+    "generated": true
+  },
+  "physical": {
+    "dimensions": [
+      100,
+      100,
+      160
+    ],
+    "bulb": {
+      "type": "Laser"
+    },
+    "lens": {
+      "degreesMinMax": [
+        70,
+        70
+      ]
+    }
+  },
+  "availableChannels": {},
+  "modes": [
+    {
+      "name": "Default",
+      "channels": []
+    }
+  ],
+  "asls": {
+    "laser": {
+      "power": 2.5,
+      "scanAngleH": 70,
+      "scanAngleV": 70,
+      "beamDiameter": 1.5,
+      "divergence": 2.5,
+      "maxPointRate": 30000,
+      "width": 0.1,
+      "height": 0.1,
+      "depth": 0.16,
+      "apertureX": 0,
+      "apertureY": 0,
+      "apertureDiameter": 0.03,
+      "channels": []
+    }
+  }
+}

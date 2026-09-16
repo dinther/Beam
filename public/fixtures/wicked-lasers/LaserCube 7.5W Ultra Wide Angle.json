@@ -1,0 +1,49 @@
+{
+  "name": "LaserCube 7.5W Ultra Wide Angle",
+  "categories": [
+    "Other"
+  ],
+  "meta": {
+    "generated": true
+  },
+  "physical": {
+    "dimensions": [
+      200,
+      200,
+      200
+    ],
+    "bulb": {
+      "type": "Laser"
+    },
+    "lens": {
+      "degreesMinMax": [
+        80,
+        80
+      ]
+    }
+  },
+  "availableChannels": {},
+  "modes": [
+    {
+      "name": "Default",
+      "channels": []
+    }
+  ],
+  "asls": {
+    "laser": {
+      "power": 7.5,
+      "scanAngleH": 80,
+      "scanAngleV": 80,
+      "beamDiameter": 2,
+      "divergence": 3,
+      "maxPointRate": 30000,
+      "width": 0.2,
+      "height": 0.2,
+      "depth": 0.2,
+      "apertureX": 0,
+      "apertureY": 0,
+      "apertureDiameter": 0.03,
+      "channels": []
+    }
+  }
+}

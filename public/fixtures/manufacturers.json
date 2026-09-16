@@ -484,6 +484,9 @@
     "website": "https://tmb.com/",
     "rdmId": 6906
   },
+  "tomshine": {
+    "name": "Tomshine"
+  },
   "uking": {
     "name": "U`King",
     "website": "https://www.uking-online.com/"
@@ -505,5 +508,8 @@
     "name": "Venue",
     "comment": "Venue by Proline",
     "website": "https://venuelightingeffects.com/"
+  },
+  "wicked-lasers": {
+    "name": "Wicked Lasers"
   }
 }

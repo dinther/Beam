@@ -986,6 +986,17 @@
     ]
   },
   {
+    "name": "tomshine",
+    "fixtures": [
+      {
+        "file": "80w-led-gobo-moving-head.json",
+        "name": "80W LED Gobo Moving Head",
+        "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
     "name": "uking",
     "fixtures": [
       {
@@ -1009,6 +1020,35 @@
         "file": "hero-wash-340fx-rgbw-zoom.json",
         "name": "Hero Wash 340FX RGBW Zoom",
         "category": "Moving Head",
+        "supported": true
+      }
+    ]
+  },
+  {
+    "name": "wicked-lasers",
+    "fixtures": [
+      {
+        "file": "LaserCube 7.5W Ultra Wide Angle.json",
+        "name": "LaserCube 7.5W Ultra Wide Angle",
+        "category": "Other",
+        "supported": true
+      },
+      {
+        "file": "LaserCube 7.5W Ultra.json",
+        "name": "LaserCube 7.5W Ultra",
+        "category": "Other",
+        "supported": true
+      },
+      {
+        "file": "LaserCube Pro 2.5W Wide Angle.json",
+        "name": "LaserCube Pro 2.5W Wide Angle",
+        "category": "Other",
+        "supported": true
+      },
+      {
+        "file": "LaserCube Pro 2.5W.json",
+        "name": "LaserCube Pro 2.5W",
+        "category": "Other",
         "supported": true
       }
     ]

@@ -1,0 +1,49 @@
+{
+  "name": "LaserCube 7.5W Ultra",
+  "categories": [
+    "Other"
+  ],
+  "meta": {
+    "generated": true
+  },
+  "physical": {
+    "dimensions": [
+      200,
+      200,
+      200
+    ],
+    "bulb": {
+      "type": "Laser"
+    },
+    "lens": {
+      "degreesMinMax": [
+        50,
+        50
+      ]
+    }
+  },
+  "availableChannels": {},
+  "modes": [
+    {
+      "name": "Default",
+      "channels": []
+    }
+  ],
+  "asls": {
+    "laser": {
+      "power": 7.5,
+      "scanAngleH": 50,
+      "scanAngleV": 50,
+      "beamDiameter": 2,
+      "divergence": 1,
+      "maxPointRate": 30000,
+      "width": 0.2,
+      "height": 0.2,
+      "depth": 0.2,
+      "apertureX": 0,
+      "apertureY": 0,
+      "apertureDiameter": 0.03,
+      "channels": []
+    }
+  }
+}
