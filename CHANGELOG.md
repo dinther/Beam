@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.0-alpha.11
+
+Laser and projector beams stopped in mid-air whenever a moving head in the show cast a shadow. Fixed. Also in this release: Export Project to… packs every profile and model a show uses into the `.beam` file, the DMX patch can be run without the overlap rules, moving head bodies take their size from the profile, and new fixtures for Tomshine and Wicked Lasers.
+
+### Beams cut in mid-air
+
+- **The cause.** Each laser and projector keeps a depth view of the scene in one tile of a shared atlas, and a beam ends where that tile says the first surface is. With a shadow-casting light in the scene, three.js runs its shadow-map pass inside every render call and restores the render target afterwards — with the target's own full-size viewport and no scissor. The tile bounds set for the pass were gone by the time the scene was drawn, so every tile covered the whole atlas, each fixture overwrote the others, and a laser read a corner of the last view drawn. That corner held whatever stood near the last fixture, at about a metre, which is where the beams stopped. No floor or room needed.
+- **The fix.** Tile bounds now live on the render target itself, so anything that restores the target restores the tile. Shadow maps are not updated during the depth pass at all; an override material never reads them, and they were being redrawn once per tile. Pinned in the depth atlas test with a fake renderer that behaves like the real one.
+- **Debug panel, Laser folder.** **Stop at surfaces** turns occlusion off for the session. **Log depth tiles** writes each laser's depth view to the console as a grid of metres plus an image, with the depth camera's position and aim. Neither is saved.
+
+### Export Project to…
+
+- **What a save is, and what an export is.** A save names profiles and models and leaves them in the library, so an edit to a profile reaches every project that uses it. **Export Project to…** (Ctrl+Shift+S, replacing Save As) freezes the project: every referenced profile, override and model — shipped ones included — is copied into the `.beam` zip under `Library/Profiles`, `Library/Overrides` and `Library/Objects`, the same layout as the user's library. `.gltf` companions and thumbnails go too. `.glb` files are self-contained.
+- **Opening an export mounts it.** The packed library is unpacked to a per-file cache and consulted ahead of the user library and the shipped one while the document is open. The cache is cleared on close and at app start. Saving a mounted export keeps it an export.
+- **Errors are named.** A write failure or a referenced item that could not be found is reported with the item's name rather than silently skipped.
+
+### DMX patch
+
+- **Strict patch can be turned off** in the debug panel. Off, any address is accepted as typed, overlaps are allowed, and a new or pasted fixture keeps the address it was given instead of moving to the first free one. Loading a show always places fixtures where the file says, since one refused overlap would leave the rest of the rig unpatched.
+
+### Moving heads
+
+- **Bodies scale to the profile.** The body's height comes from the profile's physical dimensions, and the model is scaled to match, clamped between 0.2 and 3 times the shipped model so a mistyped dimension can't produce a head the size of a truck. Yoke, head, lens and selection box scale together and the base stays on the floor. The beam is not scaled; its geometry comes from the profile's beam angle.
+- **The lens shows the beam colour.** Dark glass when the head is off, the beam colour at full intensity, mixed in between.
+- **Pan and tilt speed overrides** now come from `panSpeed` and `tiltSpeed` keys in the profile.
+
+### Fixtures
+
+- **Tomshine 80W LED Gobo Moving Head**, converted from the QLC+ definition.
+- **Wicked Lasers LaserCube** 2.5W, 2.5W Wide Angle, 7.5W Ultra and 7.5W Ultra Wide Angle, each with power, scan angles, divergence and maximum point rate.
+
 ## 0.1.0-alpha.10
 
 Laser support. Beam now shows up on the network as a laser device, takes the point stream MadMapper already outputs, and renders both the beams in the air and the figure where it lands on geometry. Each laser has its own protocol/address settings and a status line that says what it's receiving. Also in this release: manual channel values on any fixture, Alt+click to select inside a structure, and a haze rework.

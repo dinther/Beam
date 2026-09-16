@@ -561,6 +561,7 @@ The picture comes from the stream; the fixture only corrects it. Each of these i
 - **Desktop app only.** All three routes need UDP, which browsers can't do.
 - **Sharing a machine with the sending software works**, with one caveat: a program that binds a device's well-known port for itself leaves nothing for Beam's emulated device. Beam detects that and says so, rather than looking connected and drawing nothing.
 - **Expect some flicker** on a heavy figure. That is the scanner model doing its job — a real laser dims and flickers when asked to draw more than it can scan.
+- **Beams stop at the first surface they meet.** Each laser keeps a depth view of the scene from its own aperture, and only things that cast shadows count — the room, objects, LED bar bodies, moving head bodies. If you need to see a beam run through everything, the debug panel's **Laser** folder has a **stop at surfaces** switch. It isn't saved, so the next start is back to normal. **Log depth tiles** in the same folder writes each laser's depth view to the console, nearest surfaces first, which is the thing to look at when a beam ends somewhere it shouldn't.
 
 ## The MadMapper export in detail
 
@@ -651,7 +652,7 @@ Treat the warning as a nudge to either place those by hand afterwards, or pick a
 
 ## Menus
 
-**File** — New Showfile, Load Showfile, Save Showfile, Export Showfile, Export MadMapper Layout
+**File** — New Project, Open Project, Import Showfile, Save Project, Export Project to..., Export MadMapper Layout
 
 **Edit** — Undo, Redo
 
@@ -661,9 +662,9 @@ Treat the warning as a nudge to either place those by hand afterwards, or pick a
 
 ## Files and where they live
 
-**Showfiles are JSON.** **Save Showfile** keeps the show in the application's own storage — that's your working save, and it's what comes back when you reopen. **Export Showfile** writes a `.json` file wherever you want it, which is what you hand to someone else or keep as a backup.
+**A project is a `.beam` file** you name and place; the save dialog starts in `Documents\Beatline\Beam`. **Save Project** writes the show. It names the fixture profiles and models it uses and leaves them in your library, so editing a profile reaches every project that places it. **Export Project to...** writes a copy with everything the show references collected into the file: profiles, your overrides, and the models it places, shipped ones included. That is the one to hand to someone else or keep as a record of a show as it was performed. Opened on any Beam, an exported project draws from what it carries first and the local library second, and saving it keeps everything it carried.
 
-**Fixture profiles** come from the built-in library, with generics you build stored alongside them.
+**Fixture profiles** come from the built-in library, with generics you build stored in `Documents\Beatline\Beam\Library`.
 
 **Exports** — the MadMapper layout and its `.mmfl` definitions go wherever you point them.
 
@@ -696,6 +697,9 @@ The **Prevent cross universe pixels** setting doesn't match your hardware. If yo
 
 **The viewport is slow.**
 Turn down fog **Density** and **Turbulence** first — they're the most expensive things on screen. Then turn off **Floor** and **Grid**.
+
+**A laser beam ends in mid-air.**
+Something is casting into that laser's depth view. Open the debug panel, turn off **stop at surfaces** in the Laser folder: if the beam runs on, it is occlusion, and **Log depth tiles** shows what the laser sees and how far away it is. An object that looks empty from the camera can still be solid to the laser — a model with a hidden inner shell, or a shadow-casting body placed inside another. If turning the switch off changes nothing, the beam is simply reaching the end of its **beam length**, which is also in that folder.
 
 ## Credits and licence
 
