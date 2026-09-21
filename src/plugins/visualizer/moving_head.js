@@ -402,8 +402,8 @@ const LENS_FACE_OFFSET = 0.255;
 let modelHeight = 0;
 let modelBaseDepth = 0;
 
-/** Scratch for taking the body's scale back out of the beam's frame. */
-const unitScale = new THREE.Vector3(1, 1, 1);
+/** Scratch for rebuilding the beam's frame from the scaled head's. */
+const beamScale = new THREE.Vector3(1, 1, 1);
 const rigidPosition = new THREE.Vector3();
 const rigidQuaternion = new THREE.Quaternion();
 const rigidScale = new THREE.Vector3();
@@ -1171,29 +1171,47 @@ class MovingHead {
   }
 
   /**
-   * The beam's frame with the body's scale taken back out, left in
-   * `rigidMatrix`.
+   * How far the beam's origin sits ahead of the head pivot's, along the axis,
+   * beyond where the shipped model puts it. The beam geometry carries the
+   * model's own lens offset; this is the rest of the way to the scaled lens.
+   *
+   * @type {Number}
+   * @private
+   */
+  get beamOriginShift() {
+    return LENS_FACE_OFFSET * (this._bodyScale - 1);
+  }
+
+  /**
+   * The beam's frame, left in `rigidMatrix`.
    *
    * The beam hangs under the scaled head, but a beam is optics, not bodywork:
-   * its length and spread come from the profile's angle, and a scaled instance
-   * matrix would shorten and narrow it. So it takes the head's position and
-   * orientation only, moved along the axis to where the scaled head's face now
-   * is, since its geometry carries the model's own lens offset.
+   * its length and spread come from the profile's angle, and the head's scale
+   * on its axis would shorten it and change its angle. So it takes the head's
+   * position and orientation, moved along the axis to where the scaled head's
+   * face now is, and the body's scale across the axis only: the beam leaves a
+   * lens that scaled with the body, and starts as wide as that lens. The
+   * vertex shader reads that radial scale back out of the instance matrix to
+   * keep the far end at the profile's angle.
    *
    * @private
    */
   rigidBeamMatrix() {
     this._beamDummy.matrixWorld.decompose(rigidPosition, rigidQuaternion, rigidScale);
     beamAxis.set(0, 0, 1).applyQuaternion(rigidQuaternion);
-    rigidPosition.addScaledVector(beamAxis, LENS_FACE_OFFSET * (this._bodyScale - 1));
-    rigidMatrix.compose(rigidPosition, rigidQuaternion, unitScale);
+    rigidPosition.addScaledVector(beamAxis, this.beamOriginShift);
+    beamScale.set(this._bodyScale, this._bodyScale, 1);
+    rigidMatrix.compose(rigidPosition, rigidQuaternion, beamScale);
   }
 
   updateDirectionVector() {
     this._beamDummy.getWorldDirection(vector_beam.normalize());
     direction_buffer_attribute.setXYZ(this._id, vector_beam.x, vector_beam.y, vector_beam.z);
     direction_buffer_attribute.needsUpdate = true;
-    this._beamDummy.getWorldPosition(vector_beam_pos.normalize());
+    // The same origin the instance matrix puts the geometry at: the fragment
+    // shader measures its cone from here, and the drawn cone must agree.
+    this._beamDummy.getWorldPosition(vector_beam_pos);
+    vector_beam_pos.addScaledVector(vector_beam, this.beamOriginShift);
     position_buffer_attribute.setXYZ(
       this._id,
       vector_beam_pos.x,

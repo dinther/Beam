@@ -28,15 +28,20 @@ varying float vIndex;           //Vertex index
 /**
  * @function computeRadiusVertexScaleFactor
  * @brief Computes cylinder's bottom cap vertex displacement
- * needed in order to set the beam's angle at the provided value 
+ * needed in order to set the beam's angle at the provided value
  * @param vec3 vector input vertex position vector
+ * @param float radialScale the instance's scale across the axis
  * @returns vec3 the transformed vertex position vector
  */
-vec3 computeRadiusVertexScaleFactor(vec3 vector) {
+vec3 computeRadiusVertexScaleFactor(vec3 vector, float radialScale) {
   if(index >= vertexCount / 2.0) {
-    float height = topRadius / tan(radians(angle.x)) + length + 20.0; //20.0 offset seems to be do the job taking into accont that light is emitted from a conical frustum.. There should be a formula capable of handling that more accurately though
-    float radius = tan(radians(angle.x)) * height;
-    float scaleFactor = radius / topRadius;
+    // The far ring, in world units, is the start ring plus the spread the
+    // angle gives over the length. The start ring is topRadius scaled by the
+    // instance; the spread is not, so it is divided back out of the local
+    // radius the instance matrix will scale. The 20.0 stands in for the
+    // conical frustum the light really leaves from; see vSlope below.
+    float spread = tan(radians(angle.x)) * (length + 20.0) / radialScale;
+    float scaleFactor = 1.0 + spread / topRadius;
     return vector * vec3(scaleFactor, scaleFactor, 1.5);
   }
   return vector;
@@ -67,9 +72,22 @@ void main() {
   vZFar = length * 1.5;
   vUv = uv;                   //forwarding UV values to fragement shader
   vIndex = index;             //forwarding vertex index to fragement shader
-  vPosition = computeRadiusVertexScaleFactor(position);     //Displaing vertex position to match desired angle
-  vWorldPosition = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(vPosition, 1.0);      //Determining vertex worldspace coordinates
 
-  vAbsoluteWorldPosition =  modelMatrix * instanceMatrix * vec4(vPosition, 1.0);
-  gl_Position = vWorldPosition;   //Setting up fragment world position 
+  // The instance matrix scales the beam across its axis to match the lens of a
+  // body that scaled with its profile height, and leaves the axis alone. The
+  // scale is read back from the x basis vector so the far ring can be widened
+  // by the angle's spread alone, in world units, whatever the start ring is.
+  // Spelled out: length is the cylinder length uniform in this shader.
+  vec3 xBasis = instanceMatrix[0].xyz;
+  float radialScale = sqrt(dot(xBasis, xBasis));
+  vec3 displaced = computeRadiusVertexScaleFactor(position, radialScale);     //Displacing vertex position to match desired angle
+
+  // The fragment shader measures its cone in the beam's frame, in metres, and
+  // against a world-space camera; so it gets the radial scale applied, while
+  // the world transforms below take the unscaled local point.
+  vPosition = displaced * vec3(radialScale, radialScale, 1.0);
+  vWorldPosition = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(displaced, 1.0);      //Determining vertex worldspace coordinates
+
+  vAbsoluteWorldPosition =  modelMatrix * instanceMatrix * vec4(displaced, 1.0);
+  gl_Position = vWorldPosition;   //Setting up fragment world position
 }
