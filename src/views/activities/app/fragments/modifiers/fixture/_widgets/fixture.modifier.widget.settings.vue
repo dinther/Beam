@@ -454,27 +454,51 @@
           v-if="channelHint"
           class="hint"
         >{{ channelHint }}</span>
-        <uk-flex
-          v-for="row in handChannels"
-          :key="row.index"
-          :gap="6"
-          class="row channel_row"
-        >
-          <span class="channel_no">{{ row.address }}</span>
-          <span class="channel_name">{{ row.name }}<span
-            v-if="row.isFine"
-            class="fine_tag"
-          >fine</span></span>
-          <uk-num-input
-            :model-value="row.value"
-            style="width: 62px"
-            :precision="0"
-            :min="0"
-            :max="255"
-            @update:model-value="setChannelValue(row.index, $event)"
-          />
-          <span class="channel_text">{{ row.text }}</span>
-        </uk-flex>
+        <div class="channel_table">
+          <table>
+            <thead>
+              <tr>
+                <th class="num">
+                  Addr
+                </th>
+                <th>Channel</th>
+                <th class="num">
+                  DMX
+                </th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in handChannels"
+                :key="row.index"
+              >
+                <td class="num">
+                  {{ row.address }}
+                </td>
+                <td class="channel_name">
+                  {{ row.name }}<span
+                    v-if="row.isFine"
+                    class="fine_tag"
+                  >fine</span>
+                </td>
+                <td class="num">
+                  <uk-num-input
+                    :model-value="row.value"
+                    style="width: 62px"
+                    :precision="0"
+                    :min="0"
+                    :max="255"
+                    @update:model-value="setChannelValue(row.index, $event)"
+                  />
+                </td>
+                <td class="channel_text">
+                  {{ row.text }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </template>
     </uk-flex>
   </uk-widget>
@@ -1324,34 +1348,47 @@ export default {
   color: var(--secondary-dark);
   cursor: unset;
 }
-.channel_row {
-  align-items: center;
+/* The channel table: the same table the Model widget draws for a bar, with
+   the byte's box in a cell. Rows are as tight as the box allows. */
+.channel_table {
+  overflow-x: auto;
+  border: 1px solid var(--primary-dark);
+  border-radius: 3px;
 }
-.channel_no {
-  width: 30px;
-  font-family: Roboto-Regular, sans-serif;
+.channel_table table {
+  border-collapse: collapse;
+  width: 100%;
   font-size: 11px;
-  color: var(--secondary-light);
+  font-variant-numeric: tabular-nums;
+}
+.channel_table th {
+  position: sticky;
+  top: 0;
+  background: var(--primary-lighter);
+  text-align: left;
+  font-family: Roboto-Medium;
+  color: var(--secondary-lighter-alt);
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.channel_table td {
+  padding: 1px 6px;
+  border-top: 1px solid var(--primary-dark);
+  color: var(--secondary-lighter);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.channel_table .num {
   text-align: right;
 }
 .channel_name {
-  flex: 1;
-  font-family: Roboto-Regular, sans-serif;
-  font-size: 11px;
-  color: var(--secondary-lighter);
+  width: 100%;
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
 }
 /* What the byte means, in the control's own units, beside its box. */
 .channel_text {
-  width: 96px;
-  font-family: Roboto-Regular, sans-serif;
-  font-size: 11px;
   color: var(--secondary-lighter-alt);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .fine_tag {
   margin-left: 4px;
