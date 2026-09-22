@@ -38,6 +38,7 @@
 **Part three — reference**
 - [The patch bay](#the-patch-bay)
 - [Building a generic LED fixture](#building-a-generic-led-fixture)
+- [Building a generic strobe](#building-a-generic-strobe)
 - [Addressing](#addressing)
 - [Setting channels by hand](#setting-channels-by-hand)
 - [Placing things](#placing-things)
@@ -46,6 +47,7 @@
 - [Art-Net input](#art-net-input)
 - [Lasers](#lasers)
 - [The MadMapper export in detail](#the-madmapper-export-in-detail)
+- [Recording](#recording)
 - [Keyboard and mouse](#keyboard-and-mouse)
 - [Menus](#menus)
 - [Files and where they live](#files-and-where-they-live)
@@ -121,11 +123,11 @@ Save often. Keep your showfiles. Report the odd stuff.
 
 The two big ones, both natural extensions of the same idea:
 
-**Video fixtures.** Screens and LED walls as first-class fixtures, rather than approximating them with a dense grid of pixels.
+**Video fixtures.** Screens and LED walls as first-class fixtures, rather than approximating them with a dense grid of pixels. **Arrived** — the display kind in create generic.
 
-**Laser projectors.** A different beast entirely — vector output rather than pixel output, ILDA rather than DMX — but the same fundamental job: place the device in 3D, see what it does, and get the geometry out in a form the driving software understands. **This one has arrived** — see [Lasers](#lasers). As alpha as everything else, but it works: MadMapper drives a laser fixture in Beam and the beams land in the room.
+**Laser projectors.** A different beast entirely — vector output rather than pixel output, ILDA rather than DMX — but the same fundamental job: place the device in 3D, see what it does, and get the geometry out in a form the driving software understands. **Arrived** — see [Lasers](#lasers). MadMapper drives a laser fixture in Beam and the beams land in the room.
 
-Video fixtures aren't in this build. That's where this is going next.
+Next: a generic moving head, then GDTF profiles.
 
 ---
 ---
@@ -239,9 +241,8 @@ Fill it in like this:
 
 | Field | Value | Why |
 |---|---|---|
-| **Type** | LED bar | The only generic kind for now |
-| **Manufacturer** | `Beatline` | Free text, it's yours |
-| **Model** | `Diamond 2x1` | What it'll be called in the library |
+| **Type** | LED bar | The generic kinds are LED bar, projector, display, laser and strobe |
+| **Name** | `Diamond 2x1` | Working name. Manufacturer and model are asked when you save it to the library |
 | **Length** | `2.0` | Two metres, in metres |
 | **Width** | `1.0` | One metre across |
 | **Height** | `0.05` | How thick the body is |
@@ -403,7 +404,11 @@ Two more buttons live under the fixtures list:
 
 ## Building a generic LED fixture
 
-Open with **create generic**. Describes a rigid body carrying a grid of emitters, and covers bars, strips, panels, tiles and battens.
+Open with **create generic**. Pick a **Type**: LED bar, projector, display, laser or strobe. Give it a **Name**. The definition lives in the show until you press **Save to library** in the fixture's Model widget, which asks for a manufacturer and a model. Until then it goes when its last instance is deleted.
+
+Items that reference a library entry show a link badge on their icon. Definitions carried in the show have no badge.
+
+The LED bar describes a rigid body carrying a grid of emitters, and covers bars, strips, panels, tiles and battens.
 
 This exists because fixture libraries describe *what a channel does*, not *where an emitter physically sits* — and for pixel fixtures, position is the whole point. So you describe the geometry directly. What comes out is shaped exactly like a library profile, so everything downstream treats it identically.
 
@@ -433,6 +438,26 @@ Components available: **R**ed, **G**reen, **B**lue, **W**hite, **A**mber, **UV**
 
 The default is a metre of 60-pixel GRB strip in an aluminium profile — a very common object, and a sensible starting point to edit.
 
+## Building a generic strobe
+
+**create generic**, Type **Strobe**.
+
+| Field | Meaning |
+|---|---|
+| Source | Xenon or LED |
+| Colour | White, RGB, or Gel scroller. Xenon starts white, LED starts RGB |
+| Power W | Rated power. Sets the brightness |
+| White K | Colour temperature of the white |
+| Flood H °, Flood V ° | Flood angles, full |
+| Rate min/max Hz | Flash rate range |
+| Flash min/max ms | Flash length range |
+| Width, Height, Depth | Body size in metres |
+| Face width, Face height | The lamp face |
+
+Channels: Dimmer, Rate, Duration, Strobe Mode, Red/Green/Blue (RGB) or Gel (scroller), Blinder, Flash. A gel position between two frames shows both gels, half the face each.
+
+Each control is one value. Set it by hand, or patch the channel and let the wire set it. Driven controls appear in the DMX Channels table with the byte and the value in units.
+
 ## Addressing
 
 Universes are 512 channels, numbered as everyone else numbers them. Beam holds **512 universes** at once — 262,144 channels.
@@ -452,7 +477,7 @@ What happens when DMX does arrive depends on whether the fixture is patched:
 - **Patched** — a hand-set value holds until data arrives for that channel, and from then on whatever is driving wins. So the values are defaults for a fixture waiting to be driven, and stop mattering the moment it is.
 - **Not patched** — the hand-set values are the only thing driving the fixture. Nothing can arrive to override them.
 
-The widget says which of the two you're looking at. Each row shows the channel's DMX address, its name from the profile, and a **fine** tag on the low byte of a 16-bit pair; the header shows the fixture's start address when it has one. Values are saved with the show.
+The widget says which of the two you're looking at. The **DMX Channels** table has a row per channel: address, name from the profile with a **fine** tag on the low byte of a 16-bit pair, the DMX byte, and for generic devices the value in units. It refreshes ten times a second while the fixture is driven. **Copy** puts the table on the clipboard. Values are saved with the show.
 
 ## Placing things
 
@@ -619,6 +644,19 @@ Treat the warning as a nudge to either place those by hand afterwards, or pick a
 - Addressing encoded in element ids in MadMapper's own format, learned from a file MadMapper exported.
 - CRLF line endings, because that's what MadMapper writes and its own files are read back byte for byte.
 
+## Recording
+
+**To Studio**, then the **Recording** widget.
+
+- **Resolution** — width and height, portrait or landscape
+- **Encoding** — frame rate: 24, 25, 30, 50 or 60
+- **Quality** — Low, Medium, High, Maximum
+- **Record desktop audio** — the system mix goes into the file
+- **Record / Stop** — the clock shows the take length
+- **Show in folder** — opens the last file
+
+Files are MP4, H.264 video and AAC audio, constant frame rate. They play on phones and upload to WhatsApp and Facebook as they are. Finishing a take shows a progress bar, frames encoded of frames captured. A strobe keeps every flash at any frame rate.
+
 ## Keyboard and mouse
 
 **Mouse**
@@ -664,7 +702,7 @@ Treat the warning as a nudge to either place those by hand afterwards, or pick a
 
 **A project is a `.beam` file** you name and place; the save dialog starts in `Documents\Beatline\Beam`. **Save Project** writes the show. It names the fixture profiles and models it uses and leaves them in your library, so editing a profile reaches every project that places it. **Export Project to...** writes a copy with everything the show references collected into the file: profiles, your overrides, and the models it places, shipped ones included. That is the one to hand to someone else or keep as a record of a show as it was performed. Opened on any Beam, an exported project draws from what it carries first and the local library second, and saving it keeps everything it carried.
 
-**Fixture profiles** come from the built-in library, with generics you build stored in `Documents\Beatline\Beam\Library`.
+**Fixture profiles** come from the built-in library. A generic fixture lives in the show until you save it to the library; saved ones are stored in `Documents\Beatline\Beam\Library\Profiles`.
 
 **Exports** — the MadMapper layout and its `.mmfl` definitions go wherever you point them.
 
@@ -703,7 +741,7 @@ Something is casting into that laser's depth view. Open the debug panel, turn of
 
 ## Credits and licence
 
-Beam is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, released under the GPL-3.0. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation this stands on. Beam adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and library export.
+Beam is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by Timé Kadel, released under the GPL-3.0. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation this stands on. Beam adds Art-Net input, a rebuilt visualizer, generic fixtures (LED bars, projectors, displays, lasers, strobes), video recording, per-group export mappings, and the MadMapper layout and library export.
 
 Beam is likewise **GPL-3.0**. See [`COPYING`](./COPYING) for the full terms, and [`CREDITS.html`](./CREDITS.html) for third-party libraries, fonts and data.
 

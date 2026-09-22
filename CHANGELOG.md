@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.1.0-alpha.12
+
+### Strobe
+
+- New generic fixture kind: **Strobe**.
+- Source: xenon or LED. Colour: white, RGB, or gel scroller with an editable gel string.
+- Parameters: rated power, white colour temperature, flood angle H/V, rate range, flash length range, body and face size.
+- Channels: Dimmer, Rate (Hz), Duration (ms), Strobe Mode, Red/Green/Blue or Gel, Blinder, Flash.
+- Brightness follows rated power: each flash carries power divided by rate.
+- A scroller position between two frames shows both gels, half the face each.
+- Flashes are counted per video frame. A recording keeps every flash at any frame rate.
+
+### Recording
+
+- Files are standard MP4, H.264 video and AAC audio, constant frame rate. Accepted by WhatsApp, Facebook and phones.
+- Encoding uses WebCodecs with the hardware encoder when available. Muxing by Mediabunny.
+- A progress bar shows frames encoded of frames captured while a take is finished.
+
+### Generic fixtures
+
+- A generic fixture is created under a working name and lives in the show.
+- **Save to library** in the Model widget asks for manufacturer and model. Manufacturer is a filter-as-you-type list, default **Generic**.
+- A device control is one value, written by hand or by the wire. Nothing is greyed out.
+- Fixture Settings has a **DMX Channels** table: address, channel name, DMX byte, value in units. Refreshes 10 times a second while driven. **Copy** puts the table on the clipboard.
+- The Model widget keeps a channel map for LED bars only.
+- Channel names come from the profile. Strobe controls use trade names.
+
+### Library references
+
+- An item that references a library entry shows a link badge on its icon, in the item list and in the Model widget header. Shipped and saved profiles and `.glb` models are library references. Definitions carried in the show have no badge.
+
+### Fixes
+
+- Moving head beams start at the scaled lens.
+- The body font is set once at the app root. No widget falls back to serif.
+- A combo box list is no longer clipped by the popup it sits in.
+
 ## 0.1.0-alpha.11
 
 Laser and projector beams stopped in mid-air whenever a moving head in the show cast a shadow. Fixed. Also in this release: Export Project to… packs every profile and model a show uses into the `.beam` file, the DMX patch can be run without the overlap rules, moving head bodies take their size from the profile, and new fixtures for Tomshine and Wicked Lasers.

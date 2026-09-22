@@ -183,4 +183,4 @@ Copyright (c) 2026 Paul van Dinther. Portions copyright (c) ASLS-org / Timé Kad
 
 Beam is built on **[ASLS Studio](https://github.com/ASLS-org/studio)** by [Timé Kadel](https://github.com/timekadel), which grew out of the ASLS research project and was made freely available to the lighting and open-source communities. Its patching, scene, effect and chase engines, its UI kit and the first version of its visualizer are the foundation everything here stands on.
 
-Beam adds Art-Net input, a rebuilt visualizer, generic LED fixtures, per-group export mappings, and the MadMapper layout and fixture-library export. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).
+Beam adds Art-Net input, a rebuilt visualizer, generic fixtures (LED bars, projectors, displays, lasers, strobes), video recording, per-group export mappings, and the MadMapper layout and fixture-library export. Third-party library credits are listed in [`CREDITS.html`](./CREDITS.html).
