@@ -239,6 +239,18 @@ export class RatioType extends ControlType {
 }
 
 /**
+ * A number the profile bounds, rising with the channel: level 0 is the low
+ * end and 1 the high, the way a rate or a flash length reads on a desk. The
+ * same envelope as a {@link RatioType} without the zoom's reversal.
+ */
+export class RangeType extends RatioType {
+  fromLevel(level, params) {
+    const { min, max } = this.range(params);
+    return min + (max - min) * clamp(level, 0, 1, 0);
+  }
+}
+
+/**
  * On or off. A shutter is a blade, not a fader, and a row showing it as a
  * number would ask the definer to encode a boolean by hand.
  */
@@ -322,8 +334,33 @@ export class EnumType extends ControlType {
 
   coerce(value) { return this.options.includes(value) ? value : this._initial; }
 
-  // Never driven -- these are not addressable, see ControlDef.
-  fromLevel() { return this._initial; }
+  /**
+   * The channel split into equal steps, one per option, in list order: the
+   * shape a strobe's mode channel or a colour wheel has on a desk.
+   *
+   * @param {Number} level 0..1
+   * @returns {*}
+   */
+  fromLevel(level) {
+    const count = this.options.length;
+    if (!count) return this._initial;
+    const index = Math.min(Math.floor(clamp(level, 0, 1, 0) * count), count - 1);
+    return this.options[index];
+  }
+
+  /**
+   * The DMX range of one option on an 8-bit channel, inclusive.
+   *
+   * The same split `fromLevel` reads, so a profile's declared ranges and what
+   * the device does with a byte cannot disagree.
+   *
+   * @param {Number} index position in `options`
+   * @returns {Array} `[start, end]`
+   */
+  rangeOf(index) {
+    const count = this.options.length || 1;
+    return [Math.floor((index * 256) / count), Math.floor(((index + 1) * 256) / count) - 1];
+  }
 }
 
 /**
@@ -715,9 +752,13 @@ export class ControlSet {
     const availableChannels = {};
     const channels = slots.map((slot, offset) => {
       const resolved = slot ? slot.name : `Reserved ${offset + 1}`;
-      availableChannels[resolved] = {
-        capability: slot ? slot.capability : { type: 'Maintenance' },
-      };
+      const capability = slot ? slot.capability : { type: 'Maintenance' };
+      // A parameter that means different things along its range -- a strobe's
+      // mode -- declares a list, each entry with its own dmxRange, which is
+      // OFL's `capabilities` rather than its `capability`.
+      availableChannels[resolved] = Array.isArray(capability)
+        ? { capabilities: capability }
+        : { capability };
       return resolved;
     });
 

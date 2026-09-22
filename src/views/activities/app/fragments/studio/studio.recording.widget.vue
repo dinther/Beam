@@ -88,8 +88,27 @@
         @click="reveal"
       />
 
+      <!-- Stopping is not instant: the encoder finishes the frames it still
+           holds before the frame table can be written. The bar is the
+           encoder's own count, so it moves at the speed the file is really
+           being finished. -->
+      <div
+        v-if="finishing"
+        class="studio_recording_progress"
+      >
+        <div class="studio_recording_track">
+          <div
+            class="studio_recording_fill"
+            :style="{ width: `${finishingPercent}%` }"
+          />
+        </div>
+        <p class="studio_recording_note">
+          Finishing… {{ finishing.encoded }} of {{ finishing.total }} frames
+        </p>
+      </div>
+
       <p
-        v-if="message.text"
+        v-if="message.text && !finishing"
         class="studio_recording_note"
         :class="{ studio_recording_error: message.error }"
       >
@@ -135,6 +154,8 @@ export default {
       /** Where the last finished take landed, for the reveal button. */
       finishedPath: null,
       message: { text: '', error: false },
+      /** `{ encoded, total }` while a take is being finished, else null. */
+      finishing: null,
       canRecord: true,
     };
   },
@@ -225,6 +246,11 @@ export default {
       return `${(bits / 1000000).toFixed(1)} Mbit/s, about `
         + `${readableSize((bits / 8) * 60)} a minute`;
     },
+    /** @returns {Number} 0-100, how far the encoder has got while finishing */
+    finishingPercent() {
+      if (!this.finishing || !this.finishing.total) return 100;
+      return Math.min(100, Math.round((this.finishing.encoded / this.finishing.total) * 100));
+    },
     /** @returns {String} elapsed time as m:ss, counting past an hour */
     clock() {
       const seconds = String(this.elapsed % 60).padStart(2, '0');
@@ -263,10 +289,12 @@ export default {
     },
   },
   mounted() {
-    if (!Recorder.pickMimeType()) {
+    // Asked of the encoders, which answer asynchronously.
+    Recorder.canRecord().then((able) => {
+      if (able) return;
       this.canRecord = false;
-      this.message = { text: 'This build cannot record video', error: true };
-    }
+      this.message = { text: 'This machine cannot encode H.264 video', error: true };
+    });
   },
   beforeUnmount() {
     if (this.take) this.stop();
@@ -351,7 +379,18 @@ export default {
       const { take } = this;
       this.take = null;
       Studio.state.recording = false;
-      const result = await take.stop();
+      // Stopping is not instant: the encoder finishes the frames it still
+      // holds, then the frame table is written and the last chunks land on
+      // disk. The bar follows the encoder's own count while that happens.
+      this.finishing = take.progress;
+      const progressHandle = setInterval(() => { this.finishing = take.progress; }, 100);
+      let result;
+      try {
+        result = await take.stop();
+      } finally {
+        clearInterval(progressHandle);
+        this.finishing = null;
+      }
 
       if (this.visualizer) this.visualizer.setRecordingMode(false);
       this.busy = false;
@@ -389,6 +428,23 @@ export default {
   /* The shell sets white-space: nowrap for its single-line rows, and clips what
      overflows. Prose in here has to opt back into wrapping. */
   white-space: normal;
+}
+.studio_recording_progress {
+  width: 100%;
+}
+.studio_recording_track {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--primary-dark);
+  overflow: hidden;
+}
+.studio_recording_fill {
+  height: 100%;
+  background: var(--accent-teal);
+  /* Steps with the encoder's count, ten times a second; a short ease keeps
+     the bar from ticking. */
+  transition: width 0.1s linear;
 }
 .studio_recording_note {
   /* Named explicitly: a bare element inherits the document default, which is a

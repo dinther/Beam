@@ -12,6 +12,7 @@ import LedBar from './led_bar';
 import Projector from './projector';
 import Display from './display';
 import Laser from './laser';
+import Strobe from './strobe';
 import SceneObjects from './scene_objects';
 import GroupHandle from './group_handle';
 
@@ -47,7 +48,9 @@ import GroupHandle from './group_handle';
  *
  * @constant {Array}
  */
-const SCENE_RENDERERS = [MovingHead, LedBar, Projector, Display, Laser, SceneObjects, GroupHandle];
+const SCENE_RENDERERS = [
+  MovingHead, LedBar, Projector, Display, Laser, Strobe, SceneObjects, GroupHandle,
+];
 
 function selectionKey(item) {
   if (!item) return '';

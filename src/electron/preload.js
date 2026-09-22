@@ -266,10 +266,11 @@ contextBridge.exposeInMainWorld('videoRecorder', {
   begin: (payload) => ipcRenderer.invoke('video:begin', payload),
   /**
    * @param {Number} id recording id
-   * @param {ArrayBuffer} chunk encoded bytes
+   * @param {Number} position byte offset in the file
+   * @param {Uint8Array} chunk the bytes
    * @returns {Promise<Object>} `{ ok, bytes }` or `{ ok: false, error }`
    */
-  write: (id, chunk) => ipcRenderer.invoke('video:write', id, chunk),
+  write: (id, position, chunk) => ipcRenderer.invoke('video:write', id, position, chunk),
   /** @returns {Promise<Object>} `{ ok, path, bytes }` or `{ ok: false, error }` */
   end: (id) => ipcRenderer.invoke('video:end', id),
   /** Closes a take and deletes its file. @returns {Promise<Object>} `{ ok }` */

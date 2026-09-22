@@ -494,7 +494,7 @@ function setupLibrary() {
  */
 function setupVideoRecorder() {
   ipcMain.handle('video:begin', (_event, payload) => videorecorder.begin(payload));
-  ipcMain.handle('video:write', (_event, id, chunk) => videorecorder.write(id, chunk));
+  ipcMain.handle('video:write', (_event, id, position, chunk) => videorecorder.write(id, position, chunk));
   ipcMain.handle('video:end', (_event, id) => videorecorder.end(id));
   ipcMain.handle('video:abort', (_event, id) => videorecorder.abort(id));
   ipcMain.handle('video:reveal', (_event, target) => videorecorder.reveal(target));

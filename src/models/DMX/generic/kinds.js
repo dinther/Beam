@@ -22,6 +22,8 @@ export const GENERIC_KINDS = {
   DISPLAY: 'display',
   /** An RGB show laser fed a galvo point stream -- see `laser.js`. */
   LASER: 'laser',
+  /** A strobe: a lamp face that floods the room in flashes -- see `strobe.js`. */
+  STROBE: 'strobe',
 };
 
 export default GENERIC_KINDS;

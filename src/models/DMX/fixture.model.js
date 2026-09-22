@@ -11,6 +11,7 @@ import Projector from '../../plugins/visualizer/projector';
 import Display from '../../plugins/visualizer/display';
 import VideoRouter from '../../plugins/visualizer/video_router';
 import Laser from '../../plugins/visualizer/laser';
+import Strobe from '../../plugins/visualizer/strobe';
 import { kindOf } from './generic/fixture_kind';
 import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
@@ -1217,6 +1218,18 @@ class Fixture extends withTransform(Proxify) {
       // the way the projector does.
       this._3DModel = markRaw(new Laser({
         params: this.OFLData.asls.laser,
+        settingsAt: () => this.device,
+      }));
+      this._3DModel.fixtureHandle = this;
+      this._3DModel.position = this._position;
+      this._3DModel.rotation = this._rotation;
+      return;
+    }
+    if (this.OFLData.asls && this.OFLData.asls.strobe) {
+      // A box with a lamp face. Its channels are routed to the settings by
+      // position, like a projector's, and the renderer reads them each frame.
+      this._3DModel = markRaw(new Strobe({
+        params: this.OFLData.asls.strobe,
         settingsAt: () => this.device,
       }));
       this._3DModel.fixtureHandle = this;

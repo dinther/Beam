@@ -640,6 +640,146 @@
           {{ laserSummary }}
         </p>
       </template>
+
+      <!-- A strobe is a lamp face that floods the room in flashes. The profile
+           says what the lamp is and what it can do; how it is run -- rate,
+           flash length, mode, colour -- is a control, decided below. -->
+      <template v-else-if="isStrobe">
+        <span class="create_section">Lamp</span>
+        <uk-flex :gap="8">
+          <uk-select-input
+            v-model="strobeSourceIndex"
+            style="width: 110px"
+            label="Source"
+            :options="strobeSourceOptions"
+          />
+          <uk-select-input
+            v-model="strobeColourIndex"
+            style="width: 110px"
+            label="Colour"
+            :options="strobeColourOptions"
+          />
+          <uk-num-input
+            v-model="strobePower"
+            class="field"
+            label="Power W"
+            :min="1"
+            :max="20000"
+          />
+          <uk-num-input
+            v-model="strobeKelvin"
+            class="field"
+            label="White K"
+            :min="1000"
+            :max="20000"
+          />
+        </uk-flex>
+
+        <span class="create_section">Flood and flash</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="floodAngleH"
+            class="field"
+            label="Flood H °"
+            :min="1"
+            :max="180"
+          />
+          <uk-num-input
+            v-model="floodAngleV"
+            class="field"
+            label="Flood V °"
+            :min="1"
+            :max="180"
+          />
+          <uk-num-input
+            v-model="rateMin"
+            class="field"
+            label="Rate min Hz"
+            :min="0.1"
+            :max="100"
+            :precision="1"
+          />
+          <uk-num-input
+            v-model="rateMax"
+            class="field"
+            label="Rate max Hz"
+            :min="0.1"
+            :max="100"
+            :precision="1"
+          />
+          <uk-num-input
+            v-model="durationMin"
+            class="field"
+            label="Flash min ms"
+            :min="1"
+            :max="5000"
+          />
+          <uk-num-input
+            v-model="durationMax"
+            class="field"
+            label="Flash max ms"
+            :min="1"
+            :max="5000"
+          />
+        </uk-flex>
+
+        <span class="create_section">Body (mm)</span>
+        <uk-flex :gap="8">
+          <uk-num-input
+            v-model="strobeWidth"
+            class="field"
+            label="Width"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="strobeHeight"
+            class="field"
+            label="Height"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="strobeDepth"
+            class="field"
+            label="Depth"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="faceWidth"
+            class="field"
+            label="Face width"
+            :min="1"
+            :max="3000"
+          />
+          <uk-num-input
+            v-model="faceHeight"
+            class="field"
+            label="Face height"
+            :min="1"
+            :max="3000"
+          />
+        </uk-flex>
+        <uk-colour-input
+          v-model="bodyColor"
+          label="Colour"
+          aria-label="Body colour"
+        />
+
+        <!-- Each is Fixed (baked here), Adjustable (set per placement) or DMX
+             (driven, at a relative channel and bit depth). -->
+        <span class="create_section">Controls</span>
+        <device-controls-form
+          :defs="strobeControlDefs"
+          :params="strobeEnvelope"
+          :controls="strobeControls"
+        />
+
+        <p class="create_summary">
+          {{ strobeSummary }}
+        </p>
+      </template>
     </uk-flex>
   </uk-popup>
 </template>
@@ -664,6 +804,15 @@ import {
   CONTROL_DEFS as LASER_CONTROL_DEFS,
   imageSizeAt as laserImageSizeAt,
 } from '@/models/DMX/generic/laser';
+import {
+  DEFAULT_STROBE_PARAMS,
+  STROBE_SOURCES,
+  STROBE_SOURCE_LABELS,
+  STROBE_COLOURS,
+  STROBE_COLOUR_LABELS,
+  controlDefsFor as strobeControlDefsFor,
+  illuminanceAt as strobeIlluminanceAt,
+} from '@/models/DMX/generic/strobe';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 import { blankRecords, controlSetFromRecords } from '@/models/DMX/device_control';
 import DeviceControlsForm from '../../modifiers/device/device.controls.form.vue';
@@ -680,19 +829,23 @@ const MM = 1000;
 // What the thing is, which decides how other tools are told to draw it: a bar
 // is a line with a thickness, a panel a rectangle. Separate from how many rows
 // it carries -- a four-row batten is still a bar.
-const KINDS = ['LED bar', 'LED panel', 'Projector', 'Display', 'Laser'];
-const KIND_SHAPES = [BAR_SHAPES.BAR, BAR_SHAPES.PANEL, null, null, null];
+const KINDS = ['LED bar', 'LED panel', 'Projector', 'Display', 'Laser', 'Strobe'];
+const KIND_SHAPES = [BAR_SHAPES.BAR, BAR_SHAPES.PANEL, null, null, null, null];
 // Which builder each kind goes to. Bars and panels differ in how they are
 // drawn and described to other tools, not in what makes them -- so both come
-// from the same builder; the projector, display and laser each add their own.
+// from the same builder; the projector, display, laser and strobe each add
+// their own.
 const KIND_BUILDERS = [
   GENERIC_KINDS.BAR, GENERIC_KINDS.BAR, GENERIC_KINDS.PROJECTOR,
-  GENERIC_KINDS.DISPLAY, GENERIC_KINDS.LASER,
+  GENERIC_KINDS.DISPLAY, GENERIC_KINDS.LASER, GENERIC_KINDS.STROBE,
 ];
 // The model name each kind starts out with. Changing the type renames the
 // fixture to match, so the two do not sit there disagreeing -- but only while
 // the name is still the one this dialog chose.
-const KIND_NAMES = ['LED Bar', 'LED Panel', 'Projector', 'Display', 'Laser'];
+const KIND_NAMES = ['LED Bar', 'LED Panel', 'Projector', 'Display', 'Laser', 'Strobe'];
+// The strobe's lamp and colour capability, as the two selects list them.
+const STROBE_SOURCE_KEYS = Object.values(STROBE_SOURCES);
+const STROBE_COLOUR_KEYS = Object.values(STROBE_COLOURS);
 const ORDERS = ['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR', 'RGBW', 'GRBW', 'BGRW', 'RGBA', 'GRBA'];
 const CORNERS = Object.values(START_CORNERS);
 const AXES = Object.values(SCAN_AXES);
@@ -795,6 +948,28 @@ export default {
       apertureY: DEFAULT_LASER_PARAMS.apertureY * MM,
       apertureDiameter: DEFAULT_LASER_PARAMS.apertureDiameter * MM,
       laserControls: blankRecords(LASER_CONTROL_DEFS, DEFAULT_LASER_PARAMS),
+      // Strobe. Kept apart from the others for the same reason they are.
+      strobeSourceIndex: Math.max(STROBE_SOURCE_KEYS.indexOf(DEFAULT_STROBE_PARAMS.source), 0),
+      strobeColourIndex: Math.max(STROBE_COLOUR_KEYS.indexOf(DEFAULT_STROBE_PARAMS.colour), 0),
+      strobePower: DEFAULT_STROBE_PARAMS.power,
+      strobeKelvin: DEFAULT_STROBE_PARAMS.colorTemperature,
+      floodAngleH: DEFAULT_STROBE_PARAMS.floodAngleH,
+      floodAngleV: DEFAULT_STROBE_PARAMS.floodAngleV,
+      rateMin: DEFAULT_STROBE_PARAMS.rateMin,
+      rateMax: DEFAULT_STROBE_PARAMS.rateMax,
+      durationMin: DEFAULT_STROBE_PARAMS.durationMin,
+      durationMax: DEFAULT_STROBE_PARAMS.durationMax,
+      strobeWidth: DEFAULT_STROBE_PARAMS.width * MM,
+      strobeHeight: DEFAULT_STROBE_PARAMS.height * MM,
+      strobeDepth: DEFAULT_STROBE_PARAMS.depth * MM,
+      faceWidth: DEFAULT_STROBE_PARAMS.faceWidth * MM,
+      faceHeight: DEFAULT_STROBE_PARAMS.faceHeight * MM,
+      // Records for every control, colour included: a white unit's form hides
+      // its colour rows rather than losing them, so switching back keeps them.
+      strobeControls: blankRecords(
+        strobeControlDefsFor(DEFAULT_STROBE_PARAMS),
+        DEFAULT_STROBE_PARAMS,
+      ),
       /**
        * The body's colour, per kind -- kept apart for the same reason the
        * sizes are, so a bar's black does not follow the type onto a
@@ -805,6 +980,7 @@ export default {
         [GENERIC_KINDS.PROJECTOR]: DEFAULT_PROJECTOR_PARAMS.bodyColor,
         [GENERIC_KINDS.DISPLAY]: DEFAULT_DISPLAY_PARAMS.bodyColor,
         [GENERIC_KINDS.LASER]: DEFAULT_LASER_PARAMS.bodyColor,
+        [GENERIC_KINDS.STROBE]: DEFAULT_STROBE_PARAMS.bodyColor,
       },
     };
   },
@@ -834,10 +1010,64 @@ export default {
     isLaser() {
       return this.builder === GENERIC_KINDS.LASER;
     },
+    isStrobe() {
+      return this.builder === GENERIC_KINDS.STROBE;
+    },
     /** The parameter declarations each kind's rows are drawn from. */
     projectorControlDefs() { return PROJECTOR_CONTROL_DEFS; },
     displayControlDefs() { return DISPLAY_CONTROL_DEFS; },
     laserControlDefs() { return LASER_CONTROL_DEFS; },
+    /** A white strobe has no colour rows; an RGB one has three. */
+    strobeControlDefs() { return strobeControlDefsFor(this.strobeEnvelope); },
+    strobeSourceOptions() { return STROBE_SOURCE_KEYS.map((key) => STROBE_SOURCE_LABELS[key]); },
+    strobeColourOptions() { return STROBE_COLOUR_KEYS.map((key) => STROBE_COLOUR_LABELS[key]); },
+    strobeControlSet() {
+      return controlSetFromRecords(
+        this.strobeControlDefs,
+        this.strobeControls,
+        this.strobeEnvelope,
+      );
+    },
+    /**
+     * The strobe's parameters, as the model wants them, less how its controls
+     * are decided.
+     *
+     * @type {Object}
+     */
+    strobeEnvelope() {
+      return {
+        source: STROBE_SOURCE_KEYS[this.strobeSourceIndex] || STROBE_SOURCE_KEYS[0],
+        colour: STROBE_COLOUR_KEYS[this.strobeColourIndex] || STROBE_COLOUR_KEYS[0],
+        power: this.strobePower,
+        colorTemperature: this.strobeKelvin,
+        floodAngleH: this.floodAngleH,
+        floodAngleV: this.floodAngleV,
+        rateMin: this.rateMin,
+        rateMax: this.rateMax,
+        durationMin: this.durationMin,
+        durationMax: this.durationMax,
+        width: this.strobeWidth / MM,
+        height: this.strobeHeight / MM,
+        depth: this.strobeDepth / MM,
+        faceWidth: this.faceWidth / MM,
+        faceHeight: this.faceHeight / MM,
+      };
+    },
+    strobeParams() {
+      return { ...this.strobeEnvelope, controls: this.strobeControlSet.toJSON() };
+    },
+    /**
+     * What the strobe comes to, in the terms someone hanging it thinks in: the
+     * flood, the light it lands at five metres, and the DMX footprint.
+     *
+     * @type {String}
+     */
+    strobeSummary() {
+      const lux = strobeIlluminanceAt(5, this.strobeEnvelope);
+      return `${this.floodAngleH}° × ${this.floodAngleV}° flood`
+        + ` · ${Math.round(lux).toLocaleString()} lux at 5 m while lit`
+        + ` · ${this.footprintSummary(this.strobeControlSet)}`;
+    },
     /**
      * Each kind's records as a set -- what knows the footprint, the overlaps
      * and the block the profile stores.
@@ -1235,6 +1465,7 @@ export default {
         [GENERIC_KINDS.PROJECTOR]: this.projectorParams,
         [GENERIC_KINDS.DISPLAY]: this.displayParams,
         [GENERIC_KINDS.LASER]: this.laserParams,
+        [GENERIC_KINDS.STROBE]: this.strobeParams,
       }[this.builder];
       // Every kind has a body and says its colour the same way, so it is added
       // here once rather than to each of the four.
@@ -1278,6 +1509,14 @@ export default {
             && Math.abs(this.apertureX) + radius <= this.laserWidth / 2
             && Math.abs(this.apertureY) + radius <= this.laserHeight / 2;
         },
+        [GENERIC_KINDS.STROBE]: () => this.strobeWidth > 0 && this.strobeHeight > 0
+          && this.strobeDepth > 0 && this.strobePower > 0
+          && this.floodAngleH > 0 && this.floodAngleV > 0
+          && this.rateMin > 0 && this.rateMax > 0
+          && this.durationMin > 0 && this.durationMax > 0
+          // The face sits on the front panel, so it cannot be wider than it.
+          && this.faceWidth > 0 && this.faceWidth <= this.strobeWidth
+          && this.faceHeight > 0 && this.faceHeight <= this.strobeHeight,
       }[this.builder]();
     },
     valid() {

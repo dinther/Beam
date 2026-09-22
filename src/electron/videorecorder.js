@@ -110,9 +110,9 @@ function begin({ name } = {}) {
   }
 
   const target = freePath(folder, sanitise(name));
-  let stream;
+  let fd;
   try {
-    stream = fs.createWriteStream(target);
+    fd = fs.openSync(target, 'w');
   } catch (err) {
     console.error(`[videorecorder] could not open ${target}: ${err.message}`);
     return { ok: false, error: `Could not write to ${target}` };
@@ -120,16 +120,12 @@ function begin({ name } = {}) {
 
   const id = nextId;
   nextId += 1;
+  // An open descriptor rather than an append stream: the muxer writes the
+  // frame table at the end of the take and then patches a size near the
+  // front, so chunks arrive with positions and have to be placed, not added.
   const recording = {
-    id, target, stream, bytes: 0, failed: null,
+    id, target, fd, bytes: 0, failed: null,
   };
-  // A disk that fills mid-take fails here rather than at `end`, and the error
-  // has to survive until something asks. Without this the stream throws into
-  // nothing and the recording looks fine until the file will not play.
-  stream.on('error', (err) => {
-    recording.failed = err.message;
-    console.error(`[videorecorder] write failed on ${target}: ${err.message}`);
-  });
   open.set(id, recording);
   console.log(`[videorecorder] recording ${id} -> ${target}`);
   return {
@@ -138,24 +134,48 @@ function begin({ name } = {}) {
 }
 
 /**
- * Appends one encoded chunk.
+ * Writes one chunk of the file at its position.
+ *
+ * A disk that fills mid-take fails here rather than at `end`, and the error
+ * is kept until something asks, so the recording cannot look fine until the
+ * file will not play.
  *
  * @param {Number} id recording id
- * @param {ArrayBuffer} chunk encoded bytes
+ * @param {Number} position byte offset in the file
+ * @param {Uint8Array|ArrayBuffer} chunk the bytes
  * @returns {Object} `{ ok, bytes }`, or `{ ok: false, error }`
  */
-function write(id, chunk) {
+function write(id, position, chunk) {
   const recording = open.get(id);
   if (!recording) return { ok: false, error: 'No such recording' };
   if (recording.failed) return { ok: false, error: recording.failed };
+  const at = Number(position);
+  if (!Number.isInteger(at) || at < 0) return { ok: false, error: 'Bad write position' };
   try {
-    const bytes = Buffer.from(chunk);
-    recording.stream.write(bytes);
-    recording.bytes += bytes.length;
+    const bytes = Buffer.from(chunk.buffer ? chunk : new Uint8Array(chunk));
+    fs.writeSync(recording.fd, bytes, 0, bytes.length, at);
+    // The file's length, not the bytes written: a patch near the front adds
+    // nothing to it.
+    recording.bytes = Math.max(recording.bytes, at + bytes.length);
     return { ok: true, bytes: recording.bytes };
   } catch (err) {
     recording.failed = err.message;
+    console.error(`[videorecorder] write failed on ${recording.target}: ${err.message}`);
     return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Closes a descriptor, reporting rather than throwing.
+ *
+ * @param {Object} recording
+ */
+function closeFile(recording) {
+  try {
+    fs.closeSync(recording.fd);
+  } catch (err) {
+    if (!recording.failed) recording.failed = err.message;
+    console.error(`[videorecorder] could not close ${recording.target}: ${err.message}`);
   }
 }
 
@@ -169,16 +189,12 @@ function end(id) {
   const recording = open.get(id);
   if (!recording) return Promise.resolve({ ok: false, error: 'No such recording' });
   open.delete(id);
-  return new Promise((resolve) => {
-    recording.stream.end(() => {
-      if (recording.failed) {
-        resolve({ ok: false, error: recording.failed, path: recording.target });
-        return;
-      }
-      console.log(`[videorecorder] recording ${id} closed, ${recording.bytes} bytes`);
-      resolve({ ok: true, path: recording.target, bytes: recording.bytes });
-    });
-  });
+  closeFile(recording);
+  if (recording.failed) {
+    return Promise.resolve({ ok: false, error: recording.failed, path: recording.target });
+  }
+  console.log(`[videorecorder] recording ${id} closed, ${recording.bytes} bytes`);
+  return Promise.resolve({ ok: true, path: recording.target, bytes: recording.bytes });
 }
 
 /**
@@ -194,16 +210,13 @@ function abort(id) {
   const recording = open.get(id);
   if (!recording) return Promise.resolve({ ok: false, error: 'No such recording' });
   open.delete(id);
-  return new Promise((resolve) => {
-    recording.stream.end(() => {
-      try {
-        fs.unlinkSync(recording.target);
-      } catch (err) {
-        console.error(`[videorecorder] could not remove ${recording.target}: ${err.message}`);
-      }
-      resolve({ ok: true });
-    });
-  });
+  closeFile(recording);
+  try {
+    fs.unlinkSync(recording.target);
+  } catch (err) {
+    console.error(`[videorecorder] could not remove ${recording.target}: ${err.message}`);
+  }
+  return Promise.resolve({ ok: true });
 }
 
 /**

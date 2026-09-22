@@ -51,6 +51,16 @@
           :label="row.def.type.onLabel"
         />
       </div>
+      <!-- One of a list the kind itself defines -- a strobe's mode. The select
+           models an index, so the row carries the option list and maps it. -->
+      <uk-select-input
+        v-else-if="row.editor === 'choice' && row.options"
+        :model-value="row.optionIndex"
+        class="field"
+        label="Value"
+        :options="row.optionLabels"
+        @update:model-value="(v) => setOption(row, v)"
+      />
       <uk-num-input
         v-else
         v-model="row.state.value"
@@ -147,6 +157,10 @@ export default {
           // record holds. setMode maps it back.
           const choices = def.modeChoices();
           const at = choices.findIndex((choice) => choice.index === state.modeIndex);
+          // A list the kind defines carries its options here, so the select
+          // can model an index over them.
+          const options = Array.isArray(def.type.options) ? def.type.options : null;
+          const optionIndex = options ? Math.max(options.indexOf(state.value), 0) : 0;
           return {
             key: def.key,
             def,
@@ -156,6 +170,11 @@ export default {
             modeChoices: choices,
             modeLabels: choices.map((choice) => choice.label),
             modeChoice: at < 0 ? 0 : at,
+            options,
+            optionLabels: options
+              ? options.map((option) => (def.type.labels || {})[option] || option)
+              : [],
+            optionIndex,
             // A parameter the profile cannot bake is also one it cannot park:
             // both are the same fact, that the value belongs to the placement.
             holdsValue: def.fixable,
@@ -164,6 +183,16 @@ export default {
     },
   },
   methods: {
+    /**
+     * Picks one of a listed parameter's options, by its position in the list.
+     *
+     * @param {Object} row
+     * @param {Number} index
+     */
+    setOption(row, index) {
+      const option = row.options ? row.options[Number(index)] : undefined;
+      if (option !== undefined) row.state.value = option;
+    },
     /**
      * Changes how a parameter is decided.
      *

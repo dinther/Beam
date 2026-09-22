@@ -179,7 +179,7 @@
           </uk-flex>
         </template>
 
-        <span class="section_label">{{ isLaser ? 'Input' : 'Output' }}</span>
+        <span class="section_label">{{ deviceSectionLabel }}</span>
 
         <!-- A laser says how it is fed: which protocol it presents itself as,
              and for a DAC which of the machine's addresses it lives at. That
@@ -225,7 +225,7 @@
         </template>
 
         <uk-flex
-          v-if="!isLaser"
+          v-if="!isLaser && !isStrobe"
           :gap="8"
           class="row"
         >
@@ -243,10 +243,103 @@
           >{{ drivenBy('source') }}</span>
         </uk-flex>
 
+        <!-- A strobe's lamp: how it flashes, how bright, what colour. A fixed
+             parameter is baked in the profile and dropped; a driven one is
+             greyed and holds the live DMX value. -->
+        <template v-if="isStrobe">
+          <uk-flex
+            :gap="6"
+            class="control_wrap"
+          >
+            <uk-select-input
+              v-show="!device.isFixed('mode')"
+              :model-value="strobeModeIndex"
+              style="flex: 1 1 96px; min-width: 96px"
+              label="Mode"
+              :options="strobeModeOptions"
+              :disabled="device.isDriven('mode')"
+              @input="pickStrobeMode"
+            />
+            <uk-num-input
+              v-show="!device.isFixed('rate')"
+              :model-value="Number(read('rate')) || 0"
+              style="flex: 1 1 72px; min-width: 72px"
+              label="Rate Hz"
+              :precision="1"
+              :min="strobeRateRange.min"
+              :max="strobeRateRange.max"
+              :disabled="device.isDriven('rate')"
+              @update:model-value="writeDevice('rate', $event)"
+            />
+            <uk-num-input
+              v-show="!device.isFixed('duration')"
+              :model-value="Math.round(read('duration') || 0)"
+              style="flex: 1 1 72px; min-width: 72px"
+              label="Flash ms"
+              :precision="0"
+              :min="strobeDurationRange.min"
+              :max="strobeDurationRange.max"
+              :disabled="device.isDriven('duration')"
+              @update:model-value="writeDevice('duration', $event)"
+            />
+          </uk-flex>
+          <uk-flex
+            :gap="6"
+            class="control_wrap"
+          >
+            <uk-num-input
+              v-show="!device.isFixed('dimmer')"
+              :model-value="Math.round(read('dimmer') || 0)"
+              style="flex: 1 1 72px; min-width: 72px"
+              label="Dimmer %"
+              :precision="0"
+              :min="0"
+              :max="100"
+              :disabled="device.isDriven('dimmer')"
+              @update:model-value="writeDevice('dimmer', $event)"
+            />
+            <uk-checkbox
+              v-show="!device.isFixed('blinder')"
+              :model-value="!!read('blinder')"
+              label="Blinder"
+              :disabled="device.isDriven('blinder')"
+              @update:model-value="writeDevice('blinder', $event)"
+            />
+            <uk-button
+              label="Flash"
+              :disabled="device.isDriven('flash')"
+              @click="fireStrobe"
+            />
+          </uk-flex>
+          <uk-flex
+            v-if="device.mixesColour"
+            :gap="6"
+            class="control_wrap"
+          >
+            <uk-num-input
+              v-for="hue in ['red', 'green', 'blue']"
+              v-show="!device.isFixed(hue)"
+              :key="hue"
+              :model-value="Math.round(read(hue) || 0)"
+              style="flex: 1 1 56px; min-width: 56px"
+              :label="hue.charAt(0).toUpperCase() + hue.slice(1)"
+              :precision="0"
+              :min="0"
+              :max="100"
+              :disabled="device.isDriven(hue)"
+              @update:model-value="writeDevice(hue, $event)"
+            />
+          </uk-flex>
+          <span
+            v-if="strobeDriven"
+            class="driven"
+          >{{ strobeDriven }}</span>
+        </template>
+
         <!-- Projector and display: a plain dimmer and blank. A laser carries a
              fuller output stage, below, so its dimmer lives there instead. -->
         <uk-flex
-          v-if="!isLaser"
+          v-if="!isLaser && !isStrobe"
           :gap="8"
           class="row"
         >
@@ -393,6 +486,7 @@ import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 import LaserStream from '@/plugins/laser_stream';
 import Laser from '@/plugins/visualizer/laser';
 import { SELECTABLE_PROTOCOLS, PROTOCOL_LABELS } from '@/models/DMX/laser_settings';
+import { SHUTTER_MODE_ORDER, SHUTTER_MODE_LABELS } from '@/plugins/visualizer/shutter';
 
 /**
  * The Ponk stream list always begins with "first live one", so a laser that
@@ -478,6 +572,38 @@ export default {
     isLaser() {
       return !!(this.fixture && this.fixture.deviceKind === GENERIC_KINDS.LASER);
     },
+    /** A strobe has no source and no shutter; it has a lamp, below. */
+    isStrobe() {
+      return !!(this.fixture && this.fixture.deviceKind === GENERIC_KINDS.STROBE);
+    },
+    /** What the device section is about, by kind. */
+    deviceSectionLabel() {
+      if (this.isLaser) return 'Input';
+      if (this.isStrobe) return 'Lamp';
+      return 'Output';
+    },
+    /** The marker under the strobe's rows when a console drives any of them. */
+    strobeDriven() {
+      if (!this.isStrobe || !this.device) return '';
+      const keys = ['mode', 'rate', 'duration', 'dimmer', 'blinder', 'flash', 'red', 'green', 'blue'];
+      return keys.some((key) => this.device.isDriven(key)) ? 'DMX' : '';
+    },
+    /** The strobe's modes, as the select lists them. */
+    strobeModeOptions() {
+      return SHUTTER_MODE_ORDER.map((mode) => SHUTTER_MODE_LABELS[mode] || mode);
+    },
+    strobeModeIndex() {
+      const at = SHUTTER_MODE_ORDER.indexOf(this.read('mode'));
+      return at < 0 ? 0 : at;
+    },
+    /** The rates and flash lengths this strobe's profile allows. */
+    strobeRateRange() {
+      return this.device && this.device.rateRange ? this.device.rateRange : { min: 0, max: 100 };
+    },
+    strobeDurationRange() {
+      return this.device && this.device.durationRange
+        ? this.device.durationRange : { min: 0, max: 5000 };
+    },
     /**
      * The laser's output stage, grouped and laid out several across so the
      * panel is not a tall single column. A fixed parameter is dropped from the
@@ -557,6 +683,11 @@ export default {
         // could be turned on and never off.
         mirrorX: device.value('mirrorX'),
         mirrorY: device.value('mirrorY'),
+        // The strobe's lamp. Undefined for any other device.
+        mode: device.value('mode'),
+        rate: device.value('rate'),
+        duration: device.value('duration'),
+        blinder: device.value('blinder'),
       };
     },
     /**
@@ -971,6 +1102,26 @@ export default {
       // every other write in this widget.
       const model = this.fixture._3DModel;
       if (model && model.refresh) model.refresh();
+    },
+    /**
+     * Sets how the strobe's lamp runs.
+     *
+     * @public
+     * @param {Number} index into `strobeModeOptions`
+     */
+    pickStrobeMode(index) {
+      const mode = SHUTTER_MODE_ORDER[Number(index)];
+      if (mode) this.writeDevice('mode', mode);
+    },
+    /**
+     * One flash, now. The renderer fires on the trigger's rising edge and
+     * re-arms when it drops, so the pair of writes is one flash.
+     *
+     * @public
+     */
+    fireStrobe() {
+      this.writeDevice('flash', true);
+      this.writeDevice('flash', false);
     },
     pickProtocol(index) {
       const protocol = this.protocolChoices[index];

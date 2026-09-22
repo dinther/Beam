@@ -4,6 +4,8 @@ import SceneEnv from './scene_env';
 // TODO: find a way for the linter to acces vite's '?' syntax
 import VOLUMETRIC_BEAM_VERTEX_SHADER from './shaders/beam.vertex.glsl?raw';
 import VOLUMETRIC_BEAM_FRAGMENT_SHADER from './shaders/beam.fragment.glsl?raw';
+import Shutter, { SHUTTER_MODES } from './shutter';
+import { kelvinToRgb } from '../../models/DMX/colour_temperature';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import LightField from './light_field';
 import { castsContactShadow } from './contact_shadows';
@@ -144,28 +146,6 @@ const SLOT_TYPES = {
   OPEN: 'Open',
   COLOR: 'Color',
   GOBO: 'Gobo',
-};
-
-const SHUTTER_STROBE_EFFETCS = {
-  OPEN: 'Open',
-  CLOSED: 'Closed',
-  STROBE: 'Strobe',
-  PULSE: 'Strobe',
-  RAMP_UP: 'RampUp',
-  RAMP_DOWN: 'RampDown',
-  RAMP_UP_DOWN: 'RampUpDown',
-  LIGHTNING: 'Lighting',
-  SPIKES: 'Spikes',
-};
-
-const SHUTTER_VALUE = {
-  OPEN: 1.0,
-  CLOSED: 0.0,
-};
-
-const SHUTTER_STROBE_FREQUENCIES_DEFAULT = {
-  SLOW: 1,
-  FAST: 10,
 };
 
 let position_buffer_attribute = new THREE.InstancedBufferAttribute(
@@ -465,7 +445,17 @@ class MovingHead {
     this._rotation = new THREE.Vector3();
     this._minAngle = data.minAngle + 1.0;
     this._maxAngle = data.maxAngle + 1.0;
-    this._shutter = SHUTTER_VALUE.OPEN;
+    /** What the shutter let through this frame, 0..1. */
+    this._shutter = 1.0;
+    /**
+     * The shutter's behaviour over time, shared with the strobe fixture. Open
+     * until a shutter channel says otherwise.
+     */
+    this._flashes = new Shutter();
+    this._flashes.mode = SHUTTER_MODES.ON;
+    /** OFL's random-timing flag, kept so the effect can be re-derived. */
+    this._strobeRandom = false;
+    this._strobeEffect = 'Open';
     this._goboWheel = data.goboWheel;
     this._colorWheel = data.colorWheel;
     this._activeColorPreset = false;
@@ -504,11 +494,6 @@ class MovingHead {
     // from zero every time a show loads.
     this.snapOrientation();
     this.strobeFrequency = 0.0;
-
-    this._shutterStrobe = {
-      effect: SHUTTER_STROBE_EFFETCS.OPEN,
-      frequency: SHUTTER_STROBE_FREQUENCIES_DEFAULT.SLOW,
-    };
   }
 
   /**
@@ -739,16 +724,60 @@ class MovingHead {
   }
 
   /**
-   * Beam strobe frequency in HZ
+   * Beam strobe frequency in Hz, from a ShutterStrobe or StrobeSpeed channel.
    *
    * @type {Number}
    */
   set strobeFrequency(frequency) {
-    this._strobeFrequency = Math.round(frequency);
+    this._flashes.rate = Math.max(Number(frequency) || 0, 0);
   }
 
   get strobeFrequency() {
-    return this._strobeFrequency;
+    return this._flashes.rate;
+  }
+
+  /**
+   * The shutter effect a ShutterStrobe channel selects, in OFL's words: Open,
+   * Closed, Strobe, Pulse, RampUp, RampDown, RampUpDown, Lightning, Spikes.
+   *
+   * Named for the capability alias so the channel dispatch reaches it.
+   *
+   * @type {String}
+   */
+  set strobeEffect(effect) {
+    this._strobeEffect = effect || 'Open';
+    this._flashes.mode = Shutter.modeFromEffect(this._strobeEffect, this._strobeRandom);
+  }
+
+  get strobeEffect() {
+    return this._strobeEffect;
+  }
+
+  /**
+   * How long each flash lasts, in milliseconds, from a StrobeDuration channel.
+   *
+   * @type {Number}
+   */
+  set strobeDuration(duration) {
+    this._flashes.duration = Math.max(Number(duration) || 0, 0);
+  }
+
+  get strobeDuration() {
+    return this._flashes.duration;
+  }
+
+  /**
+   * OFL's random-timing flag on a strobe effect.
+   *
+   * @type {Boolean}
+   */
+  set strobeRandom(random) {
+    this._strobeRandom = !!random;
+    this._flashes.mode = Shutter.modeFromEffect(this._strobeEffect, this._strobeRandom);
+  }
+
+  get strobeRandom() {
+    return this._strobeRandom;
   }
 
   /**
@@ -928,7 +957,7 @@ class MovingHead {
    * @type {Array}
    */
   get whitePoint() {
-    const rgb = MovingHead.kelvinToRgb(this.colorTemp);
+    const rgb = kelvinToRgb(this.colorTemp);
     const peak = Math.max(rgb[0], rgb[1], rgb[2]) || 1;
     return [rgb[0] / peak, rgb[1] / peak, rgb[2] / peak];
   }
@@ -998,34 +1027,6 @@ class MovingHead {
       Math.max(mix[1] * scale, 0.00001),
       Math.max(mix[2] * scale, 0.00001),
     );
-  }
-
-  /**
-   * Approximate RGB of a black-body temperature, 0-1 per component.
-   *
-   * props to: http://www.tannerhelland.com/4435/convert-temperature-rgb-algorithm-code/
-   *
-   * @static
-   * @param {Number} kelvin colour temperature
-   * @return {Array} [r, g, b]
-   */
-  static kelvinToRgb(kelvin) {
-    const temp = Math.max(kelvin, 1000) / 100;
-    let rgbData;
-    if (temp <= 66) {
-      rgbData = [
-        255,
-        99.4708025861 * Math.log(temp) - 161.1195681661,
-        temp <= 19 ? 0 : 138.5177312231 * Math.log(temp - 10) - 305.0447927307,
-      ];
-    } else {
-      rgbData = [
-        329.698727446 * (temp - 60) ** -0.1332047592,
-        288.1221695283 * (temp - 60) ** -0.0755148492,
-        255,
-      ];
-    }
-    return rgbData.map((value) => Math.min(Math.max(value, 0), 255) / 255);
   }
 
   /**
@@ -1221,14 +1222,17 @@ class MovingHead {
     position_buffer_attribute.needsUpdate = true;
   }
 
+  /**
+   * Advances the shutter one frame and writes what it let through.
+   *
+   * The frame is an interval, not an instant: a 25 Hz strobe sampled at the
+   * frame time beats against 60 fps, where counting the flashes that fell
+   * inside the frame does not. See `shutter.js`.
+   *
+   * @param {Number} t seconds
+   */
   updateStrobe(t) {
-    if (this._strobeFrequency > 0.0) {
-      this._shutter = Math.sin(2.0 * Math.PI * this._strobeFrequency * t) > 0.0
-        ? SHUTTER_VALUE.OPEN
-        : SHUTTER_VALUE.CLOSED;
-    } else {
-      this._shutter = 1.0;
-    }
+    this._shutter = this._flashes.sample(t);
 
     // eslint-disable-next-line max-len
     this._spotLight.intensity = SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY * this.intensity * this._shutter;

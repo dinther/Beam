@@ -37,9 +37,16 @@ import {
   buildLaserProfile,
   isLaserProfile,
 } from './laser';
+import {
+  DEFAULT_STROBE_PARAMS,
+  CONTROL_DEFS as STROBE_CONTROL_DEFS,
+  buildStrobeProfile,
+  isStrobeProfile,
+} from './strobe';
 import ProjectorSettings from '../projector_settings';
 import DisplaySettings from '../display_settings';
 import LaserSettings from '../laser_settings';
+import StrobeSettings from '../strobe_settings';
 
 /**
  * One kind of generic fixture.
@@ -177,6 +184,18 @@ export const FIXTURE_KINDS = [
     build: buildLaserProfile,
     matches: isLaserProfile,
     Settings: LaserSettings,
+  }),
+  new FixtureKind({
+    id: GENERIC_KINDS.STROBE,
+    label: 'Strobe',
+    // No strobe glyph yet; a sun is the nearest thing that says "flash".
+    icon: 'sun',
+    paramsKey: 'strobe',
+    defaults: DEFAULT_STROBE_PARAMS,
+    controlDefs: STROBE_CONTROL_DEFS,
+    build: buildStrobeProfile,
+    matches: isStrobeProfile,
+    Settings: StrobeSettings,
   }),
 ];
 

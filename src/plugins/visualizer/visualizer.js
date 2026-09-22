@@ -79,6 +79,9 @@ import ProjectorDepth from './projector_depth';
 import ProjectorEffect from './projector_pass';
 import ContactShadows from './contact_shadows';
 import LaserEffect from './laser_pass';
+import Strobe from './strobe';
+import StrobeWashEffect from './strobe_wash';
+import Recorder from './recorder';
 import {
   EffectComposer,
   RenderPass,
@@ -101,6 +104,10 @@ let finalComposer = null;
 /** The projection pass, module-scoped for the same reason the composer is. */
 let projectorEffect = null;
 let laserEffect = null;
+/** Whites the frame when a strobe fires at the camera. */
+let strobeWashEffect = null;
+/** Scratch for the wash summed over every strobe each frame. */
+const strobeWash = new THREE.Color();
 
 /**
  * Bloom pass, kept accessible so the fog controls can drive it.
@@ -1033,6 +1040,12 @@ class Visualizer {
     AnimationManager.add((t) => {
       MovingHead.update(t);
       LEDField.update(t);
+      // The strobes' flash trains, before the field packs them and before the
+      // wash reads what they did to the camera.
+      Strobe.update(t);
+      if (strobeWashEffect) {
+        strobeWashEffect.setWash(Strobe.cameraWash(this.camera, strobeWash));
+      }
       // After the heads have moved, so what is packed is where they now point
       // rather than where they were a frame ago.
       LightField.update();
@@ -1317,6 +1330,9 @@ class Visualizer {
     // bloom for the same reason a lamp is: a bright projection on stone glares.
     projectorEffect = new ProjectorEffect(this.camera);
     laserEffect = new LaserEffect(this.camera);
+    // Before bloom and tone mapping, so a flash at the eye is an add in linear
+    // light that the tone curve takes to white, rather than a grey veil.
+    strobeWashEffect = new StrobeWashEffect();
 
     // The laser figure gets a pass of its own, ahead of the rest.
     //
@@ -1334,8 +1350,8 @@ class Visualizer {
     // mapping show looks.
     finalComposer.addPass(new EffectPass(this.camera, laserEffect));
     const effects = bloomEffect
-      ? [projectorEffect, ambientHazeEffect, bloomEffect, toneMapping]
-      : [projectorEffect, ambientHazeEffect, toneMapping];
+      ? [projectorEffect, ambientHazeEffect, strobeWashEffect, bloomEffect, toneMapping]
+      : [projectorEffect, ambientHazeEffect, strobeWashEffect, toneMapping];
     finalComposer.addPass(new EffectPass(this.camera, ...effects));
 
     // A depth-reading effect -- the ambient haze, here -- makes the composer
@@ -1917,6 +1933,10 @@ class Visualizer {
       }
     }
     Perf.end();
+
+    // The finished picture, before anything is drawn over it. The recorder
+    // takes it only when its own clock has reached the next frame slot.
+    Recorder.frameDrawn();
 
     // Over the finished image, and after Perf.end() so the gizmo's own cost is
     // not counted against the scene it is reporting on. Not while recording:
