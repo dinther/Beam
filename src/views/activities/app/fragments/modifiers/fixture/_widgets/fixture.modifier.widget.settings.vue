@@ -437,7 +437,7 @@
           :gap="8"
           class="channel_head"
         >
-          <span class="section_label">Channels</span>
+          <span class="section_label">DMX Channels</span>
           <span style="flex: 1" />
           <!-- The patch sheet: number, address and name, for a spreadsheet or
                a desk. Here because the addresses are this placement's. -->
