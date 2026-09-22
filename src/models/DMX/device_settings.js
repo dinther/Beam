@@ -10,16 +10,22 @@
  * currently set to, given those declarations and whatever the wire is saying.
  *
  * One panel and one rule serve all three modes, and nothing about the panel
- * changes shape when a fixture is patched. Three consequences, each easy to get
- * wrong:
+ * changes shape when a fixture is patched:
  *
- * - **Ownership is asked of the definition, not of whether a frame has landed.**
- *   A row that became editable whenever a console paused would be a race.
- * - **A live value is held, not cleared.** When DMX stops the last value
- *   stands: a dropped frame must not snap the rig to a parked default, and
- *   there is no telling a stopped console from a slow one.
- * - **Only non-fixed values travel in the show.** A fixed value lives in the
- *   profile; what DMX is saying is a fact about one machine at one moment.
+ * - **One value per control.** The wire writes it, a hand writes it, and
+ *   whoever wrote last is what the fixture does and what the panel shows.
+ *   Nothing is greyed: a fixture can be set up by hand with no console
+ *   running, and while a console runs, the next frame simply wins.
+ * - **A value is held, never cleared.** When DMX stops, the last value
+ *   stands: a dropped frame must not snap the rig to a default, and there is
+ *   no telling a stopped console from a slow one.
+ * - **Non-fixed values travel in the show, as they stand.** A fixed value
+ *   lives in the profile. A show saved during a desk session carries the
+ *   desk's last frame as the fixture's setting, which is the price of there
+ *   being one value and not two to explain.
+ *
+ * The same rule as the hand-set channel table on a library fixture: held
+ * until DMX arrives, then whatever is driving wins.
  */
 
 import {
@@ -75,9 +81,9 @@ class DeviceSettings {
     const stored = data || {};
 
     /**
-     * The parked value per attribute: what the profile bakes in for a fixed
-     * one, what the show carries for anything else, and the definition's own
-     * default when the show says nothing.
+     * The one value per attribute: what the profile bakes in for a fixed one,
+     * what the show carries for anything else, and the definition's own
+     * default when the show says nothing. The wire and a hand both write here.
      */
     this._stored = {};
     this._controls.controls.forEach((control) => {
@@ -88,8 +94,12 @@ class DeviceSettings {
       }
     });
 
-    /** What DMX last said, per attribute. Absent until a frame arrives. */
-    this._live = {};
+    /**
+     * Whether an attribute's value was last written by the wire. What the
+     * panel's marker says, and what tells a source select whether it holds a
+     * channel's position or a hand-picked id.
+     */
+    this._fromWire = {};
     /** The assembled raw integer per driven attribute, across its bytes. */
     this._raw = {};
     this._byteMap = this._controls.byteMap();
@@ -148,20 +158,16 @@ class DeviceSettings {
   isFixed(key) { return this.mode(key) === 'fixed'; }
 
   /**
-   * What the device is actually doing: the live value if one has arrived,
-   * otherwise the parked one.
+   * What the device is doing: whatever was written last, by wire or by hand.
    *
    * @public
    * @param {String} key
    * @returns {*}
    */
-  value(key) {
-    if (this._live[key] !== undefined) return this._live[key];
-    return this._stored[key];
-  }
+  value(key) { return this._stored[key]; }
 
   /**
-   * The parked value, whatever DMX may be saying over the top.
+   * The same value. Kept as a name for what the show saves.
    *
    * @public
    * @param {String} key
@@ -170,8 +176,9 @@ class DeviceSettings {
   stored(key) { return this._stored[key]; }
 
   /**
-   * Sets the parked value, keeping it inside what the profile allows. Refused
-   * for a fixed attribute, whose value belongs to the profile.
+   * Sets a value by hand, keeping it inside what the profile allows. Refused
+   * for a fixed attribute, whose value belongs to the profile. The next frame
+   * from the wire, if one comes, overwrites it.
    *
    * @public
    * @param {String} key
@@ -181,6 +188,7 @@ class DeviceSettings {
     const control = this._controls.get(key);
     if (!control || control.isFixed) return;
     this._stored[key] = control.type.coerce(value, this._params);
+    this._fromWire[key] = false;
   }
 
   /**
@@ -208,17 +216,19 @@ class DeviceSettings {
     // 16 places is well within 32 bits, but bitwise ops otherwise sign it.
     this._raw[entry.key] = next >>> 0;
     const max = (2 ** (entry.bytes * 8)) - 1;
-    this._live[entry.key] = control.type.fromLevel(this._raw[entry.key] / max, this._params);
+    this._stored[entry.key] = control.type.fromLevel(this._raw[entry.key] / max, this._params);
+    this._fromWire[entry.key] = true;
   }
 
   /**
-   * Whether a channel value has ever arrived for an attribute.
+   * Whether an attribute's value was last written by the wire, rather than by
+   * hand or by the show that loaded it.
    *
    * @public
    * @param {String} key
    * @returns {Boolean}
    */
-  hasLive(key) { return this._live[key] !== undefined; }
+  hasLive(key) { return !!this._fromWire[key]; }
 
   /**
    * Only the non-fixed values travel in the show; a fixed value is in the

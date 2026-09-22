@@ -91,7 +91,7 @@
               :precision="2"
               :min="device.range.min"
               :max="device.range.max"
-              :disabled="device.isDriven('zoom') || !device.zooms"
+              :disabled="!device.zooms"
               @update:model-value="writeDevice('zoom', $event)"
             />
             <span class="hint">{{ throwHint }}</span>
@@ -112,7 +112,7 @@
               :precision="1"
               :min="-device.shiftLimitH"
               :max="device.shiftLimitH"
-              :disabled="device.isDriven('shiftH') || !device.shiftLimitH"
+              :disabled="!device.shiftLimitH"
               @update:model-value="writeDevice('shiftH', $event)"
             />
             <uk-num-input
@@ -122,7 +122,7 @@
               :precision="1"
               :min="-device.shiftLimitV"
               :max="device.shiftLimitV"
-              :disabled="device.isDriven('shiftV') || !device.shiftLimitV"
+              :disabled="!device.shiftLimitV"
               @update:model-value="writeDevice('shiftV', $event)"
             />
             <span
@@ -234,7 +234,6 @@
             style="flex: 1"
             label="Source"
             :options="sourceOptions"
-            :disabled="device.isDriven('source')"
             @input="pickSource"
           />
           <span
@@ -257,7 +256,6 @@
               style="flex: 1 1 96px; min-width: 96px"
               label="Mode"
               :options="strobeModeOptions"
-              :disabled="device.isDriven('mode')"
               @input="pickStrobeMode"
             />
             <uk-num-input
@@ -268,7 +266,6 @@
               :precision="1"
               :min="strobeRateRange.min"
               :max="strobeRateRange.max"
-              :disabled="device.isDriven('rate')"
               @update:model-value="writeDevice('rate', $event)"
             />
             <uk-num-input
@@ -279,7 +276,6 @@
               :precision="0"
               :min="strobeDurationRange.min"
               :max="strobeDurationRange.max"
-              :disabled="device.isDriven('duration')"
               @update:model-value="writeDevice('duration', $event)"
             />
           </uk-flex>
@@ -295,19 +291,16 @@
               :precision="0"
               :min="0"
               :max="100"
-              :disabled="device.isDriven('dimmer')"
               @update:model-value="writeDevice('dimmer', $event)"
             />
             <uk-checkbox
               v-show="!device.isFixed('blinder')"
               :model-value="!!read('blinder')"
               label="Blinder"
-              :disabled="device.isDriven('blinder')"
               @update:model-value="writeDevice('blinder', $event)"
             />
             <uk-button
               label="Flash"
-              :disabled="device.isDriven('flash')"
               @click="fireStrobe"
             />
           </uk-flex>
@@ -326,7 +319,6 @@
               :precision="1"
               :min="1"
               :max="device.gels.length"
-              :disabled="device.isDriven('gel')"
               @update:model-value="writeDevice('gel', $event)"
             />
             <span class="hint">{{ strobeGelName }}</span>
@@ -346,7 +338,6 @@
               :precision="0"
               :min="0"
               :max="100"
-              :disabled="device.isDriven(hue)"
               @update:model-value="writeDevice(hue, $event)"
             />
           </uk-flex>
@@ -370,13 +361,11 @@
             :precision="0"
             :min="0"
             :max="100"
-            :disabled="device.isDriven('dimmer')"
             @update:model-value="writeDevice('dimmer', $event)"
           />
           <uk-checkbox
             :model-value="!!read('shutter')"
             :label="isProjector ? 'Shutter open' : 'Picture on'"
-            :disabled="device.isDriven('shutter')"
             @update:model-value="writeDevice('shutter', $event)"
           />
           <span
@@ -416,7 +405,6 @@
                 :precision="0"
                 :min="row.min"
                 :max="row.max"
-                :disabled="device.isDriven(row.key)"
                 @update:model-value="writeDevice(row.key, $event)"
               />
             </uk-flex>
@@ -429,7 +417,6 @@
                 v-if="group.shutter && !device.isFixed('shutter')"
                 :model-value="!!read('shutter')"
                 label="Shutter open"
-                :disabled="device.isDriven('shutter')"
                 @update:model-value="writeDevice('shutter', $event)"
               />
               <!-- A mounting flip is a picture, not a sentence: the icon turns
@@ -445,7 +432,6 @@
                 :title="toggle.label"
                 :aria-label="toggle.label"
                 :aria-pressed="!!read(toggle.key)"
-                :disabled="device.isDriven(toggle.key)"
                 @click="writeDevice(toggle.key, !read(toggle.key))"
               >
                 <uk-icon :name="toggle.icon" />

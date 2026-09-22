@@ -155,17 +155,20 @@ console.log('\n-- what the wire says --');
   })(), s.value('dimmer'));
 }
 
-console.log('\n-- a live value is held, not cleared --');
+console.log('\n-- one value: whoever wrote last, and it is held --');
 {
-  // A dropped frame must not snap the rig back to a parked default, and there
-  // is no way to tell a stopped console from a slow one.
+  // A dropped frame must not snap the rig back to a default, and there is no
+  // way to tell a stopped console from a slow one; a hand can always write.
   const s = new ProjectorSettings(patched);
-  s.writeChannel(0, 255);
-  check('driven to full', s.value('dimmer'), 100);
-  check('the parked value is untouched underneath', s.stored('dimmer'), 100);
+  s.writeChannel(0, 128);
+  near('driven to half', s.value('dimmer'), (128 / 255) * 100);
+  check('and marked as the wire\'s', s.hasLive('dimmer'), true);
   s.set('dimmer', 10);
-  check('parking a value under DMX is allowed', s.stored('dimmer'), 10);
-  check('but the wire still wins', s.value('dimmer'), 100);
+  check('a hand edit takes over from the wire', s.value('dimmer'), 10);
+  check('and is no longer the wire\'s', s.hasLive('dimmer'), false);
+  s.writeChannel(0, 255);
+  check('the next frame wins again', s.value('dimmer'), 100);
+  check('there is one value, not two', s.stored('dimmer'), s.value('dimmer'));
 }
 
 console.log('\n-- zoom maps across the profile range, both ways --');
@@ -203,23 +206,24 @@ console.log('\n-- shift is centred at half scale --');
   near('full is fully the other', s.value('shiftH'), DEFAULT_PROJECTOR_PARAMS.shiftLimitH);
 }
 
-console.log('\n-- only parked values travel in the show --');
+console.log('\n-- values travel in the show as they stand --');
 {
   const s = new ProjectorSettings(patched);
   s.set('zoom', 2.0);
   s.set('source', 7);
-  s.writeChannel(0, 255);
+  s.writeChannel(0, 128);
   const data = s.showData;
-  check('the stored zoom is written', data.zoom, 2.0);
-  check('and the stored source', data.source, 7);
-  // What DMX happens to be saying on one machine at one moment is not show
-  // data -- the same line the app already draws between an address and a frame.
-  check('the parked dimmer, not the live one', data.dimmer, 100);
+  check('the zoom is written', data.zoom, 2.0);
+  check('and the source', data.source, 7);
+  // One value: a show saved during a desk session carries the desk's last
+  // frame as the fixture's setting.
+  near('and the dimmer as the wire left it', data.dimmer, (128 / 255) * 100);
 
   const reloaded = new ProjectorSettings(patched, data);
   check('a reload restores the zoom', reloaded.value('zoom'), 2.0);
   check('and the source', reloaded.value('source'), 7);
-  check('with nothing live', reloaded.hasLive('dimmer'), false);
+  near('and the dimmer', reloaded.value('dimmer'), (128 / 255) * 100);
+  check('as the show\'s, not the wire\'s', reloaded.hasLive('dimmer'), false);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
