@@ -588,11 +588,27 @@ export default {
       if (this.isStrobe) return 'Lamp';
       return 'Output';
     },
-    /** The marker under the strobe's rows when a console drives any of them. */
+    /**
+     * Which of the strobe's controls a console drives, in words, under the
+     * rows. Named, so the line reads as a statement rather than a heading
+     * with nothing under it.
+     */
     strobeDriven() {
       if (!this.isStrobe || !this.device) return '';
-      const keys = ['mode', 'rate', 'duration', 'dimmer', 'blinder', 'flash', 'red', 'green', 'blue', 'gel'];
-      return keys.some((key) => this.device.isDriven(key)) ? 'DMX' : '';
+      const labels = {
+        dimmer: 'Dimmer',
+        mode: 'Mode',
+        rate: 'Rate',
+        duration: 'Flash',
+        red: 'Red',
+        green: 'Green',
+        blue: 'Blue',
+        gel: 'Gel',
+        blinder: 'Blinder',
+        flash: 'Flash trigger',
+      };
+      const driven = Object.keys(labels).filter((key) => this.device.isDriven(key));
+      return driven.length ? `On DMX: ${driven.map((key) => labels[key]).join(', ')}` : '';
     },
     /** What the scroller has in front of the lamp, in words. */
     strobeGelName() {
@@ -715,7 +731,7 @@ export default {
       // writes into them from outside Vue entirely.
       void this.channelRevision; // eslint-disable-line no-void
       const { fixture } = this;
-      if (!fixture || fixture.device || !Array.isArray(fixture.channels)) return [];
+      if (!fixture || !Array.isArray(fixture.channels)) return [];
       return fixture.channels.map((channel, index) => ({
         index,
         // The absolute address when there is one; otherwise the channel's own
@@ -739,6 +755,14 @@ export default {
     channelHint() {
       const { fixture } = this;
       if (!fixture) return '';
+      // A generic device's channels are the controls above, seen as bytes: a
+      // byte typed here lands on its control, and a frame from the wire lands
+      // on both. What the boxes show is the last byte written, by wire or
+      // here; a control set in its own units above is not turned back into
+      // one.
+      if (fixture.device) {
+        return 'The same channels as the controls above, as the last bytes written.';
+      }
       return fixture.address > -1
         ? 'Held until DMX arrives, then whatever is driving wins.'
         : 'Not patched, so these are the only thing driving this fixture.';
@@ -1108,8 +1132,17 @@ export default {
      * @param {Number} value 0-255
      */
     setChannelValue(index, value) {
-      if (!this.fixture || !this.fixture.parkChannel) return;
-      this.fixture.parkChannel(index, value);
+      if (!this.fixture) return;
+      if (this.fixture.device) {
+        // Straight to the channel: a device's values are its controls, and
+        // the show saves those. Parking the byte as well would store the
+        // same fact twice and let the two disagree on the next load.
+        this.fixture.setChannel(index, Math.max(0, Math.min(255, Math.round(Number(value) || 0))));
+        this.deviceRevision += 1;
+      } else {
+        if (!this.fixture.parkChannel) return;
+        this.fixture.parkChannel(index, value);
+      }
       this.channelRevision += 1;
       // The renderer reads the fixture rather than watching it, the same as
       // every other write in this widget.
