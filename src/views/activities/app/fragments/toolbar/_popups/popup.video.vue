@@ -1159,9 +1159,7 @@ export default {
   position: absolute;
   top: 2px;
   left: 4px;
-  /* Named explicitly: `global.css` styles h1-h4, p and button, and sets no
-     font on body -- so anything else falls through to the browser default,
-     which is a serif. */
+  /* The medium weight, over the regular the body gives everything else. */
   font-family: Roboto-Medium, sans-serif;
   font-size: 11px;
   color: #fff;

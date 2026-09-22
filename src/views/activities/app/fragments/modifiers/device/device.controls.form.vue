@@ -228,10 +228,6 @@ export default {
 .control_label {
   width: 96px;
   align-self: center;
-  /* global.css sets no font on body, so a bare span falls through to the
-     browser default -- a black serif. Name the family and colour, as every
-     other label here does. */
-  font-family: Roboto-Regular;
   font-size: 12px;
   color: var(--secondary-lighter-alt);
 }

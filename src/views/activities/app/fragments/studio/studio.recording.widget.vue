@@ -447,9 +447,6 @@ export default {
   transition: width 0.1s linear;
 }
 .studio_recording_note {
-  /* Named explicitly: a bare element inherits the document default, which is a
-     serif. Every other widget here states the face for the same reason. */
-  font-family: Roboto-Regular;
   font-size: 11px;
   line-height: 1.45;
   color: var(--secondary-lighter);

@@ -113,6 +113,10 @@ body {
   height: 100%;
   margin: 0;
   display: flex;
+  /* The app's face, stated once here so a bare element anywhere inherits it.
+     Without it the browser default is a serif, and every widget had to name
+     the family itself or show one. */
+  font-family: Roboto-Regular, sans-serif;
 }
 
 /** Global filter definitions **/
