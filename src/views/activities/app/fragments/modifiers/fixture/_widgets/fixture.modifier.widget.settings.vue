@@ -439,10 +439,6 @@
         >
           <span class="section_label">Channels</span>
           <span style="flex: 1" />
-          <span
-            v-if="fixture.address > -1"
-            class="driven"
-          >CH {{ fixture.chStart + 1 }}</span>
           <!-- The patch sheet: number, address and name, for a spreadsheet or
                a desk. Here because the addresses are this placement's. -->
           <uk-button
