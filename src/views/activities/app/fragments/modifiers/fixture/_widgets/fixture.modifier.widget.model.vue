@@ -175,9 +175,6 @@
               <th class="num">
                 #
               </th>
-              <th class="num">
-                Addr
-              </th>
               <th>Channel</th>
               <th>Function</th>
             </tr>
@@ -190,7 +187,7 @@
               <tr v-if="row.gap">
                 <td
                   class="gap"
-                  colspan="4"
+                  colspan="3"
                 >
                   {{ row.gap }}
                 </td>
@@ -198,9 +195,6 @@
               <tr v-else>
                 <td class="num">
                   {{ row.index }}
-                </td>
-                <td class="num">
-                  {{ row.address }}
                 </td>
                 <td>{{ row.name }}</td>
                 <td class="function">
@@ -222,14 +216,8 @@
               <th class="num">
                 #
               </th>
-              <th class="num">
-                Addr
-              </th>
               <th>Channel</th>
               <th>Function</th>
-              <th class="num">
-                Default
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -240,9 +228,6 @@
               <td class="num">
                 {{ row.index }}
               </td>
-              <td class="num">
-                {{ row.address }}
-              </td>
               <td>
                 {{ row.name }}
                 <span
@@ -252,9 +237,6 @@
               </td>
               <td class="function">
                 {{ row.function }}
-              </td>
-              <td class="num">
-                {{ row.default }}
               </td>
             </tr>
           </tbody>
@@ -699,12 +681,9 @@ export default {
         : this.fixture.channels[index];
       return {
         index: index + 1,
-        // Addresses are shown 1-based throughout the app.
-        address: this.fixture.addressOf(index) + 1,
         name: channel.name || channel.type || 'Unset',
         function: channel.type || '—',
         isFine: !!channel.isFine,
-        default: channel.value ? channel.value.DMX : 0,
       };
     },
     /**
@@ -721,25 +700,21 @@ export default {
       if (!this.fixture || !this.fixture.channels) return [];
       return this.fixture.channels.map((channel, index) => ({
         index: index + 1,
-        address: this.fixture.addressOf(index) + 1,
         name: channel.name || channel.type || 'Unset',
         function: channel.type || '—',
         isFine: !!channel.isFine,
-        default: channel.value ? channel.value.DMX : 0,
       }));
     },
     async copyMap() {
       const lines = [
-        ['#', 'Addr', 'Channel', 'Function', 'Default'].join('\t'),
+        ['#', 'Channel', 'Function'].join('\t'),
         // The full list, built here rather than read off `channelRows`, which
         // is empty for a bar. Copy is where a bar's every channel is still
         // wanted, and the only place that should pay for them.
         ...this.allChannelRows().map((row) => [
           row.index,
-          row.address,
           row.name + (row.isFine ? ' (fine)' : ''),
           row.function,
-          row.default,
         ].join('\t')),
       ];
       try {
