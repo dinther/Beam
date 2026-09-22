@@ -221,6 +221,19 @@ class DeviceSettings {
   }
 
   /**
+   * The control a byte of the footprint belongs to, and which of its bytes it
+   * is. What the channel table uses to show a byte's meaning in the control's
+   * own units.
+   *
+   * @public
+   * @param {Number} index byte offset within the fixture
+   * @returns {Object|null} `{ key, byteIndex, bytes }`
+   */
+  controlAt(index) {
+    return this._byteMap[index] || null;
+  }
+
+  /**
    * Whether an attribute's value was last written by the wire, rather than by
    * hand or by the show that loaded it.
    *

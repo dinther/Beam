@@ -85,6 +85,7 @@
             class="row"
           >
             <uk-num-input
+              v-show="byHand('zoom')"
               :model-value="read('zoom')"
               style="width: 92px"
               label="Throw ratio"
@@ -95,10 +96,6 @@
               @update:model-value="writeDevice('zoom', $event)"
             />
             <span class="hint">{{ throwHint }}</span>
-            <span
-              v-if="device.isDriven('zoom')"
-              class="driven"
-            >{{ drivenBy('zoom') }}</span>
           </uk-flex>
 
           <uk-flex
@@ -106,6 +103,7 @@
             class="row"
           >
             <uk-num-input
+              v-show="byHand('shiftH')"
               :model-value="read('shiftH')"
               style="width: 92px"
               label="Shift H %"
@@ -116,6 +114,7 @@
               @update:model-value="writeDevice('shiftH', $event)"
             />
             <uk-num-input
+              v-show="byHand('shiftV')"
               :model-value="read('shiftV')"
               style="width: 92px"
               label="Shift V %"
@@ -125,10 +124,6 @@
               :disabled="!device.shiftLimitV"
               @update:model-value="writeDevice('shiftV', $event)"
             />
-            <span
-              v-if="device.isDriven('shiftH') || device.isDriven('shiftV')"
-              class="driven"
-            >DMX</span>
           </uk-flex>
 
           <!-- Per edge, because the end machine of an array ramps on its inner
@@ -230,16 +225,13 @@
           class="row"
         >
           <uk-select-input
+            v-show="byHand('source')"
             :model-value="sourceIndex"
             style="flex: 1"
             label="Source"
             :options="sourceOptions"
             @input="pickSource"
           />
-          <span
-            v-if="device.isDriven('source')"
-            class="driven"
-          >{{ drivenBy('source') }}</span>
         </uk-flex>
 
         <!-- A strobe's lamp: how it flashes, how bright, what colour. A fixed
@@ -251,7 +243,7 @@
             class="control_wrap"
           >
             <uk-select-input
-              v-show="!device.isFixed('mode')"
+              v-show="byHand('mode')"
               :model-value="strobeModeIndex"
               style="flex: 1 1 96px; min-width: 96px"
               label="Mode"
@@ -259,7 +251,7 @@
               @input="pickStrobeMode"
             />
             <uk-num-input
-              v-show="!device.isFixed('rate')"
+              v-show="byHand('rate')"
               :model-value="Number(read('rate')) || 0"
               style="flex: 1 1 72px; min-width: 72px"
               label="Rate Hz"
@@ -269,7 +261,7 @@
               @update:model-value="writeDevice('rate', $event)"
             />
             <uk-num-input
-              v-show="!device.isFixed('duration')"
+              v-show="byHand('duration')"
               :model-value="Math.round(read('duration') || 0)"
               style="flex: 1 1 72px; min-width: 72px"
               label="Duration ms"
@@ -284,7 +276,7 @@
             class="control_wrap"
           >
             <uk-num-input
-              v-show="!device.isFixed('dimmer')"
+              v-show="byHand('dimmer')"
               :model-value="Math.round(read('dimmer') || 0)"
               style="flex: 1 1 72px; min-width: 72px"
               label="Dimmer %"
@@ -294,7 +286,7 @@
               @update:model-value="writeDevice('dimmer', $event)"
             />
             <uk-checkbox
-              v-show="!device.isFixed('blinder')"
+              v-show="byHand('blinder')"
               :model-value="!!read('blinder')"
               label="Blinder"
               @update:model-value="writeDevice('blinder', $event)"
@@ -308,7 +300,7 @@
                a half is two, side by side across the lamp. The caption says
                which. -->
           <uk-flex
-            v-if="device.usesScroller && !device.isFixed('gel')"
+            v-if="device.usesScroller && byHand('gel')"
             :gap="6"
             class="control_wrap"
           >
@@ -330,7 +322,7 @@
           >
             <uk-num-input
               v-for="hue in ['red', 'green', 'blue']"
-              v-show="!device.isFixed(hue)"
+              v-show="byHand(hue)"
               :key="hue"
               :model-value="Math.round(read(hue) || 0)"
               style="flex: 1 1 56px; min-width: 56px"
@@ -341,10 +333,6 @@
               @update:model-value="writeDevice(hue, $event)"
             />
           </uk-flex>
-          <span
-            v-if="strobeDriven"
-            class="driven"
-          >{{ strobeDriven }}</span>
         </template>
 
         <!-- Projector and display: a plain dimmer and blank. A laser carries a
@@ -355,6 +343,7 @@
           class="row"
         >
           <uk-num-input
+            v-show="byHand('dimmer')"
             :model-value="Math.round(read('dimmer') || 0)"
             style="width: 92px"
             label="Dimmer %"
@@ -364,14 +353,11 @@
             @update:model-value="writeDevice('dimmer', $event)"
           />
           <uk-checkbox
+            v-show="byHand('shutter')"
             :model-value="!!read('shutter')"
             :label="isProjector ? 'Shutter open' : 'Picture on'"
             @update:model-value="writeDevice('shutter', $event)"
           />
-          <span
-            v-if="device.isDriven('dimmer') || device.isDriven('shutter')"
-            class="driven"
-          >DMX</span>
         </uk-flex>
 
         <!-- A laser's output stage: what it lays over the DAC's stream, grouped
@@ -397,7 +383,7 @@
             >
               <uk-num-input
                 v-for="row in line"
-                v-show="!device.isFixed(row.key)"
+                v-show="byHand(row.key)"
                 :key="row.key"
                 :model-value="Math.round(read(row.key) || 0)"
                 :style="{ flex: `1 1 ${row.basis}px`, minWidth: `${row.basis}px` }"
@@ -414,7 +400,7 @@
               class="control_wrap"
             >
               <uk-checkbox
-                v-if="group.shutter && !device.isFixed('shutter')"
+                v-if="group.shutter && byHand('shutter')"
                 :model-value="!!read('shutter')"
                 label="Shutter open"
                 @update:model-value="writeDevice('shutter', $event)"
@@ -424,7 +410,7 @@
                    does and not merely whether it is on. -->
               <button
                 v-for="toggle in (group.toggles || [])"
-                v-show="!device.isFixed(toggle.key)"
+                v-show="byHand(toggle.key)"
                 :key="toggle.key"
                 type="button"
                 class="icon_toggle"
@@ -458,7 +444,10 @@
             class="driven"
           >CH {{ fixture.chStart + 1 }}</span>
         </uk-flex>
-        <span class="hint">{{ channelHint }}</span>
+        <span
+          v-if="channelHint"
+          class="hint"
+        >{{ channelHint }}</span>
         <uk-flex
           v-for="row in handChannels"
           :key="row.index"
@@ -478,6 +467,7 @@
             :max="255"
             @update:model-value="setChannelValue(row.index, $event)"
           />
+          <span class="channel_text">{{ row.text }}</span>
         </uk-flex>
       </template>
     </uk-flex>
@@ -587,28 +577,6 @@ export default {
       if (this.isLaser) return 'Input';
       if (this.isStrobe) return 'Lamp';
       return 'Output';
-    },
-    /**
-     * Which of the strobe's controls a console drives, in words, under the
-     * rows. Named, so the line reads as a statement rather than a heading
-     * with nothing under it.
-     */
-    strobeDriven() {
-      if (!this.isStrobe || !this.device) return '';
-      const labels = {
-        dimmer: 'Dimmer',
-        mode: 'Strobe mode',
-        rate: 'Rate',
-        duration: 'Duration',
-        red: 'Red',
-        green: 'Green',
-        blue: 'Blue',
-        gel: 'Colour scroller',
-        blinder: 'Blinder',
-        flash: 'Flash',
-      };
-      const driven = Object.keys(labels).filter((key) => this.device.isDriven(key));
-      return driven.length ? `On DMX: ${driven.map((key) => labels[key]).join(', ')}` : '';
     },
     /** What the scroller has in front of the lamp, in words. */
     strobeGelName() {
@@ -728,8 +696,10 @@ export default {
      */
     handChannels() {
       // Read so a write re-evaluates this; channels are a plain model and DMX
-      // writes into them from outside Vue entirely.
+      // writes into them from outside Vue entirely. A device's controls are
+      // written the same way, so their revision is read too.
       void this.channelRevision; // eslint-disable-line no-void
+      void this.deviceRevision; // eslint-disable-line no-void
       const { fixture } = this;
       if (!fixture || !Array.isArray(fixture.channels)) return [];
       return fixture.channels.map((channel, index) => ({
@@ -742,6 +712,8 @@ export default {
         name: channel.name || channel.type || 'Unset',
         isFine: !!channel.isFine,
         value: channel.value ? channel.value.DMX : 0,
+        // What the byte means, in the control's own units, on a device.
+        text: this.channelValueText(index),
       }));
     },
     /**
@@ -755,14 +727,8 @@ export default {
     channelHint() {
       const { fixture } = this;
       if (!fixture) return '';
-      // A generic device's channels are the controls above, seen as bytes: a
-      // byte typed here lands on its control, and a frame from the wire lands
-      // on both. What the boxes show is the last byte written, by wire or
-      // here; a control set in its own units above is not turned back into
-      // one.
-      if (fixture.device) {
-        return 'The same channels as the controls above, as the last bytes written.';
-      }
+      // A device's rows say what each byte means beside it; no sentence needed.
+      if (fixture.device) return '';
       return fixture.address > -1
         ? 'Held until DMX arrives, then whatever is driving wins.'
         : 'Not patched, so these are the only thing driving this fixture.';
@@ -1074,16 +1040,45 @@ export default {
       return this.deviceState ? this.deviceState[key] : null;
     },
     /**
-     * The marker beside a driven row, and whether anything has arrived on it
-     * yet -- a different question from whether a channel exists.
+     * Whether a control is set here, by hand: neither baked into the profile
+     * nor on a channel. A driven control is shown in the channel table
+     * instead, as its byte and its meaning, so it is not on screen twice.
      *
      * @public
      * @param {String} key attribute name
+     * @returns {Boolean}
+     */
+    byHand(key) {
+      if (!this.device) return false;
+      return !this.device.isFixed(key) && !this.device.isDriven(key);
+    },
+    /**
+     * What a channel's byte means on a device, in the control's own units:
+     * "100%", "15.0Hz", "Strobe", "5.5 Red / Orange". Empty for a fixture
+     * without a device, and for the further bytes of a wide control.
+     *
+     * @public
+     * @param {Number} index byte offset within the fixture
      * @returns {String}
      */
-    drivenBy(key) {
-      if (!this.device) return '';
-      return this.device.hasLive(key) ? 'DMX' : 'DMX · waiting';
+    channelValueText(index) {
+      const { device } = this;
+      if (!device || !device.controlAt) return '';
+      const entry = device.controlAt(index);
+      if (!entry || entry.byteIndex > 0) return '';
+      const control = device.controls.get(entry.key);
+      if (!control) return '';
+      const value = device.value(entry.key);
+      const { type } = control;
+      if (entry.key === 'gel' && device.gelName !== undefined) {
+        return `${Number(value).toFixed(1)} ${device.gelName}`;
+      }
+      if (type.editor === 'switch') return value ? type.onLabel : 'Off';
+      if (Array.isArray(type.options)) return (type.labels || {})[value] || String(value);
+      if (type.editor === 'choice') return value === null || value === undefined ? 'None' : String(value);
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '';
+      return `${number.toFixed(type.precision || 0)}${type.unit || ''}`;
     },
     /**
      * Writes a parked value and lets the renderer redraw the throw.
@@ -1283,6 +1278,16 @@ export default {
   color: var(--secondary-lighter);
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* What the byte means, in the control's own units, beside its box. */
+.channel_text {
+  width: 96px;
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-lighter-alt);
+  white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 .fine_tag {
