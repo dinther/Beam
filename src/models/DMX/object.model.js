@@ -221,6 +221,8 @@ class SceneObject extends withTransform(Object) {
     return {
       name: this._name,
       icon: 'object',
+      // Library reference: a model file rather than a primitive carried in the show.
+      overlay: this.isInline ? null : 'link',
       id: rowId(SCENE_ITEM_KINDS.OBJECT, this._id),
       kind: this.kind,
       uid: this.uid,

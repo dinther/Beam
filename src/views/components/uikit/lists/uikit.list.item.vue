@@ -28,11 +28,22 @@
         borderColor: value.color
       }"
     />
-    <uk-icon
+    <span
       v-if="value.icon"
-      class="uikit_list_item_icon"
-      :name="value.icon"
-    />
+      class="uikit_list_item_glyph"
+    >
+      <uk-icon
+        class="uikit_list_item_icon"
+        :name="value.icon"
+      />
+      <!-- A library reference: the item points at a library entry rather
+           than carrying its definition in the show. -->
+      <uk-icon
+        v-if="value.overlay"
+        class="uikit_list_item_overlay"
+        :name="value.overlay"
+      />
+    </span>
     <h4>{{ value.name }}</h4>
     <div style="flex: 1" />
     <h4
@@ -269,6 +280,29 @@ export default {
   width: 10px !important;
   height: 10px !important;
   fill: var(--secondary-lighter) !important;
+}
+/* The overlay sits on the icon's lower-right corner, backed by the row colour
+   so it reads as a badge and not as part of the glyph under it. */
+.uikit_list_item_glyph {
+  position: relative;
+  display: flex;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.uikit_list_item_overlay {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  width: 11px !important;
+  height: 11px !important;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  fill: var(--accent-teal) !important;
+}
+.disabled .uikit_list_item_overlay {
+  fill: var(--secondary-light) !important;
 }
 .uikit_list_item.unfold {
   min-height: 30px;

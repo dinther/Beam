@@ -240,6 +240,8 @@ export default {
       return {
         name: fixture.name,
         icon: fixtureIcon(fixture),
+        // Library reference: the profile is not one of this show's definitions.
+        overlay: this.$show.isShowDefinition(fixture.profileKey) ? null : 'link',
         id: rowId(SCENE_ITEM_KINDS.FIXTURE, fixture.id),
         kind: fixture.kind,
         uid: fixture.uid,
