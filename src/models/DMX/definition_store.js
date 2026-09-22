@@ -1,6 +1,40 @@
 import { withoutLedBarChannels, expandLedBarProfile } from './generic/led_bar';
 
 /**
+ * The manufacturer segment of a definition that belongs to the show.
+ *
+ * A definition is made with one name, the working name it is found by in the
+ * "This show" folder; a manufacturer and a model become its identity only
+ * when it is saved to the library, which is when they matter. Until then it
+ * is keyed under this scope, which no library folder can be called.
+ *
+ * @constant {String}
+ */
+export const SHOW_SCOPE = 'This show';
+
+/**
+ * The key a working name is stored under.
+ *
+ * @public
+ * @param {String} name
+ * @returns {String}
+ */
+export function showKey(name) {
+  return `${SHOW_SCOPE}/${name}`;
+}
+
+/**
+ * Whether a key is a show-scoped one.
+ *
+ * @public
+ * @param {String} key
+ * @returns {Boolean}
+ */
+export function isShowKey(key) {
+  return typeof key === 'string' && key.startsWith(`${SHOW_SCOPE}/`);
+}
+
+/**
  * @file The fixture definitions that belong to a show.
  *
  * A definition lives **in the show** until the user saves it to the library
@@ -82,6 +116,26 @@ class DefinitionStore {
   }
 
   /**
+   * Moves a definition to another key, renaming the profile with it.
+   *
+   * The fixtures pointing at the old key are the show's to re-point; this
+   * only knows the profiles. Refused when the new key is taken, so a rename
+   * cannot quietly replace another definition.
+   *
+   * @param {String} from
+   * @param {String} to
+   * @returns {Boolean} whether anything moved
+   */
+  rename(from, to) {
+    if (from === to || !this._profiles[from] || this._profiles[to]) return false;
+    const profile = this._profiles[from];
+    profile.name = to.split('/').slice(1).join('/') || profile.name;
+    this._profiles[to] = profile;
+    delete this._profiles[from];
+    return true;
+  }
+
+  /**
    * Drops every definition nothing uses any more.
    *
    * @param {Iterable} keysInUse the `manufacturer/model` keys of the fixtures
@@ -129,7 +183,11 @@ class DefinitionStore {
         return {
           file: model,
           manufacturer,
-          name: `${manufacturer} ${profile.name || model}`,
+          // A show's own definition has only its working name; one made under
+          // a manufacturer, by an older show, keeps reading as both.
+          name: manufacturer === SHOW_SCOPE
+            ? (profile.name || model)
+            : `${manufacturer} ${profile.name || model}`,
           category: (profile.categories || [])[0],
           supported: true,
           generated: true,

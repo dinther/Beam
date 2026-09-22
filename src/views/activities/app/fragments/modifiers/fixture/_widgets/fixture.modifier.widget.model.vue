@@ -14,8 +14,7 @@
         <!-- Non-breaking spaces, because ordinary ones either side of the bold
              are eaten somewhere between here and the screen. An entity is a
              character rather than whitespace, so nothing can condense it. -->
-        Applies to every&nbsp;<b>{{ fixture.manufacturer }} {{ fixture.model }}</b
-        >&nbsp;in the show.
+        Applies to every&nbsp;<b>{{ definitionLabel }}</b>&nbsp;in the show.
       </p>
 
       <!-- A definition made in this show and not yet in the library. It lives
@@ -38,7 +37,7 @@
             label="save to library"
             :disabled="saving"
             title="Move this definition into the library, to place in other shows"
-            @click="saveToLibrary"
+            @click="openSave"
           />
         </uk-flex>
       </uk-flex>
@@ -48,6 +47,42 @@
       >
         {{ saveMessage }}
       </p>
+
+      <!-- The moment a definition gets its identity: it was made under a
+           working name, and the library files it by manufacturer and model.
+           The manufacturer list is the library's own folders plus Generic,
+           narrowed as you type; a name that is in no list is still a name. -->
+      <uk-popup
+        v-model="saveOpen"
+        cancelable
+        backdrop
+        :valid="saveValid"
+        :header="{ title: 'Save to library' }"
+        @submit="saveToLibrary"
+      >
+        <uk-flex
+          col
+          :gap="8"
+          class="save_form"
+        >
+          <uk-combo-input
+            v-model="saveManufacturer"
+            label="Manufacturer"
+            :options="manufacturerOptions"
+          />
+          <uk-txt-input
+            v-model="saveModel"
+            auto-update
+            label="Model"
+          />
+          <p
+            v-if="saveTaken"
+            class="definition_warning"
+          >
+            The library already has a "{{ saveKey }}". Pick another name.
+          </p>
+        </uk-flex>
+      </uk-popup>
 
       <template v-if="hasHead">
         <uk-flex :gap="8">
@@ -236,6 +271,7 @@ import {
 } from '@/models/DMX/generic/projector';
 import { DEFAULT_PAN_SPEED, DEFAULT_TILT_SPEED } from '@/models/DMX/fixture.model';
 import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
+import { isShowKey } from '@/models/DMX/definition_store';
 
 /** How long the copy button confirms for, in ms. */
 const COPY_FEEDBACK_MS = 1500;
@@ -267,6 +303,10 @@ export default {
       saving: false,
       saveMessage: '',
       saveFailed: false,
+      /** The save dialog, and what it is filled with. */
+      saveOpen: false,
+      saveManufacturer: 'Generic',
+      saveModel: '',
     };
   },
   computed: {
@@ -277,6 +317,48 @@ export default {
      */
     isShowDefinition() {
       return this.revision >= 0 && this.$show.isShowDefinition(this.profileKey);
+    },
+    /**
+     * What the definition is called: its working name while it is the show's
+     * own, its manufacturer and model once it has them.
+     *
+     * @type {String}
+     */
+    definitionLabel() {
+      if (!this.fixture) return '';
+      if (isShowKey(this.profileKey)) return this.fixture.model;
+      return `${this.$show.manufacturerName(this.fixture.manufacturer)} ${this.fixture.model}`;
+    },
+    /** The manufacturers the save dialog offers, by display name. */
+    manufacturerChoices() {
+      return this.revision >= 0 ? this.$show.manufacturerChoices() : [];
+    },
+    manufacturerOptions() {
+      return this.manufacturerChoices.map((choice) => choice.name);
+    },
+    /**
+     * The library folder the typed manufacturer means: a listed one's own
+     * folder, or the text itself for a maker nobody has listed.
+     *
+     * @type {String}
+     */
+    saveManufacturerSlug() {
+      const typed = (this.saveManufacturer || '').trim();
+      const listed = this.manufacturerChoices.find(
+        (choice) => choice.name.toLowerCase() === typed.toLowerCase(),
+      );
+      return listed ? listed.slug : typed;
+    },
+    saveKey() {
+      return `${this.saveManufacturerSlug}/${(this.saveModel || '').trim()}`;
+    },
+    saveTaken() {
+      return !!this.$show.generatedProfiles[this.saveKey];
+    },
+    saveValid() {
+      const maker = (this.saveManufacturer || '').trim();
+      const model = (this.saveModel || '').trim();
+      return !!maker && !!model && !maker.includes('/') && !model.includes('/') && !this.saveTaken;
     },
     /**
      * What this model is, for a projector or a display.
@@ -474,20 +556,41 @@ export default {
      * @public
      * @async
      */
-    async saveToLibrary() {
+    /**
+     * Opens the save dialog with the definition's working name as the model
+     * and Generic as the manufacturer, or its own manufacturer for a
+     * definition an older show made under one.
+     *
+     * @public
+     */
+    openSave() {
       if (!this.fixture) return;
+      this.saveModel = this.fixture.model || '';
+      this.saveManufacturer = isShowKey(this.profileKey)
+        ? 'Generic'
+        : this.$show.manufacturerName(this.fixture.manufacturer);
+      this.saveMessage = '';
+      this.saveOpen = true;
+    },
+    async saveToLibrary() {
+      if (!this.fixture || !this.saveValid) return;
+      this.saveOpen = false;
       this.saving = true;
       this.saveMessage = '';
       let result;
       try {
-        result = await this.$show.saveDefinitionToLibrary(this.profileKey);
+        result = await this.$show.saveDefinitionToLibrary(
+          this.profileKey,
+          this.saveManufacturerSlug,
+          (this.saveModel || '').trim(),
+        );
       } catch (err) {
         result = { ok: false, reason: err.message };
       }
       this.saving = false;
       this.saveFailed = !result.ok;
       this.saveMessage = result.ok
-        ? `Saved "${this.profileKey}" to the library.`
+        ? `Saved "${result.key}" to the library.`
         : result.reason || 'Could not save to the library.';
       this.revision += 1;
     },
@@ -696,6 +799,10 @@ export default {
   margin: 0;
   font-size: 11px;
   color: var(--secondary-lighter-alt);
+}
+.save_form {
+  padding: 12px;
+  min-width: 320px;
 }
 .scope_note b {
   color: var(--secondary-lighter);

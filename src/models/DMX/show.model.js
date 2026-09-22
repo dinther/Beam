@@ -20,7 +20,7 @@ import {
   expandLedBarProfile, withoutLedBarChannels,
 } from './generic/led_bar';
 import { kindById } from './generic/fixture_kind';
-import DefinitionStore from './definition_store';
+import DefinitionStore, { SHOW_SCOPE, showKey } from './definition_store';
 import VideoRouter from '../../plugins/visualizer/video_router';
 import SceneObjects from '../../plugins/visualizer/scene_objects';
 import Studio from './studio';
@@ -1901,19 +1901,22 @@ class Show extends EventEmitter {
    * last fixture using it does -- see `definition_store.js`. That is the same
    * bargain a structure makes, and it keeps experiments out of the library.
    *
+   * A definition is made with one name, the working name it is found by in
+   * the "This show" folder. A manufacturer and a model become its identity
+   * when it is saved to the library, which is when they matter.
+   *
    * @public
-   * @param {String} manufacturer name the user chose
-   * @param {String} model name the user chose
+   * @param {String} name the working name the user chose
    * @param {Object} params geometry, wiring and controls
    * @param {String} kindId which kind builds it -- see `generic/fixture_kind.js`
    * @returns {String} the definition's key
    */
-  createDefinition(manufacturer, model, params, kindId) {
+  createDefinition(name, params, kindId) {
     const kind = kindById(kindId);
     if (!kind) throw new Error(`No fixture kind called "${kindId}"`);
-    const key = `${manufacturer}/${model}`;
+    const key = showKey(name);
     const profile = kind.buildProfile(params);
-    profile.name = model;
+    profile.name = name;
     this.definitions.add(key, profile);
     this.refreshFixtureList();
     return key;
@@ -1936,39 +1939,83 @@ class Show extends EventEmitter {
   }
 
   /**
-   * Moves one of this show's definitions into the library.
+   * Moves one of this show's definitions into the library, under the
+   * manufacturer and model it is given here.
    *
-   * The deliberate act. Afterwards the show is in the state it would be in had
+   * The deliberate act, and the moment a definition gets its identity: it was
+   * made under a working name, and this is where a manufacturer and a model
+   * are chosen for it. Afterwards the show is in the state it would be in had
    * the fixture been placed from the library: the definition is gone from the
-   * show, the library has it, and every instance carries on under the same
-   * key as a library reference. A library entry of that name already existing
-   * is refused rather than overwritten -- the library is keyed by name and a
+   * show, the library has it, and every instance is re-pointed at the new key
+   * as a library reference. A library entry of that name already existing is
+   * refused rather than overwritten -- the library is keyed by name and a
    * silent overwrite would change fixtures in other shows.
    *
    * @public
    * @async
-   * @param {String} key `manufacturer/model`
-   * @returns {Object} `{ ok, reason }`
+   * @param {String} key the definition's key in this show
+   * @param {String} manufacturer the library folder it goes under
+   * @param {String} model its name there
+   * @returns {Object} `{ ok, reason, key }`, the new key on success
    */
-  async saveDefinitionToLibrary(key) {
+  async saveDefinitionToLibrary(key, manufacturer, model) {
     const profile = this.definitions.get(key);
     if (!profile) return { ok: false, reason: 'This fixture is not a definition of this show.' };
-    if (this.generatedProfiles[key]) {
-      return { ok: false, reason: `The library already has a "${key}". Recreate this fixture under another name to save it.` };
+    const maker = String(manufacturer || '').trim();
+    const name = String(model || '').trim();
+    if (!maker || !name) return { ok: false, reason: 'A manufacturer and a model are needed.' };
+    if (maker === SHOW_SCOPE || maker.includes('/') || name.includes('/')) {
+      return { ok: false, reason: 'A manufacturer or model cannot contain a slash.' };
     }
+    const target = `${maker}/${name}`;
+    if (this.generatedProfiles[target] || (target !== key && this.definitions.has(target))) {
+      return { ok: false, reason: `The library already has a "${target}". Choose another name to save it.` };
+    }
+    profile.name = name;
     if (typeof window !== 'undefined' && window.library) {
       // A bar is written without its channel list, as the store does -- see
       // `definition_store.js` for why.
       await window.library.write(
         'profiles',
-        key,
+        target,
         JSON.stringify(withoutLedBarChannels(profile), null, 2),
       );
     }
-    this.generatedProfiles[key] = profile;
+    this.generatedProfiles[target] = profile;
     this.definitions.remove(key);
+    // Every instance follows the definition to its new key.
+    if (target !== key) {
+      this.fixturePool.fixtures.forEach((fixture) => {
+        if (fixture.profileKey !== key) return;
+        fixture.manufacturer = maker;
+        fixture.model = name;
+      });
+    }
     this.refreshFixtureList();
-    return { ok: true };
+    return { ok: true, key: target };
+  }
+
+  /**
+   * The manufacturers a definition can be saved under: every folder the
+   * library and the shipped profiles have, the ones this machine's own
+   * definitions were saved under, and Generic, for a fixture whose maker is
+   * nobody in particular. Sorted, Generic first.
+   *
+   * @public
+   * @returns {Array} `[{ slug, name }]`, the folder and what it is called
+   */
+  manufacturerChoices() {
+    const seen = new Map();
+    const offer = (slug) => {
+      if (!slug || slug === SHOW_SCOPE || seen.has(slug)) return;
+      seen.set(slug, { slug, name: this.manufacturerName(slug) });
+    };
+    (this.rawOFLFixtures || []).forEach((entry) => {
+      if (!entry.local) offer(entry.name);
+    });
+    Object.keys(this.generatedProfiles).forEach((key) => offer(key.split('/')[0]));
+    const list = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [{ slug: 'Generic', name: 'Generic' }, ...list.filter((m) => m.slug !== 'Generic')];
   }
 
   /**

@@ -7,7 +7,7 @@
  * Usage:
  *   npm test
  */
-import DefinitionStore from '@/models/DMX/definition_store';
+import DefinitionStore, { showKey, isShowKey } from '@/models/DMX/definition_store';
 import { buildLedBarProfile, DEFAULT_BAR_PARAMS } from '@/models/DMX/generic/led_bar';
 import { buildProjectorProfile } from '@/models/DMX/generic/projector';
 
@@ -88,6 +88,24 @@ console.log('\n-- saving hands the profile out and forgets it --');
   check('the profile is handed back', taken.name, 'Beamer');
   check('and is gone from the show', store.has('Beatline/Beamer'), false);
   check('removing again gives nothing', store.remove('Beatline/Beamer'), null);
+}
+
+console.log('\n-- a working name, then a manufacturer and model at save time --');
+{
+  const store = new DefinitionStore();
+  check('a show key is scoped', showKey('Beamer 2'), 'This show/Beamer 2');
+  check('and recognised', isShowKey('This show/Beamer 2'), true);
+  check('a library key is not', isShowKey('Acme/Beamer'), false);
+  store.add(showKey('Beamer 2'), { ...projector, name: 'Beamer 2' });
+  const [folder] = store.list();
+  check('a show definition lists by its working name alone', folder.fixtures[0].name, 'Beamer 2');
+  check('renaming moves it', store.rename(showKey('Beamer 2'), 'Acme/Beamer'), true);
+  check('the old key is gone', store.has(showKey('Beamer 2')), false);
+  check('the new key has it', store.has('Acme/Beamer'), true);
+  check('and the profile is named for the model', store.get('Acme/Beamer').name, 'Beamer');
+  store.add('Acme/Other', projector);
+  check('renaming onto a taken key is refused', store.rename('Acme/Beamer', 'Acme/Other'), false);
+  check('renaming nothing is refused', store.rename('Nobody/None', 'Acme/X'), false);
 }
 
 console.log('\n-- what the Add-to-Show list sees --');

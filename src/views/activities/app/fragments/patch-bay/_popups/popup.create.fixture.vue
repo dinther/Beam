@@ -19,22 +19,17 @@
           label="Type"
           :options="kinds"
         />
-        <!-- auto-update, because these two decide whether the name is taken
-             and whether Create is allowed. Left to emit on blur, the warning
-             described the previous name while the box showed the new one:
-             type a unique model over a taken one and it still insisted the
-             name existed until focus moved. -->
+        <!-- One name: what the definition is found by in the "This show"
+             folder. A manufacturer and a model are asked for when it is saved
+             to the library, which is when they mean something.
+             auto-update, because the name decides whether Create is allowed.
+             Left to emit on blur, the warning described the previous name
+             while the box showed the new one. -->
         <uk-txt-input
-          v-model="manufacturer"
+          v-model="name"
           auto-update
           style="flex: 1"
-          label="Manufacturer"
-        />
-        <uk-txt-input
-          v-model="model"
-          auto-update
-          style="flex: 1"
-          label="Model"
+          label="Name"
         />
       </uk-flex>
 
@@ -42,7 +37,7 @@
         v-if="nameTaken"
         class="create_warning"
       >
-        {{ manufacturer }} / {{ model }} already exists. Pick another name.
+        This show already has a "{{ name }}". Pick another name.
       </p>
 
       <template v-if="isBar">
@@ -816,6 +811,7 @@ import {
   illuminanceAt as strobeIlluminanceAt,
 } from '@/models/DMX/generic/strobe';
 import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
+import { showKey } from '@/models/DMX/definition_store';
 import { blankRecords, controlSetFromRecords } from '@/models/DMX/device_control';
 import DeviceControlsForm from '../../modifiers/device/device.controls.form.vue';
 
@@ -871,8 +867,7 @@ export default {
       headerData: { title: 'Create generic fixture' },
       kindIndex: 0,
       kinds: KINDS,
-      manufacturer: 'Beatline',
-      model: KIND_NAMES[0],
+      name: KIND_NAMES[0],
       length: DEFAULT_BAR_PARAMS.length * MM,
       width: DEFAULT_BAR_PARAMS.width * MM,
       height: DEFAULT_BAR_PARAMS.height * MM,
@@ -1436,11 +1431,9 @@ export default {
       return `${(span / (this.columns - 1)).toFixed(1)} mm pitch`;
     },
     nameTaken() {
-      const key = `${this.manufacturer.trim()}/${this.model.trim()}`;
-      // Taken by this show or by the library: a show definition wins over a
-      // library entry on load, so making one under a library name would hide
-      // that entry for as long as this show is open.
-      return !!this.$show.localProfile(key);
+      // Taken by this show: definitions live under their working name until
+      // they are saved, and two under one name would be one.
+      return this.$show.isShowDefinition(showKey(this.name.trim()));
     },
     /**
      * The bar's parameters, as the model wants them.
@@ -1534,7 +1527,7 @@ export default {
       }[this.builder]();
     },
     valid() {
-      const named = !!this.manufacturer.trim() && !!this.model.trim() && !this.nameTaken;
+      const named = !!this.name.trim() && !this.name.includes('/') && !this.nameTaken;
       return named && this.kindValid;
     },
   },
@@ -1574,8 +1567,8 @@ export default {
      * following the type for the rest of the session.
      */
     kindIndex(index, previous) {
-      if (this.model.trim() && this.model.trim() !== this.suggestionFor(previous)) return;
-      this.model = this.suggestionFor(index);
+      if (this.name.trim() && this.name.trim() !== this.suggestionFor(previous)) return;
+      this.name = this.suggestionFor(index);
     },
     state(open) {
       // No `update()` here, unlike the object dialog: this component does not
@@ -1588,7 +1581,7 @@ export default {
       // created is taken by definition, so reopening met a warning about a
       // name the user had not typed. Numbering it is what the rest of the app
       // does when a name collides.
-      if (open) this.model = this.freeName();
+      if (open) this.name = this.freeName();
     },
   },
   methods: {
@@ -1634,8 +1627,8 @@ export default {
     /**
      * The name this dialog would offer for a kind.
      *
-     * The same answer `freeName` gives, which numbers past anything already in
-     * the library -- so after making a "LED Bar" the suggestion becomes
+     * The same answer `freeName` gives, which numbers past anything this show
+     * already has -- so after making a "LED Bar" the suggestion becomes
      * "LED Bar 2", and a field still holding that still counts as unnamed.
      *
      * @public
@@ -1650,12 +1643,11 @@ export default {
      *
      * @public
      * @param {String} [from] the name to start from; the current one by default
-     * @returns {String} a name no profile of this manufacturer is using
+     * @returns {String} a working name no definition of this show is using
      */
-    freeName(from = this.model) {
-      const maker = this.manufacturer.trim();
+    freeName(from = this.name) {
       const wanted = (from || '').trim() || KIND_NAMES[0];
-      const taken = (name) => !!this.$show.generatedProfiles[`${maker}/${name}`];
+      const taken = (name) => this.$show.isShowDefinition(showKey(name));
       if (!taken(wanted)) return wanted;
       // A trailing number is stripped first, so opening the dialog five times
       // gives "LED Bar 5" rather than "LED Bar 2 2 2 2".
@@ -1679,8 +1671,7 @@ export default {
       // it is saved from the fixture's Model widget. See
       // `Show.createDefinition`.
       const key = this.$show.createDefinition(
-        this.manufacturer.trim(),
-        this.model.trim(),
+        this.name.trim(),
         this.kindParams,
         this.builder,
       );
