@@ -41,7 +41,9 @@
     </div>
     <div
       v-show="displayed && matches.length"
+      ref="list"
       class="uikit_combo_option_list"
+      :style="listStyle"
     >
       <div
         v-for="(option, index) in matches"
@@ -101,6 +103,13 @@ export default {
       content: this.modelValue || '',
       displayed: false,
       highlighted: 0,
+      /**
+       * Where the list sits. It is lifted out into the document while open,
+       * because a popup or a panel with its own scrollbar clips anything that
+       * overflows it; so it is placed by viewport coordinates under the box
+       * and followed while anything scrolls.
+       */
+      listStyle: {},
     };
   },
   computed: {
@@ -123,8 +132,52 @@ export default {
     matches() {
       this.highlighted = 0;
     },
+    displayed(open) {
+      if (open) this.lift();
+      else this.drop();
+    },
+  },
+  beforeUnmount() {
+    this.drop();
   },
   methods: {
+    /**
+     * Moves the list into the document and places it under the box.
+     */
+    lift() {
+      const { list } = this.$refs;
+      if (!list || list.parentNode === document.body) return;
+      document.body.appendChild(list);
+      this.place();
+      if (!this.onViewportChange) this.onViewportChange = () => this.place();
+      window.addEventListener('scroll', this.onViewportChange, true);
+      window.addEventListener('resize', this.onViewportChange);
+    },
+    /**
+     * Puts the list back where it came from.
+     */
+    drop() {
+      const { list } = this.$refs;
+      if (list && list.parentNode === document.body && this.$el) this.$el.appendChild(list);
+      if (this.onViewportChange) {
+        window.removeEventListener('scroll', this.onViewportChange, true);
+        window.removeEventListener('resize', this.onViewportChange);
+      }
+    },
+    /**
+     * Pins the list under the box, in viewport coordinates.
+     */
+    place() {
+      const box = this.$refs.input && this.$refs.input.parentNode;
+      if (!box) return;
+      const rect = box.getBoundingClientRect();
+      this.listStyle = {
+        position: 'fixed',
+        top: `${rect.bottom}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+      };
+    },
     /**
      * Every keystroke is the value: a manufacturer nobody has listed is still
      * a manufacturer.
@@ -229,10 +282,9 @@ export default {
   color: var(--secondary-light);
 }
 .uikit_combo_option_list {
+  /* Placed by `place()` in viewport coordinates once lifted into the
+     document; the position here is what it has before that. */
   position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
   z-index: 1000;
   max-height: 150px;
   overflow-y: auto;
