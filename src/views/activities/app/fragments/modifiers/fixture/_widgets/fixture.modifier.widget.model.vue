@@ -137,7 +137,13 @@
         </dl>
       </div>
 
+      <!-- A bar's channels are one thing repeated, so they are described
+           rather than listed here, and only a bar is: every other fixture's
+           channels are on the Settings widget, with their addresses and what
+           they hold, and a bar's are too many to list there. See
+           `barSummary`. -->
       <uk-flex
+        v-if="barSummary"
         :gap="8"
         class="channel_map_header"
       >
@@ -148,9 +154,6 @@
           @click="copyMap"
         />
       </uk-flex>
-
-      <!-- A bar's channels are one thing repeated, so they are described
-           rather than listed. See `barSummary`. -->
       <div
         v-if="barSummary"
         class="channel_map"
@@ -202,43 +205,6 @@
                 </td>
               </tr>
             </template>
-          </tbody>
-        </table>
-      </div>
-
-      <div
-        v-else
-        class="channel_map"
-      >
-        <table>
-          <thead>
-            <tr>
-              <th class="num">
-                #
-              </th>
-              <th>Channel</th>
-              <th>Function</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in channelRows"
-              :key="row.index"
-            >
-              <td class="num">
-                {{ row.index }}
-              </td>
-              <td>
-                {{ row.name }}
-                <span
-                  v-if="row.isFine"
-                  class="fine_tag"
-                >fine</span>
-              </td>
-              <td class="function">
-                {{ row.function }}
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
@@ -443,23 +409,6 @@ export default {
     },
     copyLabel() {
       return this.copied ? 'copied' : 'copy';
-    },
-    /**
-     * One row per patched channel. The offset is what a profile editor asks
-     * for; the address is what this fixture actually occupies, which is the
-     * number to type into a controller.
-     *
-     * @type {Array}
-     */
-    channelRows() {
-      // A bar is described by `barSummary` instead. Listing it would be
-      // 49,152 rows for a 128 x 128 and 196,608 for a 256 x 256 -- around six
-      // DOM elements each, so a third of a million and over a million
-      // respectively, which is what made selecting one slow. The rows carry
-      // nothing to read: every one of them says the same thing about a
-      // different pixel.
-      if (!this.fixture || !this.fixture.channels || this.fixture.isBar) return [];
-      return this.allChannelRows();
     },
     /**
      * A bar's channel map, as the handful of numbers that fully describe it.
@@ -708,9 +657,8 @@ export default {
     async copyMap() {
       const lines = [
         ['#', 'Channel', 'Function'].join('\t'),
-        // The full list, built here rather than read off `channelRows`, which
-        // is empty for a bar. Copy is where a bar's every channel is still
-        // wanted, and the only place that should pay for them.
+        // The full list: Copy is where a bar's every channel is still wanted,
+        // and the only place that should pay for building them.
         ...this.allChannelRows().map((row) => [
           row.index,
           row.name + (row.isFine ? ' (fine)' : ''),

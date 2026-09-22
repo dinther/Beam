@@ -443,6 +443,12 @@
             v-if="fixture.address > -1"
             class="driven"
           >CH {{ fixture.chStart + 1 }}</span>
+          <!-- The patch sheet: number, address and name, for a spreadsheet or
+               a desk. Here because the addresses are this placement's. -->
+          <uk-button
+            :label="copyLabel"
+            @click="copyChannels"
+          />
         </uk-flex>
         <span
           v-if="channelHint"
@@ -507,6 +513,9 @@ const STREAM_POLL_MS = 1000;
  */
 const WIRE_POLL_MS = 100;
 
+/** How long the copy button confirms for, in ms. */
+const COPY_FEEDBACK_MS = 1500;
+
 export default {
   name: 'FixtureModifierWidgetSettings',
   compatConfig: {
@@ -532,6 +541,8 @@ export default {
       streamTimer: null,
       /** Re-reads the values while a patched fixture is shown; see WIRE_POLL_MS. */
       wireTimer: null,
+      /** Whether the Copy button is confirming a copy. */
+      copied: false,
       /** Bumped on every hand-set channel write, to re-read the values. */
       channelRevision: 0,
       /** The machine's bindable addresses, read once from the main process. */
@@ -590,6 +601,9 @@ export default {
       if (this.isLaser) return 'Input';
       if (this.isStrobe) return 'Lamp';
       return 'Output';
+    },
+    copyLabel() {
+      return this.copied ? 'copied' : 'copy';
     },
     /** What the scroller has in front of the lamp, in words. */
     strobeGelName() {
@@ -1176,6 +1190,32 @@ export default {
     pickStrobeMode(index) {
       const mode = SHUTTER_MODE_ORDER[Number(index)];
       if (mode) this.writeDevice('mode', mode);
+    },
+    /**
+     * Copies the patch sheet: one line per channel, number, address and name,
+     * tab-separated for a spreadsheet.
+     *
+     * @public
+     * @async
+     */
+    async copyChannels() {
+      const lines = [
+        ['#', 'Addr', 'Channel'].join('\t'),
+        ...this.handChannels.map((row) => [
+          row.index + 1,
+          row.address,
+          row.name + (row.isFine ? ' (fine)' : ''),
+        ].join('\t')),
+      ];
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, COPY_FEEDBACK_MS);
+      } catch (err) {
+        // A refused clipboard leaves the button reading "copy", which is the
+        // signal that nothing was copied.
+        this.copied = false;
+      }
     },
     /**
      * One flash, now. The renderer fires on the trigger's rising edge and
