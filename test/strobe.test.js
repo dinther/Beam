@@ -14,8 +14,9 @@ import {
   buildStrobeProfile, isStrobeProfile, DEFAULT_STROBE_PARAMS, STROBE_COLOURS, STROBE_SOURCES,
   controlDefsFor, lampColour, floodSolidAngle, lumens, candela, illuminanceAt, faceOrigin,
   faceSize, rateRange, durationRange, CHANNEL_ORDER, isXenon, flashLumenSeconds,
-  colourOf, DEFAULT_GELS,
+  colourOf, lampSplit,
 } from '@/models/DMX/generic/strobe';
+import { DEFAULT_GELS } from '@/models/DMX/generic/gel_string';
 import StrobeSettings from '@/models/DMX/strobe_settings';
 import { SHUTTER_MODES, SHUTTER_MODE_ORDER } from '@/plugins/visualizer/shutter';
 import { whitePoint } from '@/models/DMX/colour_temperature';
@@ -115,27 +116,41 @@ console.log('--- a flash tube is white, or white through a gel');
   check('scroller: no RGB channels', channels.includes('Red'), false);
   check('scroller: a Gel channel where the colour sat', channels[4], 'Gel');
   const gel = scroller.availableChannels.Gel;
-  check('gel channel declares one frame per gel', (gel.capabilities || []).length, DEFAULT_GELS.length);
-  check('gel frames are colour presets', gel.capabilities[1].type, 'ColorPreset');
-  check('gel frames carry the swatch', gel.capabilities[1].colors[0], DEFAULT_GELS[1].colour);
+  // A range per frame and a two-colour range for each split between frames.
+  check('gel channel declares frames and the splits between', (gel.capabilities || []).length, DEFAULT_GELS.length * 2 - 1);
+  check('gel frames are colour presets', gel.capabilities[2].type, 'ColorPreset');
+  check('gel frames carry the swatch', gel.capabilities[2].colors[0], DEFAULT_GELS[1].colour);
+  check('a split carries both swatches', gel.capabilities[1].colors.length, 2);
   check('the string is stored in the profile', scroller.asls.strobe.gels.length, DEFAULT_GELS.length);
 
   const params = { source: 'xenon', colour: 'scroller', colorTemperature: 6500 };
-  const open = lampColour(params, { gel: 'Open' });
-  near('open frame is the lamp white', open[0], whitePoint(6500)[0]);
-  const red = lampColour(params, { gel: 'Red' });
-  check('a red gel takes the blue out', red[2] < 0.05, true);
-  check('a red gel keeps the red', red[0] > 0.7, true);
-  const unknown = lampColour(params, { gel: 'Chartreuse' });
-  near('a gel the string has not got is the plain white', unknown[1], whitePoint(6500)[1]);
+  const open = lampColour(params, { gel: 1 });
+  near('frame 1 is the open frame, the lamp white', open[0], whitePoint(6500)[0]);
+  const red = lampColour(params, { gel: 2 });
+  check('frame 2, red, takes the blue out', red[2] < 0.05, true);
+  check('frame 2 keeps the red', red[0] > 0.7, true);
+  const split = lampSplit(params, { gel: 2.5 });
+  near('half way is half the next gel in', split.fraction, 0.5);
+  check('the split keeps both colours apart: first is red', split.first[2] < 0.05, true);
+  check('the split keeps both colours apart: second is orange', split.second[1] > split.first[1], true);
+  const room = lampColour(params, { gel: 2.5 });
+  near('the room gets the two added in proportion', room[1], (split.first[1] + split.second[1]) / 2);
 
   const settings = new StrobeSettings(scroller.asls.strobe);
   check('settings know it is a scroller', settings.usesScroller, true);
   check('settings do not mix', settings.mixesColour, false);
-  check('gel parks on the first frame', settings.value('gel'), 'Open');
+  check('gel parks on frame 1', settings.gelPosition, 1);
+  check('and says so', settings.gelName, 'Open');
   settings.writeChannel(4, 255);
-  check('gel at 255 is the last frame', settings.value('gel'), DEFAULT_GELS[DEFAULT_GELS.length - 1].name);
+  check('gel at 255 is the last frame', settings.gelPosition, DEFAULT_GELS.length);
   check('the lamp follows the gel', settings.lamp[2] < 1, true);
+  // A hand-set position, on a unit no console has written to: a live value,
+  // once arrived, is held over the parked one.
+  const byHand = new StrobeSettings(scroller.asls.strobe);
+  byHand.set('gel', 2.5);
+  check('a half position names both gels', byHand.gelName, 'Red / Orange');
+  byHand.set('gel', 40);
+  check('a position past the string is held at its end', byHand.gelPosition, DEFAULT_GELS.length);
 }
 
 console.log('--- the lamp');

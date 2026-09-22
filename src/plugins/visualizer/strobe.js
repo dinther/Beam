@@ -272,6 +272,19 @@ class Strobe {
     this._face = new THREE.Mesh(FACE_GEOMETRY, this._faceMaterial);
     this._face.userData.pickOwner = this;
     this._dummy.add(this._face);
+    // The other half of a split: a scroller parked between two gels has one
+    // colour on part of the aperture and the next on the rest, with the
+    // boundary wherever the string stands. Drawn as a second face beside the
+    // first, sized by the split; hidden on a whole frame.
+    this._faceSecondMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    this._faceSecond = new THREE.Mesh(FACE_GEOMETRY, this._faceSecondMaterial);
+    this._faceSecond.userData.pickOwner = this;
+    this._faceSecond.visible = false;
+    this._dummy.add(this._faceSecond);
+    /** The two halves' colours, and how much of the face the second covers. */
+    this._colourFirst = new THREE.Color(1, 1, 1);
+    this._colourSecond = new THREE.Color(1, 1, 1);
+    this._split = 0;
 
     this._glowMaterial = new THREE.ShaderMaterial({
       uniforms: {
@@ -326,14 +339,44 @@ class Strobe {
 
     const face = faceSize(params);
     const origin = faceOrigin(params);
-    this._face.scale.set(face.width, 1, face.height);
-    this._face.position.set(origin.x, origin.y - FACE_STANDOFF, origin.z);
+    this._faceWidth = face.width;
+    this._faceHeight = face.height;
+    this._faceCentre = { x: origin.x, y: origin.y - FACE_STANDOFF, z: origin.z };
+    this.layoutFaces();
 
-    this._glow.position.copy(this._face.position);
+    this._glow.position.set(this._faceCentre.x, this._faceCentre.y, this._faceCentre.z);
     const diagonal = Math.hypot(face.width, face.height);
     this._glowMaterial.uniforms.glowReach.value = diagonal * GLOW_REACH_PER_FACE;
 
     this.buildAid(origin);
+  }
+
+  /**
+   * Places the face, or its two halves, across the front panel.
+   *
+   * On a whole frame one face covers the aperture and the second is hidden.
+   * Across a split the first gel keeps the left of the aperture and the next
+   * gel has come in from the right by the split's fraction, the boundary
+   * between them where the string stands.
+   *
+   * @private
+   */
+  layoutFaces() {
+    const width = this._faceWidth || 0.001;
+    const height = this._faceHeight || 0.001;
+    const { x, y, z } = this._faceCentre || { x: 0, y: 0, z: 0 };
+    const split = Math.min(Math.max(this._split || 0, 0), 1);
+    const firstWidth = Math.max(width * (1 - split), 0.0005);
+    this._face.scale.set(firstWidth, 1, height);
+    this._face.position.set(x - (width - firstWidth) / 2, y, z);
+    if (split > 0) {
+      const secondWidth = Math.max(width * split, 0.0005);
+      this._faceSecond.scale.set(secondWidth, 1, height);
+      this._faceSecond.position.set(x + (width - secondWidth) / 2, y, z);
+      this._faceSecond.visible = true;
+    } else {
+      this._faceSecond.visible = false;
+    }
   }
 
   /**
@@ -367,8 +410,17 @@ class Strobe {
     if (held && !this._flashHeld) this._shutter.fire();
     this._flashHeld = held;
     this._gain = settings.gain;
+    // The one colour the room is lit by, and the two the face shows across a
+    // scroller's split; the same colour twice for any other unit.
     const { lamp } = settings;
     this._colour.setRGB(lamp[0], lamp[1], lamp[2]);
+    const { first, second, fraction } = settings.lampSplit;
+    this._colourFirst.setRGB(first[0], first[1], first[2]);
+    this._colourSecond.setRGB(second[0], second[1], second[2]);
+    if (fraction !== this._split) {
+      this._split = fraction;
+      this.layoutFaces();
+    }
   }
 
   /**
@@ -384,8 +436,11 @@ class Strobe {
     this._lit = level * this._gain;
     this._frameIntensity = this.frameIntensity();
 
-    faceColour.copy(this._colour).multiplyScalar(FACE_DARK + this._lit * FACE_HDR);
+    const brightness = FACE_DARK + this._lit * FACE_HDR;
+    faceColour.copy(this._colourFirst).multiplyScalar(brightness);
     this._faceMaterial.color.copy(faceColour);
+    faceColour.copy(this._colourSecond).multiplyScalar(brightness);
+    this._faceSecondMaterial.color.copy(faceColour);
 
     this._glowMaterial.uniforms.lampColor.value
       .copy(this._colour)
@@ -660,6 +715,7 @@ class Strobe {
     if (instance._aid && instance._aid.geometry) instance._aid.geometry.dispose();
     if (instance._outline && instance._outline.geometry) instance._outline.geometry.dispose();
     if (instance._faceMaterial) instance._faceMaterial.dispose();
+    if (instance._faceSecondMaterial) instance._faceSecondMaterial.dispose();
     if (instance._glowMaterial) instance._glowMaterial.dispose();
     if (instance._dummy) SceneManager.remove(instance._dummy);
   }

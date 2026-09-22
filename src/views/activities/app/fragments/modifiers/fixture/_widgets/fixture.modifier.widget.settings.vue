@@ -311,20 +311,25 @@
               @click="fireStrobe"
             />
           </uk-flex>
-          <!-- A scroller: which gel is in front of the lamp. -->
+          <!-- A scroller: where the string stands. A whole number is one gel;
+               a half is two, side by side across the lamp. The caption says
+               which. -->
           <uk-flex
             v-if="device.usesScroller && !device.isFixed('gel')"
             :gap="6"
             class="control_wrap"
           >
-            <uk-select-input
-              :model-value="strobeGelIndex"
-              style="flex: 1 1 120px; min-width: 120px"
-              label="Gel"
-              :options="strobeGelOptions"
+            <uk-num-input
+              :model-value="device.gelPosition"
+              style="flex: 0 1 80px; min-width: 72px"
+              label="Gel frame"
+              :precision="1"
+              :min="1"
+              :max="device.gels.length"
               :disabled="device.isDriven('gel')"
-              @input="pickStrobeGel"
+              @update:model-value="writeDevice('gel', $event)"
             />
+            <span class="hint">{{ strobeGelName }}</span>
           </uk-flex>
           <uk-flex
             v-if="device.mixesColour"
@@ -603,14 +608,11 @@ export default {
       const keys = ['mode', 'rate', 'duration', 'dimmer', 'blinder', 'flash', 'red', 'green', 'blue', 'gel'];
       return keys.some((key) => this.device.isDriven(key)) ? 'DMX' : '';
     },
-    /** A scroller's gel string, as the select lists it, and which frame is in. */
-    strobeGelOptions() {
-      if (!this.isStrobe || !this.device || !this.device.usesScroller) return [];
-      return this.device.gels.map((gel) => gel.name);
-    },
-    strobeGelIndex() {
-      const at = this.strobeGelOptions.indexOf(this.read('gel'));
-      return at < 0 ? 0 : at;
+    /** What the scroller has in front of the lamp, in words. */
+    strobeGelName() {
+      // Read through `deviceState`, so a write or a channel re-evaluates it.
+      if (!this.isStrobe || !this.device || this.read('gel') === undefined) return '';
+      return this.device.gelName;
     },
     /** The strobe's modes, as the select lists them. */
     strobeModeOptions() {
@@ -1137,16 +1139,6 @@ export default {
     pickStrobeMode(index) {
       const mode = SHUTTER_MODE_ORDER[Number(index)];
       if (mode) this.writeDevice('mode', mode);
-    },
-    /**
-     * Puts a gel in front of the strobe's lamp.
-     *
-     * @public
-     * @param {Number} index into `strobeGelOptions`
-     */
-    pickStrobeGel(index) {
-      const name = this.strobeGelOptions[Number(index)];
-      if (name) this.writeDevice('gel', name);
     },
     /**
      * One flash, now. The renderer fires on the trigger's rising edge and

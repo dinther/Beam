@@ -28,6 +28,9 @@ import {
 } from '../device_control';
 import { whitePoint } from '../colour_temperature';
 import {
+  DEFAULT_GELS, gelsIn, throughGel, splitThroughGel, gelControl,
+} from './gel_string';
+import {
   SHUTTER_MODES, SHUTTER_MODE_ORDER, SHUTTER_MODE_LABELS, SHUTTER_MODE_EFFECTS,
 } from '../../../plugins/visualizer/shutter';
 
@@ -86,27 +89,6 @@ export const COLOURS_FOR_SOURCE = {
   [STROBE_SOURCES.XENON]: [STROBE_COLOURS.WHITE, STROBE_COLOURS.SCROLLER],
   [STROBE_SOURCES.LED]: [STROBE_COLOURS.WHITE, STROBE_COLOURS.RGB],
 };
-
-/**
- * The gel string a scroller ships with when nobody has said otherwise: an
- * open frame and eleven common saturated gels, as `#rrggbb` in sRGB.
- *
- * @constant {Array}
- */
-export const DEFAULT_GELS = [
-  { name: 'Open', colour: '#ffffff' },
-  { name: 'Red', colour: '#e2231a' },
-  { name: 'Orange', colour: '#f26f21' },
-  { name: 'Amber', colour: '#f6a01a' },
-  { name: 'Yellow', colour: '#f4e400' },
-  { name: 'Green', colour: '#22a745' },
-  { name: 'Cyan', colour: '#16b7c6' },
-  { name: 'Light Blue', colour: '#3f8ce6' },
-  { name: 'Deep Blue', colour: '#2a3fbf' },
-  { name: 'Magenta', colour: '#d3369b' },
-  { name: 'Pink', colour: '#f28cb1' },
-  { name: 'Lavender', colour: '#9a7ad6' },
-];
 
 /**
  * Lumens per watt of rated power.
@@ -304,30 +286,7 @@ export function usesScroller(params) {
  * @returns {Array} `[{ name, colour }]`
  */
 export function gelsOf(params) {
-  const gels = Array.isArray(params.gels)
-    ? params.gels.filter((gel) => gel && typeof gel.name === 'string' && gel.name)
-    : [];
-  return gels.length ? gels : DEFAULT_GELS;
-}
-
-/**
- * A gel's `#rrggbb` as linear RGB, 0..1 per channel.
- *
- * Gels are quoted in sRGB, as swatches are; the lamp mixes in linear light.
- *
- * @param {String} hex
- * @returns {Array} `[r, g, b]`
- */
-function hexToLinear(hex) {
-  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
-  if (!match) return [1, 1, 1];
-  const value = parseInt(match[1], 16);
-  const decode = (byte) => {
-    const c = byte / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  // eslint-disable-next-line no-bitwise
-  return [decode((value >> 16) & 255), decode((value >> 8) & 255), decode(value & 255)];
+  return gelsIn(params.gels);
 }
 
 /**
@@ -337,23 +296,20 @@ function hexToLinear(hex) {
  * A white unit flashes its lamp's white. An RGB unit flashes the mix of its
  * three levels, in per cent, with the three at full adding up to the same
  * white -- so an RGB strobe left at its defaults and a white one of the same
- * temperature look alike. A scroller flashes the white through the gel that
- * is in front of it, named by `gel`; an open frame or a name the string does
- * not have is the plain white.
+ * temperature look alike. A scroller flashes the white through what is in
+ * front of it at position `gel`, one frame or two; see `gel_string.js`.
  *
  * @public
  * @param {Object} params strobe parameters
- * @param {Object} [levels] `{ red, green, blue }` in per cent, `gel` a name
+ * @param {Object} [levels] `{ red, green, blue }` in per cent, `gel` a
+ *   position on the string
  * @returns {Array} `[r, g, b]`
  */
 export function lampColour(params, levels = {}) {
   const kelvin = Number(params.colorTemperature) || DEFAULT_STROBE_PARAMS.colorTemperature;
   const white = whitePoint(kelvin);
   if (usesScroller(params)) {
-    const gel = gelsOf(params).find((entry) => entry.name === levels[STROBE_CHANNELS.GEL]);
-    if (!gel) return white;
-    const filter = hexToLinear(gel.colour);
-    return [white[0] * filter[0], white[1] * filter[1], white[2] * filter[2]];
+    return throughGel(white, gelsOf(params), levels[STROBE_CHANNELS.GEL]);
   }
   if (!mixesColour(params)) return white;
   const level = (key) => Math.min(Math.max(Number(levels[key]) || 0, 0), 100) / 100;
@@ -587,27 +543,22 @@ export const CHANNEL_ORDER = orderOf(CONTROL_DEFS);
 export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
 
 /**
- * The scroller's control: which gel is in front of the lamp, by name, one
- * equal DMX step per frame of the string. Built per profile, since the string
- * is the profile's own.
+ * The two colours a scroller splits the flash into, and where the boundary
+ * lies across the face; see `splitThroughGel`. One colour twice, boundary at
+ * zero, for any unit without a scroller.
  *
+ * @public
  * @param {Object} params strobe parameters
- * @returns {ControlDef}
+ * @param {Object} [levels] as `lampColour` takes them
+ * @returns {Object} `{ first, second, fraction }`
  */
-function gelControl(params) {
-  const gels = gelsOf(params);
-  const names = gels.map((gel) => gel.name);
-  const type = new EnumType({ options: names, initial: names[0] });
-  return new ControlDef(STROBE_CHANNELS.GEL, 'Gel', type, {
-    // One ColorPreset range per frame, carrying the gel's swatch, which is
-    // what OFL says about a scroller and what a patch sheet shows.
-    capability: () => gels.map((gel, index) => ({
-      dmxRange: type.rangeOf(index),
-      type: 'ColorPreset',
-      colors: [gel.colour],
-      comment: gel.name,
-    })),
-  });
+export function lampSplit(params, levels = {}) {
+  if (usesScroller(params)) {
+    const kelvin = Number(params.colorTemperature) || DEFAULT_STROBE_PARAMS.colorTemperature;
+    return splitThroughGel(whitePoint(kelvin), gelsOf(params), levels[STROBE_CHANNELS.GEL]);
+  }
+  const colour = lampColour(params, levels);
+  return { first: colour, second: colour, fraction: 0 };
 }
 
 /**
@@ -628,7 +579,8 @@ export function controlDefsFor(params) {
   // The gel sits where the colour sits: after the flash length, before the
   // blinder.
   const at = withoutMix.findIndex((def) => def.key === STROBE_CHANNELS.BLINDER);
-  return [...withoutMix.slice(0, at), gelControl(params), ...withoutMix.slice(at)];
+  const gel = gelControl(STROBE_CHANNELS.GEL, 'Gel', gelsOf(params));
+  return [...withoutMix.slice(0, at), gel, ...withoutMix.slice(at)];
 }
 
 /**
@@ -706,7 +658,6 @@ export default {
   STROBE_SOURCES,
   STROBE_COLOURS,
   COLOURS_FOR_SOURCE,
-  DEFAULT_GELS,
   CHANNEL_ORDER,
   CHANNEL_LABELS,
   DEFAULT_STROBE_PARAMS,
@@ -721,6 +672,7 @@ export default {
   usesScroller,
   gelsOf,
   lampColour,
+  lampSplit,
   floodHalfAngles,
   floodSolidAngle,
   lumens,

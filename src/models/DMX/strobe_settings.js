@@ -1,9 +1,10 @@
 import DeviceSettings, { FULL } from './device_settings';
 import { clamp } from './device_control';
 import {
-  STROBE_CHANNELS, controlDefsFor, lampColour, rateRange, durationRange, mixesColour,
+  STROBE_CHANNELS, controlDefsFor, lampColour, lampSplit, rateRange, durationRange, mixesColour,
   usesScroller, gelsOf, colourOf,
 } from './generic/strobe';
+import { frameName } from './generic/gel_string';
 import { SHUTTER_MODES } from '../../plugins/visualizer/shutter';
 
 /**
@@ -45,6 +46,30 @@ class StrobeSettings extends DeviceSettings {
 
   /** The scroller's gel string, in order. */
   get gels() { return gelsOf(this._params); }
+
+  /** The scroller's position, 1 to the string's length; 1 without one. */
+  get gelPosition() { return Number(this.value(STROBE_CHANNELS.GEL)) || 1; }
+
+  /** What is in front of the lamp, in words: one gel, or two across a split. */
+  get gelName() {
+    return this.usesScroller ? frameName(this.gels, this.gelPosition) : '';
+  }
+
+  /**
+   * The two colours the flash is split into and where the boundary lies,
+   * for a renderer that can draw both halves. See `lampSplit`.
+   *
+   * @readonly
+   * @type {Object} `{ first, second, fraction }`
+   */
+  get lampSplit() {
+    return lampSplit(this._params, {
+      red: this.value(STROBE_CHANNELS.RED),
+      green: this.value(STROBE_CHANNELS.GREEN),
+      blue: this.value(STROBE_CHANNELS.BLUE),
+      gel: this.value(STROBE_CHANNELS.GEL),
+    });
+  }
 
   /** The rates the profile allows, in hertz. */
   get rateRange() { return rateRange(this._params); }
