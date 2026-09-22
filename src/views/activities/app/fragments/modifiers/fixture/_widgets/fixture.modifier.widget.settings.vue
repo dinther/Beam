@@ -496,6 +496,17 @@ const ADDRESSED = ['idn', 'etherdream', 'lasercube'];
 /** How often the Ponk stream list is re-read while a laser is shown, in ms. */
 const STREAM_POLL_MS = 1000;
 
+/**
+ * How often the values are re-read while a patched fixture is shown, in ms.
+ *
+ * A frame from the wire writes into the fixture outside Vue, so nothing
+ * re-renders on its own; this is what makes the byte boxes and the value
+ * column follow a running desk. Ten times a second is enough for the eye, and
+ * it is one fixture's dozen channels formatted per tick, nowhere near the
+ * wire's own rate.
+ */
+const WIRE_POLL_MS = 100;
+
 export default {
   name: 'FixtureModifierWidgetSettings',
   compatConfig: {
@@ -519,6 +530,8 @@ export default {
        */
       streamTick: 0,
       streamTimer: null,
+      /** Re-reads the values while a patched fixture is shown; see WIRE_POLL_MS. */
+      wireTimer: null,
       /** Bumped on every hand-set channel write, to re-read the values. */
       channelRevision: 0,
       /** The machine's bindable addresses, read once from the main process. */
@@ -1023,10 +1036,20 @@ export default {
       }
     }, STREAM_POLL_MS);
     LaserStream.addresses().then((list) => { this.laserAddresses = list || []; });
+    // Only a patched fixture can change underneath the panel, and only its
+    // channel list and device values are what the wire writes.
+    this.wireTimer = setInterval(() => {
+      const { fixture } = this;
+      if (!fixture || fixture.address < 0) return;
+      this.channelRevision += 1;
+      if (fixture.device) this.deviceRevision += 1;
+    }, WIRE_POLL_MS);
   },
   beforeUnmount() {
     if (this.streamTimer) clearInterval(this.streamTimer);
     this.streamTimer = null;
+    if (this.wireTimer) clearInterval(this.wireTimer);
+    this.wireTimer = null;
   },
   methods: {
     /**
