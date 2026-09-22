@@ -10,13 +10,6 @@
       col
       class="fixture_model_body"
     >
-      <p class="scope_note">
-        <!-- Non-breaking spaces, because ordinary ones either side of the bold
-             are eaten somewhere between here and the screen. An entity is a
-             character rather than whitespace, so nothing can condense it. -->
-        Applies to every&nbsp;<b>{{ definitionLabel }}</b>&nbsp;in the show.
-      </p>
-
       <!-- A definition made in this show and not yet in the library. It lives
            with the show and goes when its last instance does; saving it is
            the deliberate act that makes it a library reference -- the same
@@ -266,17 +259,6 @@ export default {
     isShowDefinition() {
       return this.revision >= 0 && this.$show.isShowDefinition(this.profileKey);
     },
-    /**
-     * What the definition is called: its working name while it is the show's
-     * own, its manufacturer and model once it has them.
-     *
-     * @type {String}
-     */
-    definitionLabel() {
-      if (!this.fixture) return '';
-      if (isShowKey(this.profileKey)) return this.fixture.model;
-      return `${this.$show.manufacturerName(this.fixture.manufacturer)} ${this.fixture.model}`;
-    },
     /** The manufacturers the save dialog offers, by display name. */
     manufacturerChoices() {
       return this.revision >= 0 ? this.$show.manufacturerChoices() : [];
@@ -339,6 +321,8 @@ export default {
       return {
         title: `${this.fixture.model}${mode}${count}`,
         icon: fixtureIcon(this.fixture),
+        // Library reference: the same badge the item list puts on the row.
+        overlay: this.isShowDefinition ? null : 'link',
       };
     },
     /**
@@ -726,9 +710,6 @@ export default {
 .save_form {
   padding: 12px;
   min-width: 320px;
-}
-.scope_note b {
-  color: var(--secondary-lighter);
 }
 .section_label {
   font-family: Roboto-Medium;

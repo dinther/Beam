@@ -4,11 +4,22 @@
     class="widget"
   >
     <div class="header">
-      <uk-icon
+      <span
         v-if="header.icon"
-        class="header_icon"
-        :name="header.icon"
-      />
+        class="header_glyph"
+      >
+        <uk-icon
+          class="header_icon"
+          :name="header.icon"
+        />
+        <!-- A badge on the icon's lower-right corner, drawn the same way the
+             list item marks its rows. -->
+        <uk-icon
+          v-if="header.overlay"
+          class="header_overlay"
+          :name="header.overlay"
+        />
+      </span>
       <h3>{{ header.title }}</h3>
       <span style="flex: 1" />
       <uk-button
@@ -130,11 +141,29 @@ export default {
   border-bottom: 1px solid var(--primary-dark);
   user-select: none;
 }
+.header_glyph {
+  position: relative;
+  display: flex;
+  flex: none;
+  margin-right: 6px;
+  height: 12px;
+  width: 12px;
+}
 .header_icon {
   fill: var(--secondary-lighter) !important;
-  margin-right: 6px;
   height: 12px !important;
   width: 12px !important;
+}
+.header_overlay {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  width: 10px !important;
+  height: 10px !important;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  fill: var(--accent-teal) !important;
 }
 .widget.docked {
   min-width: 30px !important;
@@ -192,7 +221,7 @@ export default {
       var(--primary-dark) 20px
     );
 }
-.docked .header_icon {
+.docked .header_glyph {
   margin: 0 !important;
   margin-top: 8px !important;
 }
@@ -202,6 +231,7 @@ export default {
   transform: scale(-1);
 }
 .disabled .header_icon,
+.disabled .header_overlay,
 .disabled .widget_action {
   fill: var(--secondary-light) !important;
   cursor: unset;
