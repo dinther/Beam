@@ -91,6 +91,19 @@ export const COLOURS_FOR_SOURCE = {
 };
 
 /**
+ * The colour capability a lamp starts with when it is picked: a tube is a
+ * white tube until somebody bolts a scroller on; an LED strobe is sold as
+ * RGB more often than not.
+ *
+ * @public
+ * @param {String} source one of {@link STROBE_SOURCES}
+ * @returns {String} one of {@link STROBE_COLOURS}
+ */
+export function defaultColourFor(source) {
+  return source === STROBE_SOURCES.XENON ? STROBE_COLOURS.WHITE : STROBE_COLOURS.RGB;
+}
+
+/**
  * Lumens per watt of rated power.
  *
  * A stage LED array manages about a hundred. A xenon tube is rated by the
@@ -668,6 +681,7 @@ export default {
   rateRange,
   durationRange,
   colourOf,
+  defaultColourFor,
   mixesColour,
   usesScroller,
   gelsOf,

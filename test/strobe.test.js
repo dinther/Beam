@@ -14,7 +14,7 @@ import {
   buildStrobeProfile, isStrobeProfile, DEFAULT_STROBE_PARAMS, STROBE_COLOURS, STROBE_SOURCES,
   controlDefsFor, lampColour, floodSolidAngle, lumens, candela, illuminanceAt, faceOrigin,
   faceSize, rateRange, durationRange, CHANNEL_ORDER, isXenon, flashLumenSeconds,
-  colourOf, lampSplit,
+  colourOf, defaultColourFor, lampSplit,
 } from '@/models/DMX/generic/strobe';
 import { DEFAULT_GELS } from '@/models/DMX/generic/gel_string';
 import StrobeSettings from '@/models/DMX/strobe_settings';
@@ -107,6 +107,8 @@ console.log('--- a flash tube is white, or white through a gel');
   check('xenon with a scroller is a scroller', colourOf({ source: 'xenon', colour: 'scroller' }), 'scroller');
   check('LED with a scroller reads as white', colourOf({ source: 'led', colour: 'scroller' }), 'white');
   check('LED with RGB mixes', colourOf({ source: 'led', colour: 'rgb' }), 'rgb');
+  check('a new tube starts white', defaultColourFor('xenon'), 'white');
+  check('a new array starts RGB', defaultColourFor('led'), 'rgb');
 
   const controls = {};
   CHANNEL_ORDER.forEach((key, i) => { controls[key] = { mode: 'dmx', channel: i + 1, bits: 8 }; });

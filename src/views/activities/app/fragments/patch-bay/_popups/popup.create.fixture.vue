@@ -811,6 +811,7 @@ import {
   STROBE_COLOURS,
   STROBE_COLOUR_LABELS,
   COLOURS_FOR_SOURCE,
+  defaultColourFor,
   controlDefsFor as strobeControlDefsFor,
   illuminanceAt as strobeIlluminanceAt,
 } from '@/models/DMX/generic/strobe';
@@ -1538,9 +1539,14 @@ export default {
     },
   },
   watch: {
-    /** A lamp that cannot have the colour picked drops back to the first it can. */
+    /**
+     * A new lamp starts with the colour that lamp is usually sold with: a
+     * tube white, an array RGB. The list has changed under the index, so the
+     * index is looked up afresh rather than kept.
+     */
     strobeSourceIndex() {
-      if (this.strobeColourIndex >= this.strobeColourKeys.length) this.strobeColourIndex = 0;
+      const wanted = defaultColourFor(this.strobeSource);
+      this.strobeColourIndex = Math.max(this.strobeColourKeys.indexOf(wanted), 0);
     },
     /**
      * A colour capability that brings a control the records do not have yet,
