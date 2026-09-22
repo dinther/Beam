@@ -62,14 +62,14 @@ console.log('--- channel layout follows the declared order');
   const { channels } = profile.modes[0];
   check('every control on a channel: nine of them', channels.length, 9);
   check('dimmer first', channels[0], 'Dimmer');
-  check('mode second', channels[1], 'Mode');
+  check('strobe mode second', channels[1], 'Strobe Mode');
   check('rate third', channels[2], 'Rate');
   check('duration fourth', channels[3], 'Duration');
   check('colour fifth to seventh', channels.slice(4, 7).join(','), 'Red,Green,Blue');
   check('blinder eighth', channels[7], 'Blinder');
   check('flash last', channels[8], 'Flash');
 
-  const mode = profile.availableChannels.Mode;
+  const mode = profile.availableChannels['Strobe Mode'];
   check('mode channel declares one range per mode', (mode.capabilities || []).length, SHUTTER_MODE_ORDER.length);
   const ranges = (mode.capabilities || []).map((c) => c.dmxRange);
   check('ranges start at 0', ranges[0] && ranges[0][0], 0);
@@ -116,8 +116,8 @@ console.log('--- a flash tube is white, or white through a gel');
   const scroller = buildStrobeProfile({ source: 'xenon', colour: 'scroller', controls });
   const { channels } = scroller.modes[0];
   check('scroller: no RGB channels', channels.includes('Red'), false);
-  check('scroller: a Gel channel where the colour sat', channels[4], 'Gel');
-  const gel = scroller.availableChannels.Gel;
+  check('scroller: a Colour Scroller channel where the colour sat', channels[4], 'Colour Scroller');
+  const gel = scroller.availableChannels['Colour Scroller'];
   // A range per frame and a two-colour range for each split between frames.
   check('gel channel declares frames and the splits between', (gel.capabilities || []).length, DEFAULT_GELS.length * 2 - 1);
   check('gel frames are colour presets', gel.capabilities[2].type, 'ColorPreset');

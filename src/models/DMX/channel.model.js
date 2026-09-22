@@ -69,11 +69,18 @@ class Channel {
    * @param {Object} data Channel data
    * @param {Number} data.id Channel ID
    * @param {String} data.type Channel type
+   * @param {String} [data.name] What the profile calls the channel
    * @param {Boolean} data.isFine Whether or not the channel is a fine channel
    * @param {Object} data.OFLData OFL Data channel object
    */
   constructor(data) {
     this.id = data.id;
+    /**
+     * The profile's own name for the channel, as a patch sheet shows it. The
+     * type below is the capability's category and is overwritten by `setup`,
+     * so "Strobe Speed" would otherwise be shown as "Shutter".
+     */
+    this.name = data.name || data.type;
     this.type = data.type;
     this.fineChannelAliases = null;
     this.fineChannels = [];

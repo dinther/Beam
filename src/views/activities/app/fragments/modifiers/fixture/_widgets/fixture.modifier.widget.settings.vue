@@ -272,7 +272,7 @@
               v-show="!device.isFixed('duration')"
               :model-value="Math.round(read('duration') || 0)"
               style="flex: 1 1 72px; min-width: 72px"
-              label="Flash ms"
+              label="Duration ms"
               :precision="0"
               :min="strobeDurationRange.min"
               :max="strobeDurationRange.max"
@@ -315,7 +315,7 @@
             <uk-num-input
               :model-value="device.gelPosition"
               style="flex: 0 1 80px; min-width: 72px"
-              label="Gel frame"
+              label="Scroller"
               :precision="1"
               :min="1"
               :max="device.gels.length"
@@ -597,15 +597,15 @@ export default {
       if (!this.isStrobe || !this.device) return '';
       const labels = {
         dimmer: 'Dimmer',
-        mode: 'Mode',
+        mode: 'Strobe mode',
         rate: 'Rate',
-        duration: 'Flash',
+        duration: 'Duration',
         red: 'Red',
         green: 'Green',
         blue: 'Blue',
-        gel: 'Gel',
+        gel: 'Colour scroller',
         blinder: 'Blinder',
-        flash: 'Flash trigger',
+        flash: 'Flash',
       };
       const driven = Object.keys(labels).filter((key) => this.device.isDriven(key));
       return driven.length ? `On DMX: ${driven.map((key) => labels[key]).join(', ')}` : '';

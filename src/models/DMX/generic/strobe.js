@@ -76,7 +76,7 @@ export const STROBE_COLOURS = {
 export const STROBE_COLOUR_LABELS = {
   [STROBE_COLOURS.WHITE]: 'White',
   [STROBE_COLOURS.RGB]: 'RGB',
-  [STROBE_COLOURS.SCROLLER]: 'Gel scroller',
+  [STROBE_COLOURS.SCROLLER]: 'Colour scroller',
 };
 
 /**
@@ -516,7 +516,9 @@ const colourControl = (key, label, colour) => new ControlDef(
 
 export const CONTROL_DEFS = [
   COMMON_CONTROLS.dimmer(),
-  new ControlDef(STROBE_CHANNELS.MODE, 'Mode', MODE_TYPE, { capability: modeCapabilities }),
+  // "Strobe Mode", as the trade labels it, and not "Mode", which on a patch
+  // sheet and beside the profile's DMX mode select is a different thing.
+  new ControlDef(STROBE_CHANNELS.MODE, 'Strobe Mode', MODE_TYPE, { capability: modeCapabilities }),
   // The rate and the flash length span what this model can do, so a hand-set
   // value and a driven one are in the same units and the same range.
   new ControlDef(STROBE_CHANNELS.RATE, 'Rate', new RangeType({
@@ -592,7 +594,9 @@ export function controlDefsFor(params) {
   // The gel sits where the colour sits: after the flash length, before the
   // blinder.
   const at = withoutMix.findIndex((def) => def.key === STROBE_CHANNELS.BLINDER);
-  const gel = gelControl(STROBE_CHANNELS.GEL, 'Gel', gelsOf(params));
+  // The channel a scroller answers to is called Colour Scroller on every
+  // sheet; "gel" is the frame, not the channel.
+  const gel = gelControl(STROBE_CHANNELS.GEL, 'Colour Scroller', gelsOf(params));
   return [...withoutMix.slice(0, at), gel, ...withoutMix.slice(at)];
 }
 
