@@ -2,6 +2,7 @@ import DeviceSettings, { FULL } from './device_settings';
 import { clamp } from './device_control';
 import {
   STROBE_CHANNELS, controlDefsFor, lampColour, rateRange, durationRange, mixesColour,
+  usesScroller, gelsOf, colourOf,
 } from './generic/strobe';
 import { SHUTTER_MODES } from '../../plugins/visualizer/shutter';
 
@@ -33,8 +34,17 @@ class StrobeSettings extends DeviceSettings {
     super(controlDefsFor(params || {}), params, data);
   }
 
-  /** Whether this model mixes colour, or flashes one white. */
+  /** Whether this model mixes colour from three emitters. */
   get mixesColour() { return mixesColour(this._params); }
+
+  /** Whether this model colours a white lamp through a gel scroller. */
+  get usesScroller() { return usesScroller(this._params); }
+
+  /** The colour capability this model really has; see `colourOf`. */
+  get colourMode() { return colourOf(this._params); }
+
+  /** The scroller's gel string, in order. */
+  get gels() { return gelsOf(this._params); }
 
   /** The rates the profile allows, in hertz. */
   get rateRange() { return rateRange(this._params); }
@@ -63,6 +73,7 @@ class StrobeSettings extends DeviceSettings {
       red: this.value(STROBE_CHANNELS.RED),
       green: this.value(STROBE_CHANNELS.GREEN),
       blue: this.value(STROBE_CHANNELS.BLUE),
+      gel: this.value(STROBE_CHANNELS.GEL),
     });
   }
 

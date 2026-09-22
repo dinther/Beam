@@ -14,6 +14,7 @@ import {
   buildStrobeProfile, isStrobeProfile, DEFAULT_STROBE_PARAMS, STROBE_COLOURS, STROBE_SOURCES,
   controlDefsFor, lampColour, floodSolidAngle, lumens, candela, illuminanceAt, faceOrigin,
   faceSize, rateRange, durationRange, CHANNEL_ORDER, isXenon, flashLumenSeconds,
+  colourOf, DEFAULT_GELS,
 } from '@/models/DMX/generic/strobe';
 import StrobeSettings from '@/models/DMX/strobe_settings';
 import { SHUTTER_MODES, SHUTTER_MODE_ORDER } from '@/plugins/visualizer/shutter';
@@ -97,6 +98,44 @@ console.log('--- a white unit has no colour channels');
   // blinder and flash keep their numbers across.
   check('blinder keeps its channel', channels[7], 'Blinder');
   check('gap is a reserved channel', channels[4], 'Reserved 5');
+}
+
+console.log('--- a flash tube is white, or white through a gel');
+{
+  check('xenon with RGB reads as white', colourOf({ source: 'xenon', colour: 'rgb' }), 'white');
+  check('xenon with a scroller is a scroller', colourOf({ source: 'xenon', colour: 'scroller' }), 'scroller');
+  check('LED with a scroller reads as white', colourOf({ source: 'led', colour: 'scroller' }), 'white');
+  check('LED with RGB mixes', colourOf({ source: 'led', colour: 'rgb' }), 'rgb');
+
+  const controls = {};
+  CHANNEL_ORDER.forEach((key, i) => { controls[key] = { mode: 'dmx', channel: i + 1, bits: 8 }; });
+  controls.gel = { mode: 'dmx', channel: 5, bits: 8 };
+  const scroller = buildStrobeProfile({ source: 'xenon', colour: 'scroller', controls });
+  const { channels } = scroller.modes[0];
+  check('scroller: no RGB channels', channels.includes('Red'), false);
+  check('scroller: a Gel channel where the colour sat', channels[4], 'Gel');
+  const gel = scroller.availableChannels.Gel;
+  check('gel channel declares one frame per gel', (gel.capabilities || []).length, DEFAULT_GELS.length);
+  check('gel frames are colour presets', gel.capabilities[1].type, 'ColorPreset');
+  check('gel frames carry the swatch', gel.capabilities[1].colors[0], DEFAULT_GELS[1].colour);
+  check('the string is stored in the profile', scroller.asls.strobe.gels.length, DEFAULT_GELS.length);
+
+  const params = { source: 'xenon', colour: 'scroller', colorTemperature: 6500 };
+  const open = lampColour(params, { gel: 'Open' });
+  near('open frame is the lamp white', open[0], whitePoint(6500)[0]);
+  const red = lampColour(params, { gel: 'Red' });
+  check('a red gel takes the blue out', red[2] < 0.05, true);
+  check('a red gel keeps the red', red[0] > 0.7, true);
+  const unknown = lampColour(params, { gel: 'Chartreuse' });
+  near('a gel the string has not got is the plain white', unknown[1], whitePoint(6500)[1]);
+
+  const settings = new StrobeSettings(scroller.asls.strobe);
+  check('settings know it is a scroller', settings.usesScroller, true);
+  check('settings do not mix', settings.mixesColour, false);
+  check('gel parks on the first frame', settings.value('gel'), 'Open');
+  settings.writeChannel(4, 255);
+  check('gel at 255 is the last frame', settings.value('gel'), DEFAULT_GELS[DEFAULT_GELS.length - 1].name);
+  check('the lamp follows the gel', settings.lamp[2] < 1, true);
 }
 
 console.log('--- the lamp');

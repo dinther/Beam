@@ -810,6 +810,7 @@ import {
   STROBE_SOURCE_LABELS,
   STROBE_COLOURS,
   STROBE_COLOUR_LABELS,
+  COLOURS_FOR_SOURCE,
   controlDefsFor as strobeControlDefsFor,
   illuminanceAt as strobeIlluminanceAt,
 } from '@/models/DMX/generic/strobe';
@@ -950,7 +951,12 @@ export default {
       laserControls: blankRecords(LASER_CONTROL_DEFS, DEFAULT_LASER_PARAMS),
       // Strobe. Kept apart from the others for the same reason they are.
       strobeSourceIndex: Math.max(STROBE_SOURCE_KEYS.indexOf(DEFAULT_STROBE_PARAMS.source), 0),
-      strobeColourIndex: Math.max(STROBE_COLOUR_KEYS.indexOf(DEFAULT_STROBE_PARAMS.colour), 0),
+      // Into the list the default lamp offers, not the list of every colour.
+      strobeColourIndex: Math.max(
+        (COLOURS_FOR_SOURCE[DEFAULT_STROBE_PARAMS.source] || STROBE_COLOUR_KEYS)
+          .indexOf(DEFAULT_STROBE_PARAMS.colour),
+        0,
+      ),
       strobePower: DEFAULT_STROBE_PARAMS.power,
       strobeKelvin: DEFAULT_STROBE_PARAMS.colorTemperature,
       floodAngleH: DEFAULT_STROBE_PARAMS.floodAngleH,
@@ -1020,7 +1026,14 @@ export default {
     /** A white strobe has no colour rows; an RGB one has three. */
     strobeControlDefs() { return strobeControlDefsFor(this.strobeEnvelope); },
     strobeSourceOptions() { return STROBE_SOURCE_KEYS.map((key) => STROBE_SOURCE_LABELS[key]); },
-    strobeColourOptions() { return STROBE_COLOUR_KEYS.map((key) => STROBE_COLOUR_LABELS[key]); },
+    /** The lamp picked, and the colour capabilities that lamp can have. */
+    strobeSource() {
+      return STROBE_SOURCE_KEYS[this.strobeSourceIndex] || STROBE_SOURCE_KEYS[0];
+    },
+    strobeColourKeys() {
+      return COLOURS_FOR_SOURCE[this.strobeSource] || STROBE_COLOUR_KEYS;
+    },
+    strobeColourOptions() { return this.strobeColourKeys.map((key) => STROBE_COLOUR_LABELS[key]); },
     strobeControlSet() {
       return controlSetFromRecords(
         this.strobeControlDefs,
@@ -1036,8 +1049,8 @@ export default {
      */
     strobeEnvelope() {
       return {
-        source: STROBE_SOURCE_KEYS[this.strobeSourceIndex] || STROBE_SOURCE_KEYS[0],
-        colour: STROBE_COLOUR_KEYS[this.strobeColourIndex] || STROBE_COLOUR_KEYS[0],
+        source: this.strobeSource,
+        colour: this.strobeColourKeys[this.strobeColourIndex] || this.strobeColourKeys[0],
         power: this.strobePower,
         colorTemperature: this.strobeKelvin,
         floodAngleH: this.floodAngleH,
@@ -1525,6 +1538,26 @@ export default {
     },
   },
   watch: {
+    /** A lamp that cannot have the colour picked drops back to the first it can. */
+    strobeSourceIndex() {
+      if (this.strobeColourIndex >= this.strobeColourKeys.length) this.strobeColourIndex = 0;
+    },
+    /**
+     * A colour capability that brings a control the records do not have yet,
+     * a scroller's gel, gets a record; the form draws rows only for keys that
+     * have one. Records already there are kept, so switching away and back
+     * does not lose what was set.
+     *
+     * @param {Array} defs
+     */
+    strobeControlDefs(defs) {
+      const blanks = blankRecords(defs, this.strobeEnvelope);
+      defs.forEach((def) => {
+        if (!this.strobeControls[def.key] && blanks[def.key]) {
+          this.strobeControls[def.key] = blanks[def.key];
+        }
+      });
+    },
     /**
      * Keeps the name with the type, until the user has an opinion about it.
      *

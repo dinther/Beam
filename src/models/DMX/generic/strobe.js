@@ -55,20 +55,58 @@ export const STROBE_SOURCE_LABELS = {
 };
 
 /**
- * Whether the unit makes one colour or mixes three.
+ * How the unit gets its colour.
+ *
+ * A white unit has none. An RGB array mixes three emitters. A scroller is a
+ * strip of gels in front of a white lamp, stepped through by one channel: the
+ * only colour a flash tube ever had, since the tube itself is white.
  *
  * @constant {Object}
  */
 export const STROBE_COLOURS = {
   WHITE: 'white',
   RGB: 'rgb',
+  SCROLLER: 'scroller',
 };
 
 /** What each colour capability is called on screen. */
 export const STROBE_COLOUR_LABELS = {
   [STROBE_COLOURS.WHITE]: 'White',
   [STROBE_COLOURS.RGB]: 'RGB',
+  [STROBE_COLOURS.SCROLLER]: 'Gel scroller',
 };
+
+/**
+ * The colour capabilities each kind of lamp can have. A tube cannot mix; an
+ * array has no scroller bolted on.
+ *
+ * @constant {Object}
+ */
+export const COLOURS_FOR_SOURCE = {
+  [STROBE_SOURCES.XENON]: [STROBE_COLOURS.WHITE, STROBE_COLOURS.SCROLLER],
+  [STROBE_SOURCES.LED]: [STROBE_COLOURS.WHITE, STROBE_COLOURS.RGB],
+};
+
+/**
+ * The gel string a scroller ships with when nobody has said otherwise: an
+ * open frame and eleven common saturated gels, as `#rrggbb` in sRGB.
+ *
+ * @constant {Array}
+ */
+export const DEFAULT_GELS = [
+  { name: 'Open', colour: '#ffffff' },
+  { name: 'Red', colour: '#e2231a' },
+  { name: 'Orange', colour: '#f26f21' },
+  { name: 'Amber', colour: '#f6a01a' },
+  { name: 'Yellow', colour: '#f4e400' },
+  { name: 'Green', colour: '#22a745' },
+  { name: 'Cyan', colour: '#16b7c6' },
+  { name: 'Light Blue', colour: '#3f8ce6' },
+  { name: 'Deep Blue', colour: '#2a3fbf' },
+  { name: 'Magenta', colour: '#d3369b' },
+  { name: 'Pink', colour: '#f28cb1' },
+  { name: 'Lavender', colour: '#9a7ad6' },
+];
 
 /**
  * Lumens per watt of rated power.
@@ -102,11 +140,12 @@ export const STROBE_CHANNELS = {
   RED: 'red',
   GREEN: 'green',
   BLUE: 'blue',
+  GEL: 'gel',
   BLINDER: 'blinder',
   FLASH: 'flash',
 };
 
-/** The three colour channels, which a white unit does without. */
+/** The three colour channels, which only an RGB unit has. */
 const COLOUR_KEYS = [STROBE_CHANNELS.RED, STROBE_CHANNELS.GREEN, STROBE_CHANNELS.BLUE];
 
 /**
@@ -122,6 +161,11 @@ export const DEFAULT_STROBE_PARAMS = {
   source: STROBE_SOURCES.LED,
   /** One of {@link STROBE_COLOURS}. */
   colour: STROBE_COLOURS.RGB,
+  /**
+   * The gel string of a scroller, in order, as `{ name, colour }`. Read only
+   * when the colour is a scroller.
+   */
+  gels: DEFAULT_GELS,
   /**
    * Rated power, in watts.
    *
@@ -212,14 +256,78 @@ export function durationRange(params) {
 }
 
 /**
- * Whether this model mixes colour, or flashes one white.
+ * The colour capability this model really has.
+ *
+ * A profile is a hand-edited document, and one that says a xenon tube mixes
+ * RGB describes a lamp that does not exist. Read as the nearest lamp that
+ * does: a combination the source cannot have falls back to white.
+ *
+ * @public
+ * @param {Object} params strobe parameters
+ * @returns {String} one of {@link STROBE_COLOURS}
+ */
+export function colourOf(params) {
+  const source = params.source || DEFAULT_STROBE_PARAMS.source;
+  const wanted = params.colour || DEFAULT_STROBE_PARAMS.colour;
+  const allowed = COLOURS_FOR_SOURCE[source] || COLOURS_FOR_SOURCE[STROBE_SOURCES.LED];
+  return allowed.includes(wanted) ? wanted : STROBE_COLOURS.WHITE;
+}
+
+/**
+ * Whether this model mixes colour from three emitters.
  *
  * @public
  * @param {Object} params strobe parameters
  * @returns {Boolean}
  */
 export function mixesColour(params) {
-  return (params.colour || DEFAULT_STROBE_PARAMS.colour) === STROBE_COLOURS.RGB;
+  return colourOf(params) === STROBE_COLOURS.RGB;
+}
+
+/**
+ * Whether this model colours a white lamp through a gel scroller.
+ *
+ * @public
+ * @param {Object} params strobe parameters
+ * @returns {Boolean}
+ */
+export function usesScroller(params) {
+  return colourOf(params) === STROBE_COLOURS.SCROLLER;
+}
+
+/**
+ * The scroller's gel string, in order. The shipped string when the profile
+ * has none, or has one with nothing usable in it.
+ *
+ * @public
+ * @param {Object} params strobe parameters
+ * @returns {Array} `[{ name, colour }]`
+ */
+export function gelsOf(params) {
+  const gels = Array.isArray(params.gels)
+    ? params.gels.filter((gel) => gel && typeof gel.name === 'string' && gel.name)
+    : [];
+  return gels.length ? gels : DEFAULT_GELS;
+}
+
+/**
+ * A gel's `#rrggbb` as linear RGB, 0..1 per channel.
+ *
+ * Gels are quoted in sRGB, as swatches are; the lamp mixes in linear light.
+ *
+ * @param {String} hex
+ * @returns {Array} `[r, g, b]`
+ */
+function hexToLinear(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!match) return [1, 1, 1];
+  const value = parseInt(match[1], 16);
+  const decode = (byte) => {
+    const c = byte / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  // eslint-disable-next-line no-bitwise
+  return [decode((value >> 16) & 255), decode((value >> 8) & 255), decode(value & 255)];
 }
 
 /**
@@ -229,16 +337,24 @@ export function mixesColour(params) {
  * A white unit flashes its lamp's white. An RGB unit flashes the mix of its
  * three levels, in per cent, with the three at full adding up to the same
  * white -- so an RGB strobe left at its defaults and a white one of the same
- * temperature look alike.
+ * temperature look alike. A scroller flashes the white through the gel that
+ * is in front of it, named by `gel`; an open frame or a name the string does
+ * not have is the plain white.
  *
  * @public
  * @param {Object} params strobe parameters
- * @param {Object} [levels] `{ red, green, blue }` in per cent
+ * @param {Object} [levels] `{ red, green, blue }` in per cent, `gel` a name
  * @returns {Array} `[r, g, b]`
  */
 export function lampColour(params, levels = {}) {
   const kelvin = Number(params.colorTemperature) || DEFAULT_STROBE_PARAMS.colorTemperature;
   const white = whitePoint(kelvin);
+  if (usesScroller(params)) {
+    const gel = gelsOf(params).find((entry) => entry.name === levels[STROBE_CHANNELS.GEL]);
+    if (!gel) return white;
+    const filter = hexToLinear(gel.colour);
+    return [white[0] * filter[0], white[1] * filter[1], white[2] * filter[2]];
+  }
   if (!mixesColour(params)) return white;
   const level = (key) => Math.min(Math.max(Number(levels[key]) || 0, 0), 100) / 100;
   return [
@@ -471,12 +587,35 @@ export const CHANNEL_ORDER = orderOf(CONTROL_DEFS);
 export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
 
 /**
- * The controls this model actually has: everything, less the colour channels
- * on a unit that makes one white.
+ * The scroller's control: which gel is in front of the lamp, by name, one
+ * equal DMX step per frame of the string. Built per profile, since the string
+ * is the profile's own.
  *
- * The full list still stands behind a white unit's settings, so a stored
- * profile that says nothing about red reads as red at full -- which is the
- * white the lamp makes anyway.
+ * @param {Object} params strobe parameters
+ * @returns {ControlDef}
+ */
+function gelControl(params) {
+  const gels = gelsOf(params);
+  const names = gels.map((gel) => gel.name);
+  const type = new EnumType({ options: names, initial: names[0] });
+  return new ControlDef(STROBE_CHANNELS.GEL, 'Gel', type, {
+    // One ColorPreset range per frame, carrying the gel's swatch, which is
+    // what OFL says about a scroller and what a patch sheet shows.
+    capability: () => gels.map((gel, index) => ({
+      dmxRange: type.rangeOf(index),
+      type: 'ColorPreset',
+      colors: [gel.colour],
+      comment: gel.name,
+    })),
+  });
+}
+
+/**
+ * The controls this model actually has.
+ *
+ * Everything, less what its colour capability does without: a white unit has
+ * no colour controls at all, an RGB unit has its three levels, a scroller has
+ * one gel control in their place.
  *
  * @public
  * @param {Object} params strobe parameters
@@ -484,7 +623,12 @@ export const CHANNEL_LABELS = labelsOf(CONTROL_DEFS);
  */
 export function controlDefsFor(params) {
   if (mixesColour(params)) return CONTROL_DEFS;
-  return CONTROL_DEFS.filter((def) => !COLOUR_KEYS.includes(def.key));
+  const withoutMix = CONTROL_DEFS.filter((def) => !COLOUR_KEYS.includes(def.key));
+  if (!usesScroller(params)) return withoutMix;
+  // The gel sits where the colour sits: after the flash length, before the
+  // blinder.
+  const at = withoutMix.findIndex((def) => def.key === STROBE_CHANNELS.BLINDER);
+  return [...withoutMix.slice(0, at), gelControl(params), ...withoutMix.slice(at)];
 }
 
 /**
@@ -561,6 +705,8 @@ export default {
   STROBE_CHANNELS,
   STROBE_SOURCES,
   STROBE_COLOURS,
+  COLOURS_FOR_SOURCE,
+  DEFAULT_GELS,
   CHANNEL_ORDER,
   CHANNEL_LABELS,
   DEFAULT_STROBE_PARAMS,
@@ -570,7 +716,10 @@ export default {
   isStrobeProfile,
   rateRange,
   durationRange,
+  colourOf,
   mixesColour,
+  usesScroller,
+  gelsOf,
   lampColour,
   floodHalfAngles,
   floodSolidAngle,
