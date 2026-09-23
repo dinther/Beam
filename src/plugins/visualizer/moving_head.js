@@ -1409,6 +1409,18 @@ class MovingHead {
     LightField.uniforms.lightFieldDepthTile.value = MOVER_DEPTH.tile;
   }
 
+  /**
+   * Draws one shader term as greyscale instead of the beam. A diagnostic
+   * for the debug panel, never stored; see `debugTerm` in the shader.
+   *
+   * @public
+   * @param {Number} term 0 for the beam
+   */
+  static setDebugTerm(term) {
+    if (!beamMesh || !beamMesh.material || !beamMesh.material.uniforms) return;
+    beamMesh.material.uniforms.debugTerm.value = Math.max(0, Math.floor(Number(term) || 0));
+  }
+
   /** @public @param {Boolean} on whether beams stop at surfaces */
   static setOcclusion(on) {
     occlusionEnabled = !!on;
@@ -1806,6 +1818,8 @@ class MovingHead {
           type: 'f',
           value: beamScatterValue,
         },
+        // Which shader term the debug panel is drawing instead of the beam.
+        debugTerm: { value: 0 },
         glowFactor: {
           type: 'f',
           value: 1.0,

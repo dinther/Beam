@@ -207,8 +207,14 @@ starts until the previous one is accepted.
    tile from the beam's own axes, so no matrix travels per instance, and
    drops samples past the first surface the lens sees. Verified on the
    two-mover wall scene: the air stops at the wall. The 200-mover chase and
-   the truss cut are not yet measured. The floor pool still passes through
-   obstacles, since it is three's spotlight without a shadow map.
+   the truss cut are not yet measured.
+   *Same day:* the floor pool reads the same tile. The light field's
+   record carries the tile and its camera frame, and the surface loop drops
+   a light on any point past the first surface its lens sees, with a
+   normal offset of a texel and a half against self-shadowing. Paul: "I
+   kinda get the shadows for free here." The "surface pool" item under
+   *What stays out* is therefore closed for occlusion; gobos on surfaces
+   will go through the same projection.
 6. **Gobos and prisms.** Texture array, instance attributes, rotation and
    prism in the aperture read. Gate: an animated gobo on a moving beam at no
    measurable cost over step 5.

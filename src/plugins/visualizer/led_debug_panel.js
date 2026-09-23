@@ -98,6 +98,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     // Mover beams
     beamScatter: Math.round(MovingHead.scatterAmount() * 100),
     beamOcclusion: MovingHead.occlusion(),
+    beamDebug: 0,
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -340,6 +341,19 @@ export default function createLEDDebugPanel(visualizer, host) {
   beam.add(state, 'beamOcclusion')
     .name('stop at surfaces')
     .onChange((v) => MovingHead.setOcclusion(v));
+  // One shader term as greyscale, to see which one carries a fault.
+  beam.add(state, 'beamDebug', {
+    beam: 0,
+    'field fraction': 1,
+    profile: 2,
+    'chord fraction': 3,
+    attenuation: 4,
+    phase: 5,
+    haze: 6,
+    intensity: 7,
+  })
+    .name('draw term')
+    .onChange((v) => MovingHead.setDebugTerm(v));
 
   // Two separate hands, because a laser is drawn twice: the shaft through the
   // haze is geometry, the figure on the stone is a projected picture. Turning

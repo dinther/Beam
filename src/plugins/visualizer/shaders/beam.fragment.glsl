@@ -84,13 +84,14 @@ uniform float depthBias;         // Metres past the surface a sample may still b
 #define BEAM_PROFILE_SAMPLES 4
 
 /**
- * Draws one term of the profile as greyscale instead of the beam: 1 the
- * mean field fraction u, 2 the radial profile, 3 the chord fraction. 0 is
- * the beam. A diagnostic, never shipped on.
+ * Draws one term as greyscale instead of the beam, from the debug panel:
+ * 1 the mean field fraction u, 2 the radial profile, 3 the chord fraction,
+ * 4 the attenuation, 5 the phase, 6 the haze, 7 the whole intensity before
+ * colour. 0 is the beam. Each is scaled so it survives the tone curve and
+ * bloom readably. Additive blending still applies, so read these on a scene
+ * with a single beam.
  */
-#ifndef BEAM_DEBUG
-#define BEAM_DEBUG 0
-#endif
+uniform int debugTerm;
 float dbgU = 0.0;
 float dbgProfile = 0.0;
 float dbgThrough = 0.0;
@@ -292,56 +293,105 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   float zMid = 0.0;
   float sMid = 0.0;
   float sLo = 0.0;
+  float sHi = 0.0;
+  bool inside = false;
 
+  // Where along the ray it is inside the cone. f(s) = A s^2 + B s + C is
+  // negative inside, and the shape of that set depends on the sign of A.
+  //
+  // A ray flatter than the wall (A > 0) is inside between the two roots. A
+  // ray steeper than the wall (A < 0) -- every ray within the beam's
+  // half-angle of its axis, which is what looking down a beam is made of --
+  // is inside *outside* the roots: it leaves the real nappe at one root and
+  // enters the mirror nappe behind the apex at the other, and the stretch
+  // between is outside both. Taking the stretch between the roots for such
+  // a ray shaded a disc of dark air the size of the cone around the lens.
+  // The real nappe is the side where the cone's radius is positive; the
+  // mirror nappe lies behind the lens and the z clip below removes it.
+  // With no real roots and A < 0 the ray is inside everywhere.
+  const float FAR_S = 1.0e6;
   if (abs(A) > 1e-9) {
     float disc = B * B - 4.0 * A * C;
     if (disc > 0.0) {
       float sq = sqrt(disc);
-      float sA = (-B - sq) / (2.0 * A);
-      float sB = (-B + sq) / (2.0 * A);
-      sLo = min(sA, sB);
-      float sHi = max(sA, sB);
-
-      // Clipped to the length of cone that exists. Clipping a segment moves its
-      // ends continuously, so unlike clamping a point it introduces no corner.
-      if (abs(vz) > 1e-6) {
-        float zEnterS = (0.0 - oz) / vz;
-        float zLeaveS = (vZFar - oz) / vz;
-        sLo = max(sLo, min(zEnterS, zLeaveS));
-        sHi = min(sHi, max(zEnterS, zLeaveS));
+      float sA = min((-B - sq) / (2.0 * A), (-B + sq) / (2.0 * A));
+      float sB = max((-B - sq) / (2.0 * A), (-B + sq) / (2.0 * A));
+      if (A > 0.0) {
+        sLo = sA;
+        sHi = sB;
+      } else if (rz + m * vz * sA > 0.0) {
+        sLo = -FAR_S;
+        sHi = sA;
+      } else {
+        sLo = sB;
+        sHi = FAR_S;
       }
-      // Never behind the eye.
-      sLo = max(sLo, 0.0);
-
-      // Never below the floor: the same operation as the clip above, against
-      // the world plane z = BEAM_FLOOR_Z. A plane from a raycast down the axis
-      // would not do -- the plane is infinite, so a beam clipping a truss
-      // would lose everything below it.
-      if (abs(viewDir.z) > 1e-6) {
-        float sFloor = (BEAM_FLOOR_Z - cameraPos.z) / viewDir.z;
-        if (viewDir.z < 0.0) sHi = min(sHi, sFloor);
-        else sLo = max(sLo, sFloor);
-      } else if (cameraPos.z < BEAM_FLOOR_Z) {
-        // Running level, below the floor: none of this ray is lit.
-        sLo = sHi;
-      }
-
-      // And never past the first solid thing the eye sees along this pixel.
-      // The stored depth is distance along the camera's axis; along the ray
-      // it is that over the cosine to the axis. 1.0 is the cleared far plane,
-      // open air; 0.0 means the texture carries no depth at all, and that has
-      // to read as no clip rather than as a surface at the near plane.
-      vec2 uv = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
-      float stored = texture2D(sceneDepth, uv).x;
-      if (stored > 0.0 && stored < 1.0) {
-        float along = max(dot(viewDir, cameraDir), 1e-3);
-        sHi = min(sHi, viewDistance(stored) / along);
-      }
-
-      chord = max(sHi - sLo, 0.0);
-      sMid = (sLo + sHi) * 0.5;
-      zMid = clamp(oz + vz * sMid, 0.0, vZFar);
+      inside = true;
+    } else if (A < 0.0) {
+      sLo = -FAR_S;
+      sHi = FAR_S;
+      inside = true;
     }
+  } else if (abs(B) > 1e-9) {
+    // Running parallel to the wall: one crossing, inside on one side of it.
+    float sRoot = -C / B;
+    if (B > 0.0) {
+      sLo = -FAR_S;
+      sHi = sRoot;
+    } else {
+      sLo = sRoot;
+      sHi = FAR_S;
+    }
+    inside = true;
+  } else {
+    sLo = -FAR_S;
+    sHi = FAR_S;
+    inside = C < 0.0;
+  }
+
+  if (inside) {
+    // Clipped to the length of cone that exists. Clipping a segment moves its
+    // ends continuously, so unlike clamping a point it introduces no corner.
+    if (abs(vz) > 1e-6) {
+      float zEnterS = (0.0 - oz) / vz;
+      float zLeaveS = (vZFar - oz) / vz;
+      sLo = max(sLo, min(zEnterS, zLeaveS));
+      sHi = min(sHi, max(zEnterS, zLeaveS));
+    } else if (oz < 0.0 || oz > vZFar) {
+      // Running level with the lens plane, outside the cone's length.
+      sHi = sLo;
+    }
+    // Never behind the eye.
+    sLo = max(sLo, 0.0);
+
+    // Never below the floor: the same operation as the clip above, against
+    // the world plane z = BEAM_FLOOR_Z. A plane from a raycast down the axis
+    // would not do -- the plane is infinite, so a beam clipping a truss
+    // would lose everything below it.
+    if (abs(viewDir.z) > 1e-6) {
+      float sFloor = (BEAM_FLOOR_Z - cameraPos.z) / viewDir.z;
+      if (viewDir.z < 0.0) sHi = min(sHi, sFloor);
+      else sLo = max(sLo, sFloor);
+    } else if (cameraPos.z < BEAM_FLOOR_Z) {
+      // Running level, below the floor: none of this ray is lit.
+      sLo = sHi;
+    }
+
+    // And never past the first solid thing the eye sees along this pixel.
+    // The stored depth is distance along the camera's axis; along the ray
+    // it is that over the cosine to the axis. 1.0 is the cleared far plane,
+    // open air; 0.0 means the texture carries no depth at all, and that has
+    // to read as no clip rather than as a surface at the near plane.
+    vec2 uv = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
+    float stored = texture2D(sceneDepth, uv).x;
+    if (stored > 0.0 && stored < 1.0) {
+      float along = max(dot(viewDir, cameraDir), 1e-3);
+      sHi = min(sHi, viewDistance(stored) / along);
+    }
+
+    chord = max(sHi - sLo, 0.0);
+    sMid = (sLo + sHi) * 0.5;
+    zMid = clamp(oz + vz * sMid, 0.0, vZFar);
   }
   zAlong = zMid;
   sAlong = sMid;
@@ -423,14 +473,9 @@ void main() {
   float sAlong;
   float anglePower = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong);
 
-  // Scaled down so the value survives the tone curve and bloom readably.
-  #if BEAM_DEBUG == 1
-  gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return;
-  #elif BEAM_DEBUG == 2
-  gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return;
-  #elif BEAM_DEBUG == 3
-  gl_FragColor = vec4(vec3(dbgThrough * 0.2), 1.0); return;
-  #endif
+  if (debugTerm == 1) { gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return; }
+  if (debugTerm == 2) { gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return; }
+  if (debugTerm == 3) { gl_FragColor = vec4(vec3(dbgThrough * 0.2), 1.0); return; }
 
   // Without a depth test the cone's whole exit face is shaded, the part
   // under the floor included, and most of those rays carry no light at all.
@@ -456,6 +501,11 @@ void main() {
   float intensity = attenuation * anglePower * phase;
 
   float fog = computeFog(cameraPos + viewDir * sAlong);
+
+  if (debugTerm == 4) { gl_FragColor = vec4(vec3(attenuation * 0.2), 1.0); return; }
+  if (debugTerm == 5) { gl_FragColor = vec4(vec3(phase * 0.05), 1.0); return; }
+  if (debugTerm == 6) { gl_FragColor = vec4(vec3(fog * 0.2), 1.0); return; }
+  if (debugTerm == 7) { gl_FragColor = vec4(vec3(intensity * fog * 0.05), 1.0); return; }
 
   // One term at a time, as greyscale, so a step can be seen in the quantity
   // that carries it rather than inferred from the sum. Additive blending still
