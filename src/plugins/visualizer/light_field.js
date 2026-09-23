@@ -41,7 +41,7 @@ import * as THREE from 'three';
 /**
  * How many texels one light occupies.
  *
- * Seven, packed so nothing is wasted:
+ * Nine, packed so nothing is wasted:
  *
  *   0: position.xyz, range
  *   1: direction.xyz, cosine of the cone's outer edge
@@ -49,19 +49,22 @@ import * as THREE from 'three';
  *   3: the depth tile's rect in the atlas, x y width height
  *   4: the tile camera's x axis, world; tangent of its half fov
  *   5: the tile camera's y axis, world; 1 when the light has a tile, else 0
- *   6: the tile camera's origin, world
+ *   6: the tile camera's origin, world; the inner cone over the field
+ *   7: the gobos in the beam, two of (texture layer, angle)
+ *   8: the prism in the beam: facets, angle, spread (facets under 2 is
+ *      none); w the gobo defocus from the focus, in baked blur levels
  *
  * `direction` is stored three's way round -- `normalize(position - target)`,
  * pointing back up the beam rather than along it -- so that the angle test
  * here is the same arithmetic as `getSpotLightInfo`, and a surface lit through
  * this path matches one lit by a real `SpotLight`.
  *
- * Texels 3 to 6 are only read once a fragment has passed the range and cone
+ * Texels 3 to 8 are only read once a fragment has passed the range and cone
  * tests, so a light that cannot reach a fragment costs the same as before.
  *
  * @constant {Number}
  */
-const TEXELS_PER_LIGHT = 7;
+const TEXELS_PER_LIGHT = 9;
 
 /** Lights the texture holds before it is grown. Doubles on demand. */
 const INITIAL_CAPACITY = 128;
@@ -100,6 +103,12 @@ const record = {
   axisX: new THREE.Vector3(),
   axisY: new THREE.Vector3(),
   tanHalf: 1,
+  /** The inner cone over the field, where the pool's falloff starts. */
+  inner: 0.5,
+  /** Two gobos as (texture layer, angle); layer 0 is open. */
+  gobo: new THREE.Vector4(),
+  /** The prism as (facets, angle, spread, 0); facets under 2 is none. */
+  prism: new THREE.Vector4(),
 };
 
 /**
@@ -117,6 +126,8 @@ const uniforms = {
   lightFieldDepthFar: { value: 1 },
   lightFieldDepthBias: { value: 0.05 },
   lightFieldDepthTile: { value: 128 },
+  // The gobo patterns, one atlas, set with the depth atlas.
+  lightFieldGobo: { value: null },
 };
 
 /** Builds the texture, or rebuilds it after the store has grown. */
@@ -170,18 +181,21 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
     float angleCos = dot( fieldLight.direction, spotDirection );
     if ( angleCos <= packedDirection.w ) continue;
 
-    float attenuation = getSpotAttenuation( packedDirection.w, packedColor.w, angleCos )
-      * getDistanceAttenuation( lightDistance, packedPosition.w, lightFieldDecay );
+    float attenuation = getDistanceAttenuation( lightDistance, packedPosition.w, lightFieldDecay );
     if ( attenuation <= 0.0 ) continue;
 
-    // Is this point the first thing the light's lens sees? The light's depth
-    // tile was drawn from a camera at the tile origin looking down the
-    // beam, up along the beam's y, so the point's place in the tile is its
-    // offset from that origin resolved on the beam's axes, all in view
-    // space since the view transform is rigid. The point is first pushed
-    // off its surface along the normal by a texel and a half at its
-    // distance, so a surface does not shadow itself where a tile texel
-    // spans a stretch of it.
+    // The pool's shape, and whether this point is the first thing the
+    // light's lens sees. A light with a depth tile carries its beam frame:
+    // the tile was drawn from a camera at the tile origin looking down the
+    // beam, up along the beam's y, so the point's place in the aperture is
+    // its offset from that origin resolved on the beam's axes, all in view
+    // space since the view transform is rigid. That place gives the pool's
+    // shape -- falloff, gobos, prism copies -- the same way the beam in the
+    // air computes it, so the two cannot disagree. For the shadow the point
+    // is first pushed off its surface along the normal by a texel and a half
+    // at its distance, so a surface does not shadow itself where a tile
+    // texel spans a stretch of it. A light without a tile keeps three's
+    // cone falloff.
     vec4 packedAxisY = texelFetch( lightField, ivec2( 5, i ), 0 );
     if ( packedAxisY.w > 0.5 ) {
       vec4 packedTile = texelFetch( lightField, ivec2( 3, i ), 0 );
@@ -193,17 +207,31 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
       vec3 tileOrigin = ( viewMatrix * vec4( packedOrigin.xyz, 1.0 ) ).xyz;
       vec3 offset = geometryPosition - tileOrigin;
       float along = dot( offset, tileAxisZ );
-      if ( along > 0.0 ) {
-        float texel = 2.0 * along * packedAxisX.w / lightFieldDepthTile;
-        offset += geometryNormal * ( texel * 1.5 );
-        along = dot( offset, tileAxisZ );
-        vec2 ndc = vec2( -dot( offset, tileAxisX ), dot( offset, tileAxisY ) ) / ( along * packedAxisX.w );
-        if ( all( lessThan( abs( ndc ), vec2( 1.0 ) ) ) ) {
-          vec2 tileUv = packedTile.xy + ( ndc * 0.5 + 0.5 ) * packedTile.zw;
-          float seen = unpackRGBAToDepth( texture2D( lightFieldDepth, tileUv ) ) * lightFieldDepthFar;
-          if ( along > seen + lightFieldDepthBias ) continue;
-        }
+      if ( along <= 0.0 ) continue;
+      vec4 packedGobo = texelFetch( lightField, ivec2( 7, i ), 0 );
+      vec4 packedPrism = texelFetch( lightField, ivec2( 8, i ), 0 );
+      // The tile's half fov is the field's tangent times the margin, times
+      // the prism's spread while one is in; the field's own tangent is
+      // what the aperture coordinate is measured against.
+      float drawnSpread = packedPrism.x >= 2.0 ? 1.0 + packedPrism.z : 1.0;
+      float tanField = packedAxisX.w / ( FIELD_DEPTH_FOV_MARGIN * drawnSpread );
+      vec2 aperture = vec2( dot( offset, tileAxisX ), dot( offset, tileAxisY ) ) / ( along * tanField );
+      float shape = fieldStencil( aperture, packedOrigin.w, packedGobo, packedPrism );
+      if ( shape <= 0.0 ) continue;
+      attenuation *= shape;
+
+      float texel = 2.0 * along * packedAxisX.w / lightFieldDepthTile;
+      vec3 lifted = offset + geometryNormal * ( texel * 1.5 );
+      float alongLifted = dot( lifted, tileAxisZ );
+      vec2 ndc = vec2( -dot( lifted, tileAxisX ), dot( lifted, tileAxisY ) ) / ( alongLifted * packedAxisX.w );
+      if ( all( lessThan( abs( ndc ), vec2( 1.0 ) ) ) ) {
+        vec2 tileUv = packedTile.xy + ( ndc * 0.5 + 0.5 ) * packedTile.zw;
+        float seen = unpackRGBAToDepth( texture2D( lightFieldDepth, tileUv ) ) * lightFieldDepthFar;
+        if ( alongLifted > seen + lightFieldDepthBias ) continue;
       }
+    } else {
+      attenuation *= getSpotAttenuation( packedDirection.w, packedColor.w, angleCos );
+      if ( attenuation <= 0.0 ) continue;
     }
 
     fieldLight.color = packedColor.rgb * attenuation;
@@ -223,6 +251,54 @@ uniform sampler2D lightFieldDepth;
 uniform float lightFieldDepthFar;
 uniform float lightFieldDepthBias;
 uniform float lightFieldDepthTile;
+uniform sampler2D lightFieldGobo;
+
+// The tile looks wider than the field by this, as in moving_head.js.
+#define FIELD_DEPTH_FOV_MARGIN 1.2
+// The most facets a prism is drawn with.
+#define FIELD_PRISM_FACETS 8
+// The gobo atlas is a grid of this many patterns across, as gobo_library.js.
+#define FIELD_GOBO_GRID 4.0
+
+// A gobo's stencil at a point of the aperture, (0,0) the axis and 1 the
+// field's radius; 1 where light passes. Pattern 0 is open and skips the
+// read. The pattern is rotated about the axis by the gobo's angle and spans
+// the field; its cell in the atlas is by index, row-major. One read returns
+// the three baked blur levels, sharp in red, soft in blue, and the focus
+// blur, 0 to 2, blends between them. An explicit level, never an implicit
+// one: this runs inside a loop over lights with early exits, and
+// derivatives in divergent control flow are undefined.
+float fieldGobo( vec2 p, vec2 patternAngle, float defocus ) {
+  if ( patternAngle.x < 0.5 ) return 1.0;
+  float c = cos( -patternAngle.y );
+  float s = sin( -patternAngle.y );
+  vec2 q = clamp( vec2( c * p.x - s * p.y, s * p.x + c * p.y ) * 0.5 + 0.5, 0.002, 0.998 );
+  float index = floor( patternAngle.x + 0.5 );
+  vec2 cell = vec2( mod( index, FIELD_GOBO_GRID ), floor( index / FIELD_GOBO_GRID ) );
+  vec3 levels = textureLod( lightFieldGobo, ( cell + q ) / FIELD_GOBO_GRID, 0.0 ).rgb;
+  return mix( mix( levels.r, levels.g, clamp( defocus, 0.0, 1.0 ) ), levels.b,
+    clamp( defocus - 1.0, 0.0, 1.0 ) );
+}
+
+// The pool's shape at a point of the aperture: the falloff from the inner
+// cone to the field, through every gobo in the beam. With a prism, the mean
+// of that over the prism's displaced copies.
+float fieldStencil( vec2 p, float inner, vec4 gobo, vec4 prism ) {
+  int facets = int( prism.x );
+  if ( facets < 2 ) {
+    return ( 1.0 - smoothstep( inner, 1.0, length( p ) ) )
+      * fieldGobo( p, gobo.xy, prism.w ) * fieldGobo( p, gobo.zw, prism.w );
+  }
+  float sum = 0.0;
+  for ( int k = 0; k < FIELD_PRISM_FACETS; k ++ ) {
+    if ( k >= facets ) break;
+    float a = prism.y + 6.2831853 * float( k ) / float( facets );
+    vec2 q = p - prism.z * vec2( cos( a ), sin( a ) );
+    sum += ( 1.0 - smoothstep( inner, 1.0, length( q ) ) )
+      * fieldGobo( q, gobo.xy, prism.w ) * fieldGobo( q, gobo.zw, prism.w );
+  }
+  return sum / float( facets );
+}
 `;
 
 const LightField = {
@@ -280,8 +356,11 @@ const LightField = {
     let count = 0;
     for (let i = 0; i < sources.length; i += 1) {
       if (count >= MAX_LIGHTS) break;
-      // A source without a tile need not know the field exists.
+      // A source without a tile need not know the field exists, and one
+      // without optics leaves the beam open.
       record.hasTile = false;
+      record.gobo.set(0, 0, 0, 0);
+      record.prism.set(0, 0, 0, 0);
       if (sources[i].readLight(record)) {
         LightField.ensureCapacity(count + 1);
         const at = count * TEXELS_PER_LIGHT * 4;
@@ -318,7 +397,17 @@ const LightField = {
         data[at + 24] = record.tileOrigin.x;
         data[at + 25] = record.tileOrigin.y;
         data[at + 26] = record.tileOrigin.z;
-        data[at + 27] = 0;
+        data[at + 27] = record.inner;
+
+        data[at + 28] = record.gobo.x;
+        data[at + 29] = record.gobo.y;
+        data[at + 30] = record.gobo.z;
+        data[at + 31] = record.gobo.w;
+
+        data[at + 32] = record.prism.x;
+        data[at + 33] = record.prism.y;
+        data[at + 34] = record.prism.z;
+        data[at + 35] = record.prism.w;
         count += 1;
       }
     }

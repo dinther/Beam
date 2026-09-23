@@ -7,6 +7,8 @@ attribute float intensity;  //beam intensity
 attribute vec3 angle;       //x half-angle of the field, y brightness normaliser, z inner cone over the field
 attribute vec3 wpos;        //beam position
 attribute float depthSlot;  //atlas slot of this beam's depth tile, -1 for none
+attribute vec4 gobo;        //two gobos as (texture layer, angle); layer 0 open
+attribute vec4 prism;       //the prism as (facets, angle, spread, unused); under 2 facets none
 
 uniform float vertexCount;  //Total vertex count
 uniform float topRadius;    //Top radius of the cylinder
@@ -32,6 +34,9 @@ varying float vIndex;           //Vertex index
 varying vec4 vTile;             //Depth tile rect in the atlas, z < 0 for no tile
 varying vec3 vAxisX;            //The beam frame's x axis, world, unit
 varying vec3 vAxisY;            //The beam frame's y axis, world, unit
+varying vec4 vGobo;             //The gobos in the beam, see the attribute
+varying vec4 vPrism;            //The prism in the beam, see the attribute
+varying float vSpread;          //Drawn cone radius over the field's: 1, or more with a prism
 
 /**
  * @function computeRadiusVertexScaleFactor
@@ -41,7 +46,7 @@ varying vec3 vAxisY;            //The beam frame's y axis, world, unit
  * @param float radialScale the instance's scale across the axis
  * @returns vec3 the transformed vertex position vector
  */
-vec3 computeRadiusVertexScaleFactor(vec3 vector, float radialScale) {
+vec3 computeRadiusVertexScaleFactor(vec3 vector, float radialScale, float spread) {
   // The far half of the cylinder, cap included: the geometry runs from the
   // lens at z = 0 to the far ring at z = length, so a vertex's own z says
   // which end it belongs to, which a vertex index cannot once caps are in.
@@ -53,7 +58,7 @@ vec3 computeRadiusVertexScaleFactor(vec3 vector, float radialScale) {
     // scaled by the instance; the spread is not, so it is divided back out
     // of the local radius the instance matrix will scale. The far ring sits
     // at 1.5 times the cylinder length, see the z scale below.
-    float grow = tan(radians(angle.x)) * (length * 1.5) / radialScale;
+    float grow = tan(radians(angle.x)) * spread * (length * 1.5) / radialScale;
     float scaleFactor = 1.0 + grow / topRadius;
     return vector * vec3(scaleFactor, scaleFactor, 1.5);
   }
@@ -76,10 +81,16 @@ void main() {
   // gets, see `writeBeamProfile`. The normaliser is computed there too.
   vInner = clamp(angle.z, 0.0, 0.99);
   vGain = angle.y;
+  vGobo = gobo;
+  vPrism = prism;
+
+  // A prism throws copies of the beam out past the field by its spread, so
+  // the drawn cone widens to hold them; otherwise the cone is the field.
+  vSpread = prism.x >= 2.0 ? 1.0 + prism.z : 1.0;
 
   // The slope is what the fragment shader builds its cone from, or its idea
   // of the cone sits inside or outside the silhouette it is shading.
-  vSlope = tan(radians(angle.x));
+  vSlope = tan(radians(angle.x)) * vSpread;
   // Where the cone ends, in the same local z the displacement produced: the far
   // ring is the one scaled by 1.5 above. The fragment shader needs it to keep a
   // ray's closest approach inside the geometry that is actually drawn.
@@ -112,7 +123,7 @@ void main() {
   // from. Not derivable there from the fragment's position: a fragment on a
   // cap is not on the wall.
   vLensRadius = topRadius * radialScale;
-  vec3 displaced = computeRadiusVertexScaleFactor(position, radialScale);     //Displacing vertex position to match desired angle
+  vec3 displaced = computeRadiusVertexScaleFactor(position, radialScale, vSpread);     //Displacing vertex position to match desired angle
 
   // The fragment shader measures its cone in the beam's frame, in metres, and
   // against a world-space camera; so it gets the radial scale applied, while

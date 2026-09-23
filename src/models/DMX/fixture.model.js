@@ -60,6 +60,9 @@ const CAPABILITY_TYPES = {
   WheelSlot: 'WheelSlot',
   WheelShake: 'WheelShake',
   WheelSlotRotation: 'WheelSlotRotation',
+  WheelRotation: 'WheelRotation',
+  Prism: 'Prism',
+  PrismRotation: 'PrismRotation',
   Effect: 'Effect',
   BeamAngle: 'BeamAngle',
   BeamPosition: 'BeamPosition',
@@ -1058,6 +1061,15 @@ class Fixture extends withTransform(Proxify) {
       this._3DModel.colorPreset = null;
       this._colorPresetChannelId = null;
     }
+    // A prism is released the same way: the channel that put it in takes it
+    // out when its value moves to a range that is not a prism.
+    if (this._prismChannelId === id
+      && (!capability || (capability.type !== CAPABILITY_TYPES.Prism
+        && capability.type !== CAPABILITY_TYPES.PrismRotation))
+      && typeof this._3DModel.setPrism === 'function') {
+      this._3DModel.setPrism(false);
+      this._prismChannelId = null;
+    }
     if (capability) { // Making sure channel's capability is defined
       const values = capability.getValue(value); // Fetching values from capability value
       switch (capability.type) { // Checking capability type
@@ -1065,18 +1077,38 @@ class Fixture extends withTransform(Proxify) {
           this._3DModel.colorIntensity = values; // Updating fixture 3D model color intensity with provided color value
           break;
         case CAPABILITY_TYPES.WheelSlot: { // Capability is wheelSlot
-          const slot = Math.floor(capability.getValue(value).slotNumber) - 1.0; // Parsing slot number from value
-          switch (channel.type) { // Dtermining wheel type
-            case WHEEL_CHANNEL_TYPES.COLOR_WHEEL: // Wheel is color wheel
-              this._3DModel.colorWheelSlot = slot; // Updating 3D model's color wheel slot in use
-              break;
-            case WHEEL_CHANNEL_TYPES.GOBO_WHEEL: // Wheel is gobo wheel
-              // TODO handle gobo selection here
-              break;
-            default: break;
+          const slot = Math.floor(values.slotNumber) - 1.0; // Parsing slot number from value
+          // The wheel is the one the capability names, or the channel's own
+          // name when it names none, which is OFL's rule. The head decides
+          // by the slot's type whether that is a colour, a gobo or a prism.
+          if (typeof this._3DModel.setWheelSlot === 'function') {
+            this._3DModel.setWheelSlot(values.wheel || channel.name, slot);
+          } else if (channel.type === WHEEL_CHANNEL_TYPES.COLOR_WHEEL) {
+            this._3DModel.colorWheelSlot = slot;
           }
           break;
         }
+        case CAPABILITY_TYPES.WheelSlotRotation:
+          if (typeof this._3DModel.setWheelSlotRotation === 'function') {
+            this._3DModel.setWheelSlotRotation(values.wheel || channel.name, values);
+          }
+          break;
+        case CAPABILITY_TYPES.WheelRotation:
+          if (typeof this._3DModel.setWheelRotation === 'function') {
+            this._3DModel.setWheelRotation(values.wheel || channel.name, values);
+          }
+          break;
+        case CAPABILITY_TYPES.Prism:
+          if (typeof this._3DModel.setPrism === 'function') {
+            this._3DModel.setPrism(true);
+            this._prismChannelId = id;
+          }
+          break;
+        case CAPABILITY_TYPES.PrismRotation:
+          if (typeof this._3DModel.setPrismRotation === 'function') {
+            this._3DModel.setPrismRotation(values);
+          }
+          break;
         case CAPABILITY_TYPES.ColorTemperature:
           // Moves the white point rather than replacing the colour mix.
           this._3DModel.colorTemperature = values.colorTemperature;
@@ -1285,7 +1317,10 @@ class Fixture extends withTransform(Proxify) {
           pan: 128, // Setting moving head's default pan value
           tilt: 128, // Setting moving head's default tilt value
           colorWheel: this.OFLData.wheels && this.OFLData.wheels['Color Wheel'] ? this.OFLData.wheels['Color Wheel'].slots : [], // Providing color wheel data (if necessary)
-          goboWheel: this.OFLData.wheels && this.OFLData.wheels['Gobo Wheel'] ? this.OFLData.wheels['Gobo Wheel'].slots : [], // Providing gobo wheel data (if necessary) (not supported in renderer yet...)
+          // Every wheel the profile has, by name: the head sorts them into
+          // colour, gobo and prism wheels by what their slots hold, however
+          // many of each there are.
+          wheels: this.OFLData.wheels || {},
         });
         movingHead.position = this._position; // Setting moving head's position in 3D space
         movingHead.rotation = this._rotation; // Setting moving head's rotation in 3D space

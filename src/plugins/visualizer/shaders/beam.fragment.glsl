@@ -31,6 +31,26 @@ uniform float cameraFar;
 uniform sampler2D depthAtlas;    // What each beam's lens sees, a tile per beam
 uniform float depthFar;          // Metres a tile's depth of 1.0 stands for
 uniform float depthBias;         // Metres past the surface a sample may still be lit
+uniform sampler2D goboAtlas;     // Every gobo pattern, in a grid; pattern 0 open
+
+/** The atlas is a grid of this many patterns across, as gobo_library.js. */
+#define GOBO_GRID 4.0
+
+/**
+ * How blurred a gobo reads in the air, as mip levels of its 256 px pattern:
+ * a base at the lens and more per metre out, capped so a level never blurs
+ * one pattern into its neighbours in the grid. A fine read gives each ray a
+ * sharp slice of the pattern, so its shapes come through the air as hard
+ * streaks, like lasers; scattered light has bounced and mixes directions,
+ * so structure in a beam washes out with distance while the same pattern
+ * lands crisp on the wall. The surface reads the pattern sharp.
+ */
+#define GOBO_LOD_BASE 1.0
+#define GOBO_BLUR_PER_METRE 0.12
+#define GOBO_LOD_MAX 4.0
+
+/** The most facets a prism is drawn with. */
+#define PRISM_FACETS_MAX 8
 
 /**
  * How much wider than the beam's cone its depth tile looks, as a ratio of the
@@ -152,6 +172,9 @@ varying float vIndex;        // Vertex index
 varying vec4 vTile;          // Depth tile rect in the atlas, z < 0 for no tile
 varying vec3 vAxisX;         // The beam frame's x axis, world, unit
 varying vec3 vAxisY;         // The beam frame's y axis, world, unit
+varying vec4 vGobo;          // The gobos in the beam, two of (texture layer, angle)
+varying vec4 vPrism;         // The prism: facets, angle, spread (under 2 facets none); w the gobo defocus in baked levels
+varying float vSpread;       // Drawn cone radius over the field's
 
 /**
  * @function rgb2hsv
@@ -255,6 +278,63 @@ float viewDistance(float depth) {
   float ndc = depth * 2.0 - 1.0;
   return (2.0 * cameraNear * cameraFar)
     / (cameraFar + cameraNear - ndc * (cameraFar - cameraNear));
+}
+
+/**
+ * @function beamGobo
+ * @brief a gobo's stencil at a point of the aperture
+ * @param vec2 p aperture position, (0,0) the axis, 1 the field's radius
+ * @param vec2 patternAngle the gobo's pattern index and its angle
+ * @param float lod how blurred to read it for the air, in mip levels
+ * @param float defocus the focus blur, 0 sharp to 2 fully out
+ * @returns float 1 where light passes
+ *
+ * Pattern 0 is open and costs no read. The pattern is rotated about the
+ * axis by the gobo's angle and spans the field, so the same point of the
+ * aperture reads the same texel here and in the light field on surfaces.
+ * One read returns all three baked blur levels, sharp in red, soft in blue,
+ * and the focus blends between them.
+ */
+float beamGobo(vec2 p, vec2 patternAngle, float lod, float defocus) {
+  if (patternAngle.x < 0.5) return 1.0;
+  // Negated: the pattern is read facing the wall, so a positive angle has to
+  // turn it clockwise as seen there.
+  float c = cos(-patternAngle.y);
+  float s = sin(-patternAngle.y);
+  vec2 q = clamp(vec2(c * p.x - s * p.y, s * p.x + c * p.y) * 0.5 + 0.5, 0.002, 0.998);
+  float index = floor(patternAngle.x + 0.5);
+  vec2 cell = vec2(mod(index, GOBO_GRID), floor(index / GOBO_GRID));
+  vec3 levels = textureLod(goboAtlas, (cell + q) / GOBO_GRID, min(lod, GOBO_LOD_MAX)).rgb;
+  return mix(mix(levels.r, levels.g, clamp(defocus, 0.0, 1.0)), levels.b, clamp(defocus - 1.0, 0.0, 1.0));
+}
+
+/**
+ * @function beamStencil
+ * @brief the beam's cross-section at a point of the aperture
+ * @param vec2 p aperture position, (0,0) the axis, 1 the field's radius
+ * @param float lod how blurred the gobos read
+ * @returns float 0..1
+ *
+ * The falloff from the inner cone to the field, through every gobo in the
+ * beam. With a prism, the mean of that over the prism's copies, each the
+ * whole cross-section displaced by the spread in its facet's direction, so
+ * a three-facet prism is three overlapping beams a third as bright.
+ */
+float beamStencil(vec2 p, float lod) {
+  int facets = int(vPrism.x);
+  if (facets < 2) {
+    return (1.0 - smoothstep(vInner, 1.0, length(p)))
+      * beamGobo(p, vGobo.xy, lod, vPrism.w) * beamGobo(p, vGobo.zw, lod, vPrism.w);
+  }
+  float sum = 0.0;
+  for (int k = 0; k < PRISM_FACETS_MAX; k++) {
+    if (k >= facets) break;
+    float a = vPrism.y + 6.2831853 * float(k) / float(facets);
+    vec2 q = p - vPrism.z * vec2(cos(a), sin(a));
+    sum += (1.0 - smoothstep(vInner, 1.0, length(q)))
+      * beamGobo(q, vGobo.xy, lod, vPrism.w) * beamGobo(q, vGobo.zw, lod, vPrism.w);
+  }
+  return sum / float(facets);
 }
 
 /**
@@ -452,9 +532,11 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   // a long chord and comes out smoother, the thin edges keep its detail,
   // which is what a real beam does. Four field reads per fragment, which
   // measured nearly free where arithmetic is not.
-  float tanHalf = tan(radians(vAngle)) * DEPTH_FOV_MARGIN;
+  // The tile covers the drawn cone, prism spread included, plus the margin.
+  float tanHalf = tan(radians(vAngle)) * DEPTH_FOV_MARGIN * vSpread;
   float apexBehind = r0 / max(m, 1e-4);
   float haze = clamp(fogFactor, 0.0, 1.0);
+  float sampleStep = chord / float(BEAM_PROFILE_SAMPLES);
   float sumLight = 0.0;
   float sumProfile = 0.0;
   float sumIrradiance = 0.0;
@@ -463,10 +545,15 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   for (int i = 0; i < BEAM_PROFILE_SAMPLES; i++) {
     float s = sLo + chord * (float(i) + 0.5) / float(BEAM_PROFILE_SAMPLES);
     float z = clamp(oz + vz * s, 0.0, vZFar);
-    // As a fraction of the field's radius there, lens ring included, so
-    // the edge is the field at every depth.
+    // Where the sample sits in the aperture: its offset from the axis on
+    // the beam's own axes, over the field's radius there, lens ring
+    // included, so 1 is the field's edge at every depth. The drawn cone is
+    // the field unless a prism widens it, so the drawn fraction is that
+    // over the spread.
     vec3 radialVec = oR + vR * s;
-    float x = length(radialVec) / max(r0 + m * z, 1e-4);
+    float fieldRadius = max(r0 + (m / vSpread) * z, 1e-4);
+    vec2 aperture = vec2(dot(radialVec, vAxisX), dot(radialVec, vAxisY)) / fieldRadius;
+    float x = length(aperture) / vSpread;
     float lit = 1.0;
     if (vTile.z > 0.0 && z > 0.0) {
       vec2 ndc = vec2(-dot(radialVec, vAxisX), dot(radialVec, vAxisY)) / (z * tanHalf);
@@ -476,7 +563,21 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
         lit = z > surface + depthBias ? 0.0 : 1.0;
       }
     }
-    float profileHere = (1.0 - smoothstep(vInner, 1.0, x)) * lit;
+    // Each sample stands for a stretch of the ray a step long, and reads
+    // the gobo blurred by how much of the pattern that stretch crosses. A
+    // sharp read there drew one sharp slice per sample: near a surface seen
+    // at a slant, where the ray crosses the pattern fast, that was a row of
+    // faint shifted copies of the gobo beside the pool. Where the ray runs
+    // along the beam the stretch covers little of the pattern and the read
+    // stays sharp. The span is in aperture units, 2 across the field, which
+    // is the pattern's 256 texels; the distance blur is a floor under it.
+    float zNext = oz + vz * (s + sampleStep);
+    vec3 radialNext = oR + vR * (s + sampleStep);
+    float fieldNext = max(r0 + (m / vSpread) * clamp(zNext, 0.0, vZFar), 1e-4);
+    vec2 apertureNext = vec2(dot(radialNext, vAxisX), dot(radialNext, vAxisY)) / fieldNext;
+    float spanTexels = length(apertureNext - aperture) * 128.0;
+    float lod = max(GOBO_LOD_BASE + GOBO_BLUR_PER_METRE * z, log2(max(spanTexels, 1.0)));
+    float profileHere = beamStencil(aperture, lod) * lit;
     float spread = BEAM_KNEE / max(z + apexBehind, BEAM_KNEE);
     float irradiance = spread * spread * exp(-BEAM_EXTINCTION * haze * z);
     float field = hazeField(cameraPos + viewDir * s);

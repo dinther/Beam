@@ -10,6 +10,7 @@ import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import LightField from './light_field';
 import { castsContactShadow } from './contact_shadows';
 import { DepthAtlas } from './projector_depth';
+import { goboTexture, goboLayerFor, GOBO_BLUR_LEVELS } from './gobo_library';
 
 const MODEL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x000000,
@@ -67,6 +68,8 @@ const vector_cam = new THREE.Vector3();
 const vector_beam = new THREE.Vector3();
 const vector_beam_pos = new THREE.Vector3();
 const vector_cam_pos = new THREE.Vector3();
+/** When `update` last ran, in the visualizer's seconds; null before the first frame. */
+let lastUpdateTime = null;
 /** Scratch for reading a head's aim while packing the light field. */
 const vector_light_target = new THREE.Vector3();
 
@@ -93,6 +96,21 @@ const BEAM_MAX_ANGLE = 45;
 const PROFILE_REFERENCE_FLUX = 0.1734;
 
 /**
+ * How blurred a gobo is with the focus wound fully out, in the atlas's baked
+ * blur levels: the softest there is.
+ */
+const GOBO_DEFOCUS_MAX = GOBO_BLUR_LEVELS - 1;
+
+/**
+ * The penumbra a focus channel sweeps, fully in to fully out. Not from the
+ * profile: OFL states no edge softness, so these are Beam's. Focused is
+ * nearly a hard edge, as a well-focused spot throws; out is soft to the
+ * middle of the radius.
+ */
+const PENUMBRA_FOCUSED = 0.05;
+const PENUMBRA_DEFOCUSED = 1.0;
+
+/**
  * What each beam can see from its lens, packed into one texture.
  *
  * A tile per head, drawn from a camera at the beam's origin looking down
@@ -105,9 +123,15 @@ const PROFILE_REFERENCE_FLUX = 0.1734;
  * of hundreds. A head past the last slot gets no tile and stops at the
  * floor plane alone. Depth is linear distance over `far`, which is the
  * drawn cone's length.
+ *
+ * The near plane is half a metre, not a token 0.1: the camera sits on the
+ * lens face, and the head's own model stands a few centimetres in front of
+ * it around the lens opening. Drawn into the tile, that bezel shadowed the
+ * pool into its own eight-sided silhouette. Nothing in a rig sits within
+ * half a metre of a lens, and samples that close read as lit anyway.
  */
 const MOVER_DEPTH = new DepthAtlas({
-  columns: 16, rows: 16, tile: 128, near: 0.1, far: BEAM_LENGTH * 1.5, linear: true,
+  columns: 16, rows: 16, tile: 128, near: 0.5, far: BEAM_LENGTH * 1.5, linear: true,
 });
 
 /**
@@ -173,8 +197,8 @@ const SPOTLIGHT_PHYSICALLY_CORRECT_DISTANCE = 0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY = 100.0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_DECAY = 1.0;
 /**
- * The pool's penumbra without a focus channel, and where the focus
- * channel's range starts (it runs from here down to 0.3 at full focus).
+ * The pool's penumbra for a fixture without a focus channel. A focus
+ * channel sweeps its own range, `PENUMBRA_DEFOCUSED` to `PENUMBRA_FOCUSED`.
  *
  * Shapes the beam in the air as well, through `writeBeamProfile`. Half:
  * a plateau to the middle of the radius, a slope from there to the edge.
@@ -251,6 +275,23 @@ let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
 let depth_slot_attribute = new THREE.InstancedBufferAttribute(
   new Float32Array(capacity).fill(-1),
   1,
+);
+/**
+ * Per instance: the gobos in the beam, two layers of (texture layer, angle
+ * in radians). Layer 0 is open. Written by `writeOptics` whenever a wheel
+ * moves or spins.
+ */
+let gobo_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 4),
+  4,
+);
+/**
+ * Per instance: the prism in the beam as (facets, angle in radians, spread
+ * as a fraction of the field's radius, unused); facets below 2 is no prism.
+ */
+let prism_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 4),
+  4,
 );
 
 const baseGeo = new THREE.InstancedBufferGeometry();
@@ -482,8 +523,11 @@ class MovingHead {
    *     intensity: 0.0,
    *     pan: 0.0,
    *     tilt: 0.0,
-   *     goboWheel: [],
-   *     colorWheel: []
+   *     wheels: {},
+   *     colorWheel: [],
+   *     goboSpeed: { min: 1, max: 60 },
+   *     prismSpeed: { min: 1, max: 120 },
+   *     prismSpread: 0.6
    *   }]
    * @memberof MovingHead
    */
@@ -499,7 +543,7 @@ class MovingHead {
     intensity: 0.0,
     pan: 0.0,
     tilt: 0.0,
-    goboWheel: [],
+    wheels: {},
     colorWheel: [],
   }) {
     // Room first, then the id. The buffers are shared, so a head taking an id
@@ -535,7 +579,34 @@ class MovingHead {
     /** OFL's random-timing flag, kept so the effect can be re-derived. */
     this._strobeRandom = false;
     this._strobeEffect = 'Open';
-    this._goboWheel = data.goboWheel;
+    /**
+     * Every wheel the profile has, by name, sorted by what its slots hold.
+     * A head may carry any number of gobo wheels and prism wheels; the
+     * shaders draw the first two gobos and the first prism that is in the
+     * beam.
+     */
+    this._wheels = MovingHead.buildWheels(data.wheels || {});
+    /**
+     * What "slow" and "fast" mean for this fixture, in turns a minute. A
+     * profile only says how far along that range a value sits.
+     */
+    this._goboSpeed = { min: 1, max: 60, ...(data.goboSpeed || {}) };
+    this._prismSpeed = { min: 1, max: 120, ...(data.prismSpeed || {}) };
+    /** How far a prism throws its copies, as a fraction of the field's radius. */
+    this._prismSpread = data.prismSpread === undefined ? 0.6 : data.prismSpread;
+    /**
+     * A prism put in by a Prism capability rather than a wheel slot: on or
+     * off, its facets, and its spin. A prism wheel's slot sets the facets
+     * when there is one; without a wheel the prism has three.
+     */
+    /**
+     * How blurred the gobo image is from the focus, in mip levels of the
+     * pattern: 0 in focus. Carried in the prism data's spare slot.
+     */
+    this._goboDefocus = MovingHead.goboDefocusFor(SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA);
+    this._prism = {
+      on: false, facets: 3, angle: 0, speedRpm: 0,
+    };
     this._colorWheel = data.colorWheel;
     this._activeColorPreset = false;
     /**
@@ -903,11 +974,15 @@ class MovingHead {
    * @type {Number}
    */
   set focus(focus) {
-    const penumbra = Math.max(
-      SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA - SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA * (focus / 100),
-      0.3,
-    );
+    // The whole channel sweeps the edge from fully soft to nearly hard, on
+    // its own range rather than down from the no-channel default: tied to
+    // that, lowering the default to cure overlapping pools shrank the sweep
+    // to almost nothing.
+    const dial = Math.min(Math.max(Number(focus) || 0, 0), 100) / 100;
+    const penumbra = PENUMBRA_DEFOCUSED + (PENUMBRA_FOCUSED - PENUMBRA_DEFOCUSED) * dial;
     this._spotLight.penumbra = penumbra;
+    this._goboDefocus = MovingHead.goboDefocusFor(penumbra);
+    this.writeOptics();
     this._focus = focus;
     MovingHead.writeBeamProfile(this._id, penumbra);
   }
@@ -994,6 +1069,252 @@ class MovingHead {
     u.sceneDepth.value = texture;
     u.cameraNear.value = camera.near;
     u.cameraFar.value = camera.far;
+  }
+
+  /**
+   * Sorts a profile's wheels by what their slots hold.
+   *
+   * @private
+   * @param {Object} wheels OFL wheels by name, each `{ slots: [...] }`
+   * @returns {Object} by name: `{ kind, slots, slot, angle, speedRpm, wheelAngle, wheelSpeedRpm }`
+   */
+  static buildWheels(wheels) {
+    const built = {};
+    Object.keys(wheels).forEach((name) => {
+      const slots = (wheels[name] && wheels[name].slots) || [];
+      let kind = 'other';
+      if (slots.some((s) => s && s.type === SLOT_TYPES.GOBO)) kind = 'gobo';
+      else if (slots.some((s) => s && s.type === 'Prism')) kind = 'prism';
+      else if (slots.some((s) => s && s.type === SLOT_TYPES.COLOR)) kind = 'color';
+      built[name] = {
+        kind,
+        slots,
+        slot: 0,
+        angle: 0,
+        speedRpm: 0,
+        wheelAngle: 0,
+        wheelSpeedRpm: 0,
+      };
+    });
+    return built;
+  }
+
+  /**
+   * A profile's speed, -100..100 percent of "slow" to "fast", in turns a
+   * minute for this fixture. Zero stays zero; the sign is the direction.
+   *
+   * @private
+   * @param {Number} percent
+   * @param {Object} range `{ min, max }` in rpm
+   * @returns {Number} rpm, signed
+   */
+  static percentToRpm(percent, range) {
+    const p = Math.min(Math.max(Number(percent) || 0, -100), 100);
+    if (p === 0) return 0;
+    return Math.sign(p) * (range.min + (Math.abs(p) / 100) * (range.max - range.min));
+  }
+
+  /**
+   * Puts a wheel on one of its slots. The wheel's kind decides what that
+   * means: a colour in front of the lamp, a gobo in the beam, a prism's
+   * facets. A slot outside the wheel is ignored.
+   *
+   * @public
+   * @param {String} wheelName as the profile names it
+   * @param {Number} slotIndex 0-based
+   */
+  setWheelSlot(wheelName, slotIndex) {
+    const wheel = this._wheels[wheelName];
+    if (!wheel) {
+      // A profile whose colour wheel channel names no wheel of its own.
+      if (this._colorWheel && this._colorWheel.length) this.colorWheelSlot = slotIndex;
+      return;
+    }
+    if (slotIndex < 0 || slotIndex >= wheel.slots.length) return;
+    wheel.slot = slotIndex;
+    // Choosing a slot parks the wheel on it: a scroll left running by a
+    // WheelRotation range would otherwise go on cycling the patterns.
+    wheel.wheelSpeedRpm = 0;
+    wheel.wheelAngle = 0;
+    if (wheel.kind === 'color') {
+      this._colorWheel = wheel.slots;
+      this.colorWheelSlot = slotIndex;
+      return;
+    }
+    if (wheel.kind === 'prism') {
+      const slot = wheel.slots[slotIndex];
+      if (slot && slot.type === 'Prism') {
+        this._prism.on = true;
+        this._prism.facets = Math.max(2, Math.floor(Number(slot.facets) || 3));
+      } else {
+        this._prism.on = false;
+      }
+    }
+    this.writeOptics();
+  }
+
+  /**
+   * Spins the gobo in a wheel's slot, or holds it at an angle.
+   *
+   * @public
+   * @param {String} wheelName
+   * @param {Object} values `{ speed }` in percent or `{ angle }` in degrees
+   */
+  setWheelSlotRotation(wheelName, values) {
+    const wheel = this._wheels[wheelName];
+    if (!wheel) return;
+    if (Number.isFinite(values.angle)) {
+      wheel.speedRpm = 0;
+      wheel.angle = MovingHead.degToRad(values.angle);
+    } else if (Number.isFinite(values.speed)) {
+      wheel.speedRpm = MovingHead.percentToRpm(values.speed, this._goboSpeed);
+    }
+    this.writeOptics();
+  }
+
+  /**
+   * Turns a whole wheel, its slots scrolling through the beam in turn.
+   *
+   * @public
+   * @param {String} wheelName
+   * @param {Object} values `{ speed }` in percent or `{ angle }` in degrees
+   */
+  setWheelRotation(wheelName, values) {
+    const wheel = this._wheels[wheelName];
+    if (!wheel) return;
+    if (Number.isFinite(values.angle)) {
+      wheel.wheelSpeedRpm = 0;
+      wheel.wheelAngle = MovingHead.degToRad(values.angle);
+    } else if (Number.isFinite(values.speed)) {
+      wheel.wheelSpeedRpm = MovingHead.percentToRpm(values.speed, this._goboSpeed);
+    }
+    this.writeOptics();
+  }
+
+  /**
+   * The gobo blur the focus gives, in baked blur levels: the same penumbra that
+   * softens the pool's edge, from `PENUMBRA_FOCUSED` to `PENUMBRA_DEFOCUSED`,
+   * mapped onto 0 to `GOBO_DEFOCUS_MAX` levels. Focus and the image go
+   * together on a real fixture; turning it sharpens the pattern.
+   *
+   * @private
+   * @param {Number} penumbra
+   * @returns {Number}
+   */
+  static goboDefocusFor(penumbra) {
+    const t = Math.min(Math.max(
+      (penumbra - PENUMBRA_FOCUSED) / (PENUMBRA_DEFOCUSED - PENUMBRA_FOCUSED),
+      0,
+    ), 1);
+    return t * GOBO_DEFOCUS_MAX;
+  }
+
+  /**
+   * How much wider than the field the cone is drawn: 1, or 1 plus the
+   * prism's spread while a prism is in the beam. The vertex shader derives
+   * the same number from the prism attribute.
+   *
+   * @type {Number}
+   * @private
+   */
+  get drawnSpread() {
+    return this._prism.on && this._prism.facets >= 2 ? 1 + this._prismSpread : 1;
+  }
+
+  /**
+   * Puts a prism in the beam or takes it out.
+   *
+   * @public
+   * @param {Boolean} on
+   */
+  setPrism(on) {
+    this._prism.on = !!on;
+    this.writeOptics();
+  }
+
+  /**
+   * Spins the prism, or holds it at an angle.
+   *
+   * @public
+   * @param {Object} values `{ speed }` in percent or `{ angle }` in degrees
+   */
+  setPrismRotation(values) {
+    if (Number.isFinite(values.angle)) {
+      this._prism.speedRpm = 0;
+      this._prism.angle = MovingHead.degToRad(values.angle);
+    } else if (Number.isFinite(values.speed)) {
+      this._prism.speedRpm = MovingHead.percentToRpm(values.speed, this._prismSpeed);
+    }
+    this.writeOptics();
+  }
+
+  /**
+   * Advances every spinning wheel and prism by a frame.
+   *
+   * @private
+   * @param {Number} dt seconds
+   */
+  spinOptics(dt) {
+    let moving = false;
+    Object.keys(this._wheels).forEach((name) => {
+      const wheel = this._wheels[name];
+      if (wheel.speedRpm !== 0) {
+        wheel.angle += (wheel.speedRpm / 60) * Math.PI * 2 * dt;
+        moving = true;
+      }
+      if (wheel.wheelSpeedRpm !== 0) {
+        wheel.wheelAngle += (wheel.wheelSpeedRpm / 60) * Math.PI * 2 * dt;
+        moving = true;
+      }
+    });
+    if (this._prism.on && this._prism.speedRpm !== 0) {
+      this._prism.angle += (this._prism.speedRpm / 60) * Math.PI * 2 * dt;
+      moving = true;
+    }
+    if (moving) this.writeOptics();
+  }
+
+  /**
+   * The gobos in the beam, first to last along the light path, as
+   * `{ layer, angle }` for every gobo wheel that is not on an open slot. A
+   * turning wheel shows the slot its angle has scrolled to.
+   *
+   * @private
+   * @returns {Array}
+   */
+  gobosInBeam() {
+    const out = [];
+    Object.keys(this._wheels).forEach((name) => {
+      const wheel = this._wheels[name];
+      if (wheel.kind !== 'gobo' || !wheel.slots.length) return;
+      const scrolled = Math.floor((wheel.wheelAngle / (Math.PI * 2)) * wheel.slots.length);
+      const count = wheel.slots.length;
+      const index = (((wheel.slot + scrolled) % count) + count) % count;
+      const slot = wheel.slots[index];
+      if (!slot || slot.type !== SLOT_TYPES.GOBO) return;
+      const goboIndex = wheel.slots.slice(0, index)
+        .filter((s) => s && s.type === SLOT_TYPES.GOBO).length;
+      out.push({ layer: goboLayerFor(slot, goboIndex), angle: wheel.angle });
+    });
+    return out;
+  }
+
+  /**
+   * Writes the beam's gobos and prism into the instance buffers, and the
+   * same into the light record on the next read.
+   *
+   * @private
+   */
+  writeOptics() {
+    const gobos = this.gobosInBeam();
+    const first = gobos[0] || { layer: 0, angle: 0 };
+    const second = gobos[1] || { layer: 0, angle: 0 };
+    gobo_attribute.setXYZW(this._id, first.layer, first.angle, second.layer, second.angle);
+    gobo_attribute.needsUpdate = true;
+    const facets = this._prism.on ? this._prism.facets : 0;
+    const defocus = this._goboDefocus;
+    prism_attribute.setXYZW(this._id, facets, this._prism.angle, this._prismSpread, defocus);
+    prism_attribute.needsUpdate = true;
   }
 
   /**
@@ -1343,7 +1664,11 @@ class MovingHead {
     const cam = this._depthCam;
     cam.matrixWorld.compose(rigidPosition, rigidQuaternion, depthScale).multiply(depthBasis);
     cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
-    const tanHalf = Math.tan(MovingHead.degToRad(this._angle)) * DEPTH_FOV_MARGIN;
+    // Wide enough for the whole drawn cone, which a prism widens by its
+    // spread: a sample outside the tile counts as lit, so a tile narrower
+    // than the cone would let the prism's copies through every wall.
+    const tanHalf = Math.tan(MovingHead.degToRad(this._angle))
+      * DEPTH_FOV_MARGIN * this.drawnSpread;
     cam.fov = 2 * Math.atan(tanHalf) * (180 / Math.PI);
     cam.aspect = 1;
     cam.near = MOVER_DEPTH.near;
@@ -1407,6 +1732,7 @@ class MovingHead {
     LightField.uniforms.lightFieldDepthFar.value = MOVER_DEPTH.far;
     LightField.uniforms.lightFieldDepthBias.value = DEPTH_BIAS;
     LightField.uniforms.lightFieldDepthTile.value = MOVER_DEPTH.tile;
+    LightField.uniforms.lightFieldGobo.value = goboTexture();
   }
 
   /**
@@ -1745,6 +2071,8 @@ class MovingHead {
     beamGeo.setAttribute('intensity', intensity_buffer_attribute);
     beamGeo.setAttribute('angle', angle_buffer_attribute);
     beamGeo.setAttribute('depthSlot', depth_slot_attribute);
+    beamGeo.setAttribute('gobo', gobo_attribute);
+    beamGeo.setAttribute('prism', prism_attribute);
 
     beamMesh = new THREE.InstancedMesh(beamGeo, new THREE.ShaderMaterial({
       transparent: true,
@@ -1832,6 +2160,8 @@ class MovingHead {
         sceneDepth: {
           value: null,
         },
+        // Every gobo pattern, one texture array layer each.
+        goboAtlas: { value: goboTexture() },
         // What each beam's own lens sees, from `renderDepth`.
         depthAtlas: { value: null },
         depthColumns: { value: MOVER_DEPTH.columns },
@@ -1954,9 +2284,29 @@ class MovingHead {
     record.color.copy(this._spotLight.color);
     record.intensity = this._spotLight.intensity;
     record.range = SPOTLIGHT_RANGE;
-    record.cosOuter = Math.cos(this._spotLight.angle);
+    // A prism throws copies of the pool out past the cone, so the cone test
+    // that bounds the light's reach widens with it; the pool's own shape
+    // comes from the field fraction once the light has a tile.
+    const prismOn = this._prism.on && this._prism.facets >= 2;
+    const outer = prismOn
+      ? Math.atan(Math.tan(this._spotLight.angle) * (1 + this._prismSpread))
+      : this._spotLight.angle;
+    record.cosOuter = Math.cos(outer);
     // The same penumbra three derives, so the soft edge matches.
     record.cosInner = Math.cos(this._spotLight.angle * (1 - this._spotLight.penumbra));
+    record.inner = Math.min(Math.abs(1 - this._spotLight.penumbra), 0.99);
+
+    // The gobos and the prism in the beam, the same numbers the beam draws.
+    const gobos = this.gobosInBeam();
+    const first = gobos[0] || { layer: 0, angle: 0 };
+    const second = gobos[1] || { layer: 0, angle: 0 };
+    record.gobo.set(first.layer, first.angle, second.layer, second.angle);
+    record.prism.set(
+      prismOn ? this._prism.facets : 0,
+      this._prism.angle,
+      this._prismSpread,
+      this._goboDefocus,
+    );
 
     // The beam's depth tile, so the pool stops where the beam does. The slot
     // is last frame's, written by `renderDepth` after the field is read,
@@ -1978,14 +2328,20 @@ class MovingHead {
       record.tileOrigin.copy(rigidPosition);
       record.axisX.set(1, 0, 0).applyQuaternion(rigidQuaternion);
       record.axisY.set(0, 1, 0).applyQuaternion(rigidQuaternion);
-      record.tanHalf = Math.tan(MovingHead.degToRad(this._angle)) * DEPTH_FOV_MARGIN;
+      record.tanHalf = Math.tan(MovingHead.degToRad(this._angle))
+        * DEPTH_FOV_MARGIN * this.drawnSpread;
     }
     return true;
   }
 
   static update(t) {
+    // Seconds since the last frame, for the wheels and prisms that spin.
+    // Clamped so a stalled tab does not whip every gobo round on resume.
+    const dt = lastUpdateTime === null ? 0 : Math.min(Math.max(t - lastUpdateTime, 0), 0.1);
+    lastUpdateTime = t;
     instances.forEach((instance) => {
       instance.update(t);
+      instance.spinOptics(dt);
     });
     beamMesh.material.uniforms.time.value = t;
     camera_handle.getWorldDirection(vector_cam.normalize());
@@ -2027,6 +2383,8 @@ class MovingHead {
     angle_buffer_attribute = grownAttribute(angle_buffer_attribute);
     depth_slot_attribute = grownAttribute(depth_slot_attribute);
     depth_slot_attribute.array.fill(-1, instanceCount);
+    gobo_attribute = grownAttribute(gobo_attribute);
+    prism_attribute = grownAttribute(prism_attribute);
 
     // Re-attached because `setAttribute` stores the attribute, not a reference
     // to whatever the variable holds now.
@@ -2039,6 +2397,8 @@ class MovingHead {
     beamGeo.setAttribute('intensity', intensity_buffer_attribute);
     beamGeo.setAttribute('angle', angle_buffer_attribute);
     beamGeo.setAttribute('depthSlot', depth_slot_attribute);
+    beamGeo.setAttribute('gobo', gobo_attribute);
+    beamGeo.setAttribute('prism', prism_attribute);
 
     baseMesh = grownMesh(baseMesh);
     yokeMesh = grownMesh(yokeMesh);

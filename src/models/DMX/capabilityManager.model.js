@@ -343,24 +343,79 @@ const CAPABILITY_TYPES = {
       max: 90,
     },
   },
+  // A gobo spinning in its slot. Speed is a signed percent, -100 fast CCW to
+  // 100 fast CW, taken as the profile states it (0..100 maps percent onto
+  // itself), of the fixture's own range, since a profile says "slow CW" or "fast CCW" and only the
+  // fixture knows what those are in turns a minute; the head maps it onto
+  // its min and max. An explicit angle is in degrees.
   WheelSlotRotation: {
     wheel: {
       alias: 'wheel',
       default: '',
     },
     speed: {
-      alias: 'wheelRotationSpeed',
-      entity: EntityManager.entities.Speed,
-      unit: ENTITY_UNIT_RPM,
+      alias: 'speed',
+      entity: EntityManager.entities.RotationSpeed,
+      optional: true,
+      unit: ENTITY_UNIT_PERC,
+      min: 0,
+      max: 100,
+    },
+    angle: {
+      alias: 'angle',
+      entity: EntityManager.entities.RotationAngle,
+      optional: true,
+      unit: ENTITY_UNIT_DEG,
       min: 0,
       max: 360,
     },
-    shakeAngle: {
-      alias: 'wheelRotationAngle',
-      entity: EntityManager.entities.SwingAngle,
+  },
+  // The whole wheel turning, gobos scrolling past. Same units as above.
+  WheelRotation: {
+    wheel: {
+      alias: 'wheel',
+      default: '',
+    },
+    speed: {
+      alias: 'speed',
+      entity: EntityManager.entities.RotationSpeed,
+      optional: true,
+      unit: ENTITY_UNIT_PERC,
+      min: 0,
+      max: 100,
+    },
+    angle: {
+      alias: 'angle',
+      entity: EntityManager.entities.RotationAngle,
+      optional: true,
       unit: ENTITY_UNIT_DEG,
       min: 0,
-      max: 90,
+      max: 360,
+    },
+  },
+  // A prism in the beam. Carries nothing; the type is the message.
+  Prism: {
+    comment: {
+      alias: 'comment',
+      default: '',
+    },
+  },
+  PrismRotation: {
+    speed: {
+      alias: 'speed',
+      entity: EntityManager.entities.RotationSpeed,
+      optional: true,
+      unit: ENTITY_UNIT_PERC,
+      min: 0,
+      max: 100,
+    },
+    angle: {
+      alias: 'angle',
+      entity: EntityManager.entities.RotationAngle,
+      optional: true,
+      unit: ENTITY_UNIT_DEG,
+      min: 0,
+      max: 360,
     },
   },
   Effect: {
@@ -501,6 +556,10 @@ class Capability {
           const entityValue = capabilityData[feature];
           const entityValueStart = capabilityData[feature + RANGED_CAPABILITY_PATTERN_START];
           const entityValueStop = capabilityData[feature + RANGED_CAPABILITY_PATTERN_END];
+          // An optional feature the profile says nothing about is absent, not
+          // "all of it": a rotation capability states a speed or an angle,
+          // and filling in the other would make every range claim both.
+          if (setting.optional && !entityValue && !entityValueStart && !entityValueStop) return;
           this.entities[alias] = this.entities[alias] || {};
           if (entityValue) {
             this.entities[alias].value = setting.entity.getValue(
@@ -583,7 +642,10 @@ class Capability {
    * @return {Number} percent-converted value
    */
   getPercentValue(value) {
-    return (value - this.range[0]) / (this.range[1] - this.range[0]);
+    // A range of a single DMX value, [0, 0] say, is one setting: 0/0 would
+    // be NaN, and a NaN angle blanks every beam and pool that reads it.
+    const span = this.range[1] - this.range[0];
+    return span === 0 ? 0 : (value - this.range[0]) / span;
   }
 
   /**
@@ -597,7 +659,8 @@ class Capability {
    */
   static getValueInInterval(entity, percent, isFine) {
     const fineDiv = isFine ? 255 : 1;
-    const val = entity.value ? entity.value
+    // A stated value of zero -- "stop" -- is a value, not an absent one.
+    const val = entity.value !== undefined ? entity.value
       : ((entity.start / fineDiv) + ((entity.end / fineDiv) - (entity.start / fineDiv)) * percent);
     return val;
   }

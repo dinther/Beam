@@ -228,6 +228,25 @@ starts until the previous one is accepted.
 6. **Gobos and prisms.** Texture array, instance attributes, rotation and
    prism in the aperture read. Gate: an animated gobo on a moving beam at no
    measurable cost over step 5.
+   *Built 2026-09-23, awaiting review.* Generic by Paul's instruction: a
+   head carries every wheel its profile has, sorted by what the slots hold,
+   any number of gobo and prism wheels, and speeds are the fixture's own
+   min and max in rpm that a profile's "slow" to "fast" maps onto. The
+   shaders draw two gobo layers and one prism of up to eight facets. The
+   patterns are procedural, twelve of them in one grid atlas, matched
+   to the OFL resource names the shipped profiles use and otherwise handed
+   out by slot order; no image library ships with the profiles. The air
+   reads the gobo blurred with distance, the surface reads it sharp, both
+   at the same aperture coordinate so they line up. A prism is copies of
+   the whole cross-section displaced by a spread, a third as bright each
+   for three facets, and widens the drawn cone to hold them. The light
+   field record grew to nine texels and its surface loop now shapes the
+   pool from the aperture coordinate for any light with a tile, so gobo,
+   prism and falloff match the air by construction. DMX: WheelSlot routes
+   by the slot's type, WheelSlotRotation, WheelRotation, Prism and
+   PrismRotation are new capability types. Cost at the wall scene's
+   opening view: 1.8 to 2.2 ms. Known gap: a profile that gives a rotation
+   speed in explicit rpm or Hz rather than a preset is read as a percent.
 7. **Projector shaft onto the shared body.** Gate: screenshot comparison
    against the current shaft, pixel for pixel, since its constants were set
    by eye and must survive.
