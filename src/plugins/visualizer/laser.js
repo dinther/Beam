@@ -380,23 +380,8 @@ function makeBeamMaterial() {
       // Real haze, measured rather than chosen: a tight forward lobe, a weak
       // one straight back, and a ceiling because the true forward-to-side ratio
       // runs past a hundred and would only clip to white.
-      const float PHASE_FORWARD = 0.75;
-      const float PHASE_BACKWARD = -0.35;
-      const float PHASE_BACK_WEIGHT = 0.12;
-      const float PHASE_CEILING = 24.0;
-
-      /**
-       * Henyey-Greenstein: how much light a haze particle throws at an angle.
-       *
-       * g is how forward-biased the scattering is, 0 being even in every
-       * direction and approaching 1 a tight forward spike. Negative g turns the
-       * lobe around and points it back the way the light came.
-       */
-      float hg(float c, float g) {
-        float g2 = g * g;
-        float d = max(1.0 + g2 - 2.0 * g * c, 1e-4);
-        return (1.0 - g2) / (12.5663706 * pow(d, 1.5));
-      }
+      // PHASE_* and hg() come from the haze prelude: the phase function is a
+      // property of the air and every renderer reads the same one.
       uniform float hazeBase;
       uniform sampler2D depthAtlas;
       uniform mat4 depthMatrix;

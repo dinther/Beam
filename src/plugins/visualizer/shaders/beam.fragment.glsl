@@ -8,16 +8,17 @@
 // `glslVersion`, so it is available without touching the material -- but do NOT
 // set `glslVersion: GLSL3`, because that drops three's `gl_FragColor`
 // compatibility define and this shader still writes to it.
+//
+// **One fragment per ray.** The cone is a closed convex solid drawn back-face
+// only with no depth test, so every view ray that crosses it -- from outside,
+// from inside, from behind the lens -- lands on exactly one fragment, and that
+// fragment shades the whole ray from what the ray and the cone alone say.
+// Occlusion is not the depth test's job here: the ray's lit stretch is clipped
+// against the scene depth instead, so a beam stops at the floor or a truss
+// without the cone's wall ever drawing a line into it.
 
 #include <clipping_planes_pars_fragment>
 #define M_PI 3.1415926535897932384626433832795
-/**
- * How wide the corner is where the haze stops flooring the beam.
- *
- * Both quantities it joins are of order one, so this is a fraction of the whole
- * range. Too small and the crease returns; too large and the haze starts
- * lifting the beam's core, which is what the floor exists to prevent.
- */
 
 precision highp float;
 
@@ -26,15 +27,14 @@ uniform sampler2D sceneDepth;    // Depth of everything solid, from the composer
 uniform float cameraNear;
 uniform float cameraFar;
 
-/** Over how many metres a beam fades out as it approaches a surface. */
-#define BEAM_SOFT_DISTANCE 1.2
-
 /**
  * The height a beam stops at, in world units.
  *
- * The stage floor, and the one thing in the room a beam can be assumed to
- * land on. This is the interim answer -- see the clip in `beamProfile` for
- * what it stands in for and why it is the safe way to be wrong.
+ * The scene depth ends a beam at whatever the eye can see, but a camera that
+ * can see past the floor's own edge sees the full 150 m of cone under it, and
+ * only a plane can end that. A fixed plane is a deliberately blunt answer,
+ * and blunt in the safe direction: it can never cut a beam that should have
+ * carried on.
  */
 #define BEAM_FLOOR_Z 0.0
 
@@ -50,7 +50,41 @@ uniform float cameraFar;
  * (`mix(1.0, field, fieldDepth)`), so shaft and air are textured alike.
  */
 #define BEAM_FIELD_DEPTH 0.5
+
+/**
+ * Brightness of a ray straight through the axis at the lens, before the haze.
+ *
+ * One number for the lot: the profile, the attenuation and the fragment count
+ * are all unity there, so this is the level the fixture's intensity is scaled
+ * to. The cone this profile replaced peaked here over a disc 0.8 times the
+ * stated half-angle wide; `vGain` scales each beam's profile so its
+ * cross-section carries that cone's light whatever the focus.
+ */
+#define BEAM_GAIN 8.0
+
+/**
+ * How many points along a ray's lit stretch the radial profile is read at.
+ *
+ * Arithmetic only, no fetches: a smoothstep each. Four is enough for a
+ * profile this smooth; the rim is set by where the chord vanishes, not by
+ * the sample count.
+ */
+#define BEAM_PROFILE_SAMPLES 4
+
+/**
+ * Draws one term of the profile as greyscale instead of the beam: 1 the
+ * mean field fraction u, 2 the radial profile, 3 the chord fraction. 0 is
+ * the beam. A diagnostic, never shipped on.
+ */
+#ifndef BEAM_DEBUG
+#define BEAM_DEBUG 0
+#endif
+float dbgU = 0.0;
+float dbgProfile = 0.0;
+float dbgThrough = 0.0;
+
 uniform bool fogState;
+uniform float scatterAmount; // How much of the haze's forward scattering to show, 0..1
 uniform float fogFactor;     // How much haze there is, 0..1
 uniform float fogScale;      // How wide one haze feature is, in metres
 uniform float fogTurbulence; // Global fogging turbulence factor
@@ -67,9 +101,11 @@ varying vec3 vColor;         // Instance colro
 varying vec4 vWorldPosition; // Vertex world position
 varying vec4 vAbsoluteWorldPosition;
 varying float vIntensity;    // Instance intensity
-varying float vAngle;        // Instance angle
-varying float vPenumbra;     // Instance penumbra, from its focus channel
+varying float vAngle;        // Half-angle of the beam's field, degrees
+varying float vInner;        // Inner cone radius over the field's, where the falloff starts
+varying float vGain;         // Brightness normaliser, 1 being the reference cone's light
 varying float vSlope;        // Cone slope, dRadius/dz, of the cone drawn
+varying float vLensRadius;   // Radius of the cone at the lens, in metres
 varying float vZFar;         // Local z of the cone's far rim
 varying float vIndex;        // Vertex index
 
@@ -103,11 +139,11 @@ vec3 hsv2rgb(vec3 c) {
 
 /**
  * @function computeFog
- * @brief computes fogging intensity at vertex's world position
- * @param float minValue the minimum fog intensity (i.e. vertex intensity)
- * @returns float fogging intensity at provided world coordinates
+ * @brief how much the air scatters at a point of the beam
+ * @param vec3 point world position, the middle of the ray's lit stretch
+ * @returns float fogging intensity there
  */
-float computeFog(float minValue) {
+float computeFog(vec3 point) {
   // No haze, no beam. A beam is only visible because something in the air
   // scatters it back at you, so the amount of haze is the amount of beam --
   // at zero there is nothing to light up and the cone has to go with it,
@@ -120,11 +156,11 @@ float computeFog(float minValue) {
     return 0.0;
   }
 
-  // Sampled in the room's coordinates, not the screen's. `vWorldPosition`
-  // carries the *clip* position despite its name -- the vertex shader assigns
-  // it straight to `gl_Position` -- so haze sampled from it is pinned to the
-  // camera and swims whenever the view moves. `vAbsoluteWorldPosition` is the
-  // real world position, and is what `floorFade` reads.
+  // Sampled in the room's coordinates at a point inside the beam -- the
+  // middle of the ray's lit stretch -- never at the fragment. The fragment is
+  // wherever the ray happens to leave the cone, which for a beam pointing
+  // away is its far cap 150 m out, and haze read there is a different room's
+  // haze from the air the eye is looking through.
   //
   // All three axes, with time driving drift rather than standing in for one
   // of them: a beam rising through a room has to pass through vertical
@@ -133,22 +169,11 @@ float computeFog(float minValue) {
   // `fogScale` is the width of one haze feature in metres, so the room's
   // coordinates divided by it land directly in noise units. It is separate
   // from the amount, so turning the haze up changes its strength, not its
-  // grain.
-  //
-  // The turbulence floors at the beam's own geometric intensity, so noise can
-  // thin the beam but never eat its core.
-  //
-  // Softly, because a hard `max` creases along the curve where the two are
-  // equal. Down a single cone that curve is an ellipse -- the beam visibly
-  // dims to a minimum and then brightens again below it, which attenuation
-  // alone cannot do -- and where two cones overlap it reads as a line drawn
-  // through both (on a two-mover scene, the beam's contribution over
-  // background falls 56, 30, 10 and then rises back to 17 down the axis).
-  // `fogTurbulence` is a rate in noise units a second, worked out once in
-  // `SceneEnv.hazeDriftRate` -- scale-corrected, and the same for every
+  // grain. `fogTurbulence` is a rate in noise units a second, worked out once
+  // in `SceneEnv.hazeDriftRate` -- scale-corrected, and the same for every
   // renderer that reads this field.
   float drift = time * fogTurbulence;
-  vec3 fogCoord = vAbsoluteWorldPosition.xyz / max(fogScale, 0.01);
+  vec3 fogCoord = point / max(fogScale, 0.01);
   float field = fogging(fogCoord, drift);
 
   // How much the air scatters, and **nothing about the beam's own strength**.
@@ -164,12 +189,6 @@ float computeFog(float minValue) {
   //
   // Scattered light is beam intensity times air density, and multiplying them
   // once is the whole of it. Two beams add the way light does.
-  //
-  // No floor under the field to protect a strong beam's core: the field's own
-  // contrast is the haze, and the shader's `fogFactor` governs how much of it
-  // there is.
-  // Solid shaft, textured by the air -- and no factor of the beam's own
-  // strength, so the sum of two beams is the sum of their light.
   return mix(1.0, field, BEAM_FIELD_DEPTH) * haze;
 }
 
@@ -196,11 +215,24 @@ vec3 safeNormalize(vec3 v) {
 }
 
 /**
+ * @function viewDistance
+ * @brief turns a depth-buffer reading into metres from the eye
+ * @param float depth 0..1 as stored
+ * @returns float distance along the view axis
+ */
+float viewDistance(float depth) {
+  float ndc = depth * 2.0 - 1.0;
+  return (2.0 * cameraNear * cameraFar)
+    / (cameraFar + cameraNear - ndc * (cameraFar - cameraNear));
+}
+
+/**
  * @function beamProfile
- * @brief how much cone the view ray passes through, and how bright the fixture
- * makes that part of it
+ * @brief how bright the cone is along this ray
  * @param vec3 viewDir unit vector from the eye towards it
- * @returns float 0..1, the beam's brightness along this ray
+ * @param out float zAlong how far down the axis the ray's lit stretch sits
+ * @param out float sAlong how far along the ray its lit stretch's middle is
+ * @returns float 0..1 at the lens, the beam's brightness along this ray
  *
  * Not a facing ratio, `pow(abs(dot(viewDir, normal)), n)`, which is not a
  * property of the beam -- it describes which way the wall happens to be
@@ -208,21 +240,20 @@ vec3 safeNormalize(vec3 v) {
  * barrel the wall is edge-on everywhere, the dot goes to zero across the whole
  * cone, and the beam disappears.
  *
- * What is measured is the view ray's closest approach to the beam axis. That
- * is a property of the ray and the cone alone, so it holds at every angle, and
- * it is what the two terms below are actually functions of.
+ * What is measured is the ray's path through the cone: where it enters and
+ * leaves, how close its middle passes to the axis, and how much of it is lit
+ * once the floor, the far end and whatever the eye sees first have had their
+ * say. All properties of the ray and the cone alone, so they hold at every
+ * angle.
  */
-float beamProfile(vec3 viewDir) {
+float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   vec3 axis = safeNormalize(vDirection);
 
-  // The cone this shader is really drawing, taken from the fragment it is
-  // shading rather than from the nominal beam angle: the vertex displacement
-  // widens the far ring by `length + 20` and then scales z by 1.5, so the drawn
-  // cone is shallower than `vAngle` would suggest.
-  float radiusHit = length(vPosition.xy);
-  float zHit = vPosition.z;
+  // The cone this shader is really drawing, from the instance rather than
+  // from the fragment: the fragment may sit on a cap, which is not on the
+  // wall and says nothing about the cone's radius.
   float m = vSlope;
-  float r0 = radiusHit - m * zHit;
+  float r0 = vLensRadius;
 
   // The ray, split into travel along the axis and travel across it.
   vec3 O = cameraPos - beamPos;
@@ -243,7 +274,9 @@ float beamProfile(vec3 viewDir) {
   float C = dot(oR, oR) - rz * rz;
 
   float chord = 0.0;
-  float zMid = zHit;
+  float zMid = 0.0;
+  float sMid = 0.0;
+  float sLo = 0.0;
 
   if (abs(A) > 1e-9) {
     float disc = B * B - 4.0 * A * C;
@@ -251,7 +284,7 @@ float beamProfile(vec3 viewDir) {
       float sq = sqrt(disc);
       float sA = (-B - sq) / (2.0 * A);
       float sB = (-B + sq) / (2.0 * A);
-      float sLo = min(sA, sB);
+      sLo = min(sA, sB);
       float sHi = max(sA, sB);
 
       // Clipped to the length of cone that exists. Clipping a segment moves its
@@ -265,25 +298,10 @@ float beamProfile(vec3 viewDir) {
       // Never behind the eye.
       sLo = max(sLo, 0.0);
 
-      // And never below the floor.
-      //
-      // The same operation as the clip above and for the same reason -- moving
-      // a segment's ends is continuous where clamping a point is not -- but
-      // against the world plane z = BEAM_FLOOR_Z rather than against the length
-      // of cone that exists.
-      //
-      // Something has to do this, because depth testing does not: it *hides*
-      // the cone behind whatever is in front of it, which is a different thing
-      // from ending it. The full 150 m of cone still exists under the floor,
-      // and a camera that can see past the floor's own edge sees all of it --
-      // that beam has open air behind it and is telling the truth about its own
-      // depth, so no amount of screen-space work can remove it.
-      //
-      // A fixed plane is a deliberately blunt answer, and it is blunt in the
-      // safe direction: it can never cut a beam that should have carried on.
-      // A plane from a raycast down the axis would not do -- the plane is
-      // infinite, so a beam clipping a truss would lose everything below it.
-      // A depth map rendered from each fixture is the real fix.
+      // Never below the floor: the same operation as the clip above, against
+      // the world plane z = BEAM_FLOOR_Z. A plane from a raycast down the axis
+      // would not do -- the plane is infinite, so a beam clipping a truss
+      // would lose everything below it.
       if (abs(viewDir.z) > 1e-6) {
         float sFloor = (BEAM_FLOOR_Z - cameraPos.z) / viewDir.z;
         if (viewDir.z < 0.0) sHi = min(sHi, sFloor);
@@ -293,113 +311,115 @@ float beamProfile(vec3 viewDir) {
         sLo = sHi;
       }
 
+      // And never past the first solid thing the eye sees along this pixel.
+      // The stored depth is distance along the camera's axis; along the ray
+      // it is that over the cosine to the axis. 1.0 is the cleared far plane,
+      // open air; 0.0 means the texture carries no depth at all, and that has
+      // to read as no clip rather than as a surface at the near plane.
+      vec2 uv = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
+      float stored = texture2D(sceneDepth, uv).x;
+      if (stored > 0.0 && stored < 1.0) {
+        float along = max(dot(viewDir, cameraDir), 1e-3);
+        sHi = min(sHi, viewDistance(stored) / along);
+      }
+
       chord = max(sHi - sLo, 0.0);
-      zMid = clamp(oz + vz * (sLo + sHi) * 0.5, 0.0, vZFar);
+      sMid = (sLo + sHi) * 0.5;
+      zMid = clamp(oz + vz * sMid, 0.0, vZFar);
     }
   }
+  zAlong = zMid;
+  sAlong = sMid;
+  if (chord <= 0.0) {
+    dbgU = 0.0;
+    dbgProfile = 0.0;
+    dbgThrough = 0.0;
+    return 0.0;
+  }
 
-  // Against the widest chord available at that depth -- straight through the
-  // middle -- so this is 1 down the axis and 0 at the silhouette.
+  // The fixture's radial falloff, the same curve as the pool it throws on
+  // the floor: full out to the inner cone, then a smoothstep to nothing at
+  // the field, which is the stated angle. three's SpotLight draws the pool
+  // as smoothstep(cos outer, cos inner, cos angle), and the focus channel
+  // sets the inner cone for both, so the lit air and the pool cannot
+  // disagree about how wide the light is or how soft its edge.
+  //
+  // **Averaged along the lit stretch, not read at one point.** A ray that
+  // crosses the cone obliquely -- every ray, once the camera is near the
+  // beam -- runs through the core somewhere along its chord however far out
+  // it entered, so no single point on it says where it sits in the beam. Its
+  // middle in particular lies near the axis for almost every ray, and reading
+  // the profile there lit the whole drawn cone at full brightness out to a
+  // hard rim. What the eye collects is the profile integrated along the
+  // chord, and a few samples of it are that integral.
+  float sumProfile = 0.0;
+  float sumU = 0.0;
+  for (int i = 0; i < BEAM_PROFILE_SAMPLES; i++) {
+    float s = sLo + chord * (float(i) + 0.5) / float(BEAM_PROFILE_SAMPLES);
+    float z = clamp(oz + vz * s, 0.0, vZFar);
+    // As a fraction of the field's radius there, lens ring included, so
+    // the edge is the field at every depth.
+    float x = length(oR + vR * s) / max(r0 + m * z, 1e-4);
+    sumProfile += 1.0 - smoothstep(vInner, 1.0, x);
+    sumU += x;
+  }
+  float profile = sumProfile / float(BEAM_PROFILE_SAMPLES);
+  float u = clamp(sumU / float(BEAM_PROFILE_SAMPLES), 0.0, 1.0);
+
+  // How much cone the ray gets to cross, against the widest chord at that
+  // depth. 1 through the middle, falling to nothing where the floor, the far
+  // end or a surface leave the ray only a sliver -- which is what fades the
+  // beam out where it lands rather than cutting it.
   float radiusMid = max(r0 + m * zMid, 1e-4);
-  float across = clamp(chord / (2.0 * radiusMid), 0.0, 1.0);
+  float through = clamp(chord / (2.0 * radiusMid), 0.0, 1.0);
 
-  // The chord itself, not its square.
-  //
-  // `across` already *is* sqrt(1 - u*u), the length of cone a ray crosses.
-  // Squaring it would assume a cone is denser along its axis -- which nothing
-  // justifies, and which peaks the profile sharply. That matters where two
-  // beams begin to overlap: the squared shape carves an 87% notch between the
-  // two axes where the honest chord carves 74%, and a couple of metres lower
-  // the squared one still dips 20% where the chord is already 17% *brighter*
-  // in the middle. That notch would be a dark line where beams cross.
-  //
-  // The rim stays soft: a bare chord meets the wall with a vertical tangent,
-  // but the penumbra below is zero with zero slope there, and the product is
-  // what gets drawn.
-  float chordShape = across;
-  float u = sqrt(max(1.0 - across * across, 0.0));
-
-  float softness = smoothstep(1.0, vPenumbra, u);
-
-  return chordShape * softness;
-}
-
-/**
- * @function viewDistance
- * @brief turns a depth-buffer reading into metres from the eye
- * @param float depth 0..1 as stored
- * @returns float distance along the view axis
- */
-float viewDistance(float depth) {
-  float ndc = depth * 2.0 - 1.0;
-  return (2.0 * cameraNear * cameraFar)
-    / (cameraFar + cameraNear - ndc * (cameraFar - cameraNear));
-}
-
-/**
- * @function surfaceFade
- * @brief fades the beam out as it approaches whatever is behind it
- * @returns float 0 at the surface, 1 a comfortable distance in front of it
- *
- * A cone is a surface, so where it passes through the floor or a truss it cuts
- * a hard line into it -- the beam is *in* the geometry, and geometry has no
- * business having an edge drawn on it by the air.
- *
- * Ending the beam is a separate job, done by the z = 0 clip in `beamProfile`,
- * which is a hardcoded plane and knows nothing about a floor that has been
- * moved, raked or deleted. Do not conflate the two: softening the crossing and
- * ending the shaft are different jobs, and one mechanism cannot do both.
- *
- * This is the soft-particles half of John Chapman's volumetric spotlight
- * technique, which needs a depth buffer with real precision.
- *
- * Depth testing already discards fragments behind geometry, so the comparison
- * is one-sided: this only has to soften the approach. Where nothing is behind,
- * the depth reads the far plane and the beam is left at full strength.
- */
-float surfaceFade() {
-  // Straight from the drawing buffer's own size -- the depth is the composer's
-  // and matches the frame exactly.
-  vec2 uv = gl_FragCoord.xy / vec2(textureSize(sceneDepth, 0));
-  float stored = texture2D(sceneDepth, uv).x;
-
-  // Nothing usable behind this pixel, so nothing to fade against.
-  //
-  // 1.0 is the cleared far plane -- open air, and the common case for a beam
-  // pointing at the sky. 0.0 means the texture is not carrying depth at all,
-  // and that has to read as "no fade" rather than "fully faded": taken as a
-  // surface sitting at the near plane it removes every beam in the scene,
-  // which is exactly what it did.
-  if (stored >= 1.0 || stored <= 0.0) return 1.0;
-
-  float behind = viewDistance(stored);
-  float here = viewDistance(gl_FragCoord.z);
-  return clamp((behind - here) / BEAM_SOFT_DISTANCE, 0.0, 1.0);
+  dbgU = u;
+  dbgProfile = profile;
+  dbgThrough = through;
+  return profile * through;
 }
 
 void main() {
   #include <clipping_planes_fragment>
 
-  vec3 dirCamToLight = safeNormalize(cameraPos - beamPos);
-  float alignmentFactor = 1.0 - abs(dot(vDirection, dirCamToLight));
-
-  // Before the attenuation, which reads the sample point this leaves behind.
   vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
-  float anglePower = 2.0 * beamProfile(viewDir);
+  float zAlong;
+  float sAlong;
+  float anglePower = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong);
 
-  // The hit point on the wall, which is smooth everywhere over the cone -- not
-  // the profile's sample point, which is held inside the cone by a clamp, and
-  // a clamp is continuous without being smooth. The locus where it engages is
-  // a curve across the screen, and a kink in an otherwise flat gradient is
-  // drawn by the eye as a line.
-  float distance = length(vPosition);
-  float attenuation = 2.0 / (1.0 + alignmentFactor * distance + radians(vAngle) * distance * distance);
+  // Scaled down so the value survives the tone curve and bloom readably.
+  #if BEAM_DEBUG == 1
+  gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return;
+  #elif BEAM_DEBUG == 2
+  gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return;
+  #elif BEAM_DEBUG == 3
+  gl_FragColor = vec4(vec3(dbgThrough * 0.2), 1.0); return;
+  #endif
 
-  float intensity = attenuation * anglePower;
+  // Without a depth test the cone's whole exit face is shaded, the part
+  // under the floor included, and most of those rays carry no light at all.
+  // The haze fetches are the expensive part, so they are not paid for a ray
+  // that has already come out dark.
+  if (anglePower <= 0.0) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
 
-  float fade = surfaceFade();
+  // Dimming down the shaft, from where the ray's lit stretch sits on the
+  // axis. A property of the ray, so it cannot disagree with the profile.
+  // Nothing about the view angle is in here: that is the phase function's
+  // job below.
+  float attenuation = 1.0 / (1.0 + zAlong + radians(vAngle) * zAlong * zAlong);
 
-  float fog = computeFog(intensity);
+  // How the air throws this light at the eye: the haze's phase function on
+  // the angle between the beam's travel and the way back to the camera. 1
+  // side-on, rising as the beam turns to face the viewer, by as much as
+  // scatterAmount allows.
+  float phase = hazePhase(dot(safeNormalize(vDirection), -viewDir), scatterAmount);
+
+  float intensity = attenuation * anglePower * phase;
+
+  float fog = computeFog(cameraPos + viewDir * sAlong);
 
   // One term at a time, as greyscale, so a step can be seen in the quantity
   // that carries it rather than inferred from the sum. Additive blending still
@@ -407,5 +427,5 @@ void main() {
   vec3 hsvColor = rgb2hsv(vColor);
   hsvColor.z = hsvColor.z > 0.001 ? hsvColor.z * intensity : 0.0;
   vec3 rgbColor = hsv2rgb(hsvColor);
-  gl_FragColor = vec4(rgbColor * fog * vIntensity * fade, 1.0);
+  gl_FragColor = vec4(rgbColor * fog * vIntensity, 1.0);
 }

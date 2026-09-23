@@ -1,6 +1,7 @@
 // eslint-disable-next-line import/extensions, import/no-unresolved
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import Laser from './laser';
+import MovingHead from './moving_head';
 import LEDField from './led_field';
 import LEDPanel from './led_panel';
 import Perf from './perf_overlay';
@@ -94,6 +95,8 @@ export default function createLEDDebugPanel(visualizer, host) {
     contactReach: ContactShadows.reach(),
     contactEdge: ContactShadows.edge(),
     strictPatch: PatchSingleton.strict,
+    // Mover beams
+    beamScatter: Math.round(MovingHead.scatterAmount() * 100),
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -323,6 +326,14 @@ export default function createLEDDebugPanel(visualizer, host) {
     .onChange((v) => {
       Tuning.write('airScale', v, visualizer);
     });
+
+  // A beam pointed at you is far brighter than one crossing your view, because
+  // haze scatters light forwards. Side-on is the reference here, so this only
+  // ever brightens beams that turn towards the camera.
+  const beam = gui.addFolder('Mover beam');
+  beam.add(state, 'beamScatter', 0, 100, 1)
+    .name('facing brightness %')
+    .onChange((v) => Tuning.write('beamScatter', v, visualizer));
 
   // Two separate hands, because a laser is drawn twice: the shaft through the
   // haze is geometry, the figure on the stone is a projected picture. Turning

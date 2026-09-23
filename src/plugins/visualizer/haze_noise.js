@@ -157,6 +157,75 @@ export const WARP_SCALE = 0.5;
 export const DEFAULT_CYCLE = 0.0;
 
 /**
+ * The haze's phase function: how much light a droplet throws at an angle.
+ *
+ * A property of the air, not of any fixture, so it lives with the field and
+ * reaches every renderer through the prelude. Haze droplets are large next to
+ * the wavelength, so scattering is overwhelmingly forward: a beam coming at
+ * the eye is far brighter than the same beam crossing the view, and a beam
+ * going away is a little brighter than side-on from the weak back lobe. Two
+ * Henyey-Greenstein lobes give all three.
+ *
+ * The forward-to-side ratio of real haze runs past a hundred and would only
+ * clip to white, so `PHASE_CEILING` caps it and the amount argument of
+ * `hazePhase` says how much of the cap to show.
+ */
+const PHASE_FORWARD = 0.75;
+const PHASE_BACKWARD = -0.35;
+const PHASE_BACK_WEIGHT = 0.12;
+const PHASE_CEILING = 24.0;
+
+/** Henyey-Greenstein, the JS twin of the GLSL below. */
+function henyeyGreenstein(c, g) {
+  const g2 = g * g;
+  const d = Math.max(1 + g2 - 2 * g * c, 1e-4);
+  return (1 - g2) / (4 * Math.PI * d ** 1.5);
+}
+
+/**
+ * The two-lobe mix's minimum over all angles, so `hazePhase` can be exactly
+ * 1 there and never below. It is not at ninety degrees: the back lobe lifts
+ * the side, so the minimum sits a little past side-on.
+ */
+const PHASE_MIN = (() => {
+  let min = Infinity;
+  for (let i = 0; i <= 4000; i += 1) {
+    const c = -1 + i / 2000;
+    const v = (1 - PHASE_BACK_WEIGHT) * henyeyGreenstein(c, PHASE_FORWARD)
+      + PHASE_BACK_WEIGHT * henyeyGreenstein(c, PHASE_BACKWARD);
+    if (v < min) min = v;
+  }
+  return min;
+})();
+
+const PHASE_GLSL = /* glsl */`
+// Henyey-Greenstein. g is how forward-biased the scattering is: 0 is even in
+// every direction, towards 1 a tight forward spike, negative points the lobe
+// back the way the light came.
+float hg(float c, float g) {
+  float g2 = g * g;
+  float d = max(1.0 + g2 - 2.0 * g * c, 1e-4);
+  return (1.0 - g2) / (12.5663706 * pow(d, 1.5));
+}
+
+// Both lobes, as a raw phase value.
+float hazeLobes(float cosTheta) {
+  return mix(hg(cosTheta, PHASE_FORWARD), hg(cosTheta, PHASE_BACKWARD), PHASE_BACK_WEIGHT);
+}
+
+// The phase function anchored at its dimmest angle: exactly 1 side-on and
+// rising towards the eye, capped at mix(1, PHASE_CEILING, amount). At amount
+// 0 it is 1 everywhere, so a renderer that multiplies by it can only ever
+// brighten a beam that turns to face the viewer, never darken one that does
+// not. cosTheta is the light's travel direction dotted with the direction to
+// the eye.
+float hazePhase(float cosTheta, float amount) {
+  float ratio = mix(1.0, PHASE_CEILING, clamp(amount, 0.0, 1.0));
+  return min(hazeLobes(cosTheta) / HAZE_PHASE_MIN, ratio);
+}
+`;
+
+/**
  * @function hazeShaderPrelude
  * @brief The haze defines plus the shared field, ready to prepend to a shader.
  *
@@ -177,10 +246,19 @@ export function hazeShaderPrelude() {
     `#define HAZE_CYCLE_RATE ${CYCLE_RATE.toFixed(4)}`,
     `#define HAZE_TURN_RATE ${TURN_RATE.toFixed(4)}`,
     `#define HAZE_WARP_SCALE ${WARP_SCALE.toFixed(4)}`,
+    `#define HAZE_PHASE_MIN ${PHASE_MIN.toFixed(8)}`,
+    // Defines, not const floats: postprocessing merges every effect in a pass
+    // into one program and prefixes their functions and uniforms, but a
+    // global constant keeps its name and is then defined twice. An identical
+    // #define twice over is allowed, as HAZE_MODE above already relies on.
+    `#define PHASE_FORWARD ${PHASE_FORWARD.toFixed(4)}`,
+    `#define PHASE_BACKWARD ${PHASE_BACKWARD.toFixed(4)}`,
+    `#define PHASE_BACK_WEIGHT ${PHASE_BACK_WEIGHT.toFixed(4)}`,
+    `#define PHASE_CEILING ${PHASE_CEILING.toFixed(4)}`,
   ].join('\n');
 
   const field = HAZE_MODE === 0 ? SIMPLEX_NOISE_GLSL : HAZE_FIELD_GLSL;
-  return `${defines}\n${field}\n`;
+  return `${defines}\n${field}\n${PHASE_GLSL}\n`;
 }
 
 /** Classic Perlin peaks near sqrt(3)/2; this scales it back onto [-1, 1]. */

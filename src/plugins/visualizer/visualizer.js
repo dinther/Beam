@@ -1911,18 +1911,18 @@ class Visualizer {
       }
       // Handed over per frame, not once at build time: the composer creates
       // its stable depth texture lazily, so at build time there is nothing to
-      // bind. An unbound depth reads 0, which `surfaceFade` takes for a surface
-      // at the near plane -- removing every beam in the scene.
+      // bind. An unbound depth reads 0, which the beam shader treats as no
+      // depth at all rather than as a surface at the near plane.
       //
       // It is last frame's depth. A shader cannot sample the depth buffer it
       // is writing into, and the beams are drawn in the same pass as the
-      // geometry they fade against, so the blit is always one frame behind.
-      // Invisible on a fade spanning more than a metre, and free, where a
-      // depth prepass costs 10 ms on the 100-mover ring -- the extra target
-      // switch, not fill rate, since halving its resolution changes nothing.
+      // geometry they end against, so the blit is always one frame behind.
+      // Invisible, and free, where a depth prepass costs 10 ms on the
+      // 100-mover ring -- the extra target switch, not fill rate, since
+      // halving its resolution changes nothing.
       //
       // Only opaque geometry is in it: beams write no depth, so they never
-      // fade against each other, which is right. A beam is air, not a wall.
+      // end against each other, which is right. A beam is air, not a wall.
       if (finalComposer && finalComposer.stableDepthTexture) {
         MovingHead.setSceneDepth(finalComposer.stableDepthTexture, this.camera);
       }

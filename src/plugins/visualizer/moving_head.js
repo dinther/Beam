@@ -84,25 +84,22 @@ const LENS_DARK = 0.05;
 const lensColor = new THREE.Color();
 const BEAM_MAX_ANGLE = 45;
 /**
- * How much of the cone's radius is at full brightness, before the penumbra.
- *
- * 1.0 is a hard-edged beam and 0.0 is all penumbra. This is the fixture's
- * focus, and it is the one quantity GDTF states outright: `BeamAngle` is the
- * cone at 50% intensity and `FieldAngle` the cone at 10%, so their ratio is
- * this number. Until profiles are parsed it is one value for every fixture --
- * see the photometry note, where flux, decay and the beam/field pair all
- * arrive together.
+ * The cross-section light of the cone the current beam profile replaced:
+ * a disc 0.8 times the stated half-angle wide, at the chord shape times a
+ * 0.65 penumbra. `profileNormaliser` scales every beam to carry this much,
+ * so the room's brightness did not move when the profile did.
  */
-const BEAM_PENUMBRA_RATIO = 0.65;
+const PROFILE_REFERENCE_FLUX = 0.1734;
+
 /**
- * What a focus channel moves the penumbra between, fully out to fully in.
+ * How much of the haze's forward scattering the beams show, 0..1.
  *
- * Neither end reaches its limit. At 1.0 the wall becomes the hard edge this
- * model exists to remove, and a real fixture cannot focus that perfectly
- * anyway; at 0.0 the beam is all penumbra and has no core to speak of.
+ * 0 is a beam equally bright from every angle. Up from there a beam turning
+ * to face the viewer brightens, by up to the phase function's ceiling at 1;
+ * a beam crossing the view never changes. Set by eye, and the debug panel's
+ * to move.
  */
-const BEAM_PENUMBRA_DEFOCUSED = 0.15;
-const BEAM_PENUMBRA_FOCUSED = 0.95;
+let beamScatterValue = 0.25;
 
 /**
  * The beam fragment shader, with the scene's haze configuration prepended.
@@ -118,7 +115,17 @@ const BEAM_FRAGMENT_SHADER = hazeShaderPrelude() + VOLUMETRIC_BEAM_FRAGMENT_SHAD
 const SPOTLIGHT_PHYSICALLY_CORRECT_DISTANCE = 0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY = 100.0;
 const SPOTLIGHT_PHYSICALLY_CORRECT_DECAY = 1.0;
-const SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA = 1.2;
+/**
+ * The pool's penumbra without a focus channel, and where the focus
+ * channel's range starts (it runs from here down to 0.3 at full focus).
+ *
+ * Shapes the beam in the air as well, through `writeBeamProfile`. Half:
+ * a plateau to the middle of the radius, a slope from there to the edge.
+ * At 1.2 the plateau was only the inner fifth and two overlapping pools
+ * summed to a saddle the eye drew as dark curves along each rim; a wide
+ * plateau adds flat, which is what two blurred discs do in an image editor.
+ */
+const SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA = 0.5;
 /** Per-light shadow map resolution. Every casting light costs one depth pass. */
 const SPOTLIGHT_SHADOW_MAP_SIZE = 512;
 const SPOTLIGHT_SHADOW_NEAR = 0.5;
@@ -169,7 +176,9 @@ let emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
   1,
 );
 /**
- * Per instance: x the beam half-angle, y a change flag, z the beam's penumbra.
+ * Per instance: x the half-angle of the field, y the brightness normaliser
+ * for the profile (see `writeBeamProfile`), z the ratio of the 50% cone to
+ * the field.
  *
  * The shader declares this `vec3`, and the buffer must supply all three: a
  * missing component reads as the 0.0 WebGL fills it with.
@@ -437,10 +446,10 @@ class MovingHead {
     }
     this._id = instanceCount++;
     // Before anything can read it. The buffer is zero-filled, and zero is a
-    // legitimate penumbra meaning "all softness, no core" -- so a fixture
+    // legitimate inner cone meaning "all falloff, no core" -- so a fixture
     // without a focus channel would have rendered as fully defocused rather
-    // than as the default.
-    MovingHead.writeBeamPenumbra(this._id, null);
+    // than with the penumbra its SpotLight is born with.
+    MovingHead.writeBeamProfile(this._id, SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA);
     this._position = new THREE.Vector3();
     this._rotation = new THREE.Vector3();
     this._minAngle = data.minAngle + 1.0;
@@ -519,12 +528,9 @@ class MovingHead {
     if (clampedAngleValue !== this._angle) {
       this._angle = clampedAngleValue;
       this._spotLight.angle = MovingHead.degToRad(this.angle);
-      angle_buffer_attribute.setY(this._id, 1.0);
       angle_buffer_attribute.setX(this._id, this.angle);
-    } else {
-      angle_buffer_attribute.setY(this._id, 0.0);
+      angle_buffer_attribute.needsUpdate = true;
     }
-    angle_buffer_attribute.needsUpdate = true;
   }
 
   get angle() {
@@ -812,7 +818,6 @@ class MovingHead {
     const clampedAngleValue = Math.min(angle / 2, BEAM_MAX_ANGLE);
     this._angle = clampedAngleValue;
     this._spotLight.angle = MovingHead.degToRad(this._angle);
-    angle_buffer_attribute.setY(this._id, 1.0);
     angle_buffer_attribute.setX(this._id, this._angle);
     angle_buffer_attribute.needsUpdate = true;
   }
@@ -820,20 +825,21 @@ class MovingHead {
   /**
    * Focus, 0 fully out to 100 fully in.
    *
-   * Drives two separate things: the SpotLight's penumbra, which softens the
-   * pool of light this fixture throws on to surfaces, and the penumbra of the
-   * visible shaft. They are different quantities in different renderers --
-   * three's own lighting, and `beam.fragment.glsl` -- so both are written here.
+   * One penumbra, written to two renderers: the SpotLight's, which softens
+   * the pool of light this fixture throws on to surfaces, and the visible
+   * shaft's in `beam.fragment.glsl`, whose falloff is the same curve so the
+   * air and the pool end at the same place with the same edge.
    *
    * @type {Number}
    */
   set focus(focus) {
-    this._spotLight.penumbra = Math.max(
+    const penumbra = Math.max(
       SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA - SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA * (focus / 100),
       0.3,
     );
+    this._spotLight.penumbra = penumbra;
     this._focus = focus;
-    MovingHead.writeBeamPenumbra(this._id, focus);
+    MovingHead.writeBeamProfile(this._id, penumbra);
   }
 
   get focus() {
@@ -841,22 +847,68 @@ class MovingHead {
   }
 
   /**
-   * Puts a fixture's beam penumbra into the instance buffer.
+   * Puts a fixture's radial falloff into the instance buffer: the inner
+   * cone, as a fraction of the field, inside which the beam is full.
+   *
+   * The same number three derives from the SpotLight's penumbra for the
+   * pool, `angle * (1 - penumbra)` over `angle`. A penumbra past 1 folds
+   * over rather than clamping to nothing, exactly as three's cosine does,
+   * so the default 1.2 gives a full core out to a fifth of the radius.
    *
    * @public
    * @param {Number} id instance id
-   * @param {Number|null} focus 0..100, or null for a fixture with no focus
-   *   channel -- which takes the default rather than the fully-soft end, since
-   *   a fixture that cannot be focused is not a fixture that is out of focus.
+   * @param {Number} penumbra the SpotLight's, 0 a hard edge, 1 all falloff
    */
-  static writeBeamPenumbra(id, focus) {
-    const span = BEAM_PENUMBRA_FOCUSED - BEAM_PENUMBRA_DEFOCUSED;
-    const dial = Math.min(Math.max(focus, 0), 100) / 100;
-    const ratio = focus === null || focus === undefined
-      ? BEAM_PENUMBRA_RATIO
-      : BEAM_PENUMBRA_DEFOCUSED + span * dial;
-    angle_buffer_attribute.setZ(id, ratio);
+  static writeBeamProfile(id, penumbra) {
+    const inner = Math.min(Math.abs(1 - penumbra), 0.99);
+    angle_buffer_attribute.setZ(id, inner);
+    angle_buffer_attribute.setY(id, MovingHead.profileNormaliser(inner));
     angle_buffer_attribute.needsUpdate = true;
+  }
+
+  /**
+   * What the fragment shader multiplies a beam's profile by so that its
+   * cross-section carries the same total light whatever the focus.
+   *
+   * Focus reshapes the profile without changing how much light the fixture
+   * puts out: a focused beam is a bright wide-cored disc, a defocused one
+   * the same light in a soft cone. This integrates the very falloff the
+   * shader draws -- full to the inner cone, smoothstep to the field -- across
+   * a perpendicular cross-section, and returns the reference disc's light
+   * over it.
+   *
+   * @private
+   * @param {Number} inner the inner cone's radius over the field's, 0..1
+   * @returns {Number} multiplier, 1 being the reference cone's light
+   */
+  static profileNormaliser(inner) {
+    const steps = 200;
+    let sum = 0;
+    for (let i = 0; i < steps; i += 1) {
+      const u = (i + 0.5) / steps;
+      const t = Math.min(Math.max((u - inner) / Math.max(1 - inner, 1e-6), 0), 1);
+      const profile = 1 - t * t * (3 - 2 * t);
+      sum += (profile * Math.sqrt(1 - u * u) * u) / steps;
+    }
+    return PROFILE_REFERENCE_FLUX / Math.max(sum, 1e-6);
+  }
+
+  /**
+   * How much of the haze's forward scattering the beams show.
+   *
+   * @public
+   * @param {Number} amount 0 flat from every angle, 1 the full ceiling
+   */
+  static setScatterAmount(amount) {
+    beamScatterValue = Math.min(Math.max(Number(amount) || 0, 0), 1);
+    if (beamMesh && beamMesh.material && beamMesh.material.uniforms) {
+      beamMesh.material.uniforms.scatterAmount.value = beamScatterValue;
+    }
+  }
+
+  /** @public @returns {Number} how much of the forward scattering is shown */
+  static scatterAmount() {
+    return beamScatterValue;
   }
 
   /**
@@ -1486,7 +1538,11 @@ class MovingHead {
       BEAM_LENGTH,
       BEAM_RESOLUTION,
       BEAM_SEGMENTS,
-      true,
+      // Closed. A convex solid drawn back-face only is crossed by every view
+      // ray exactly once, from anywhere -- the open tube left rays entering
+      // through its ends with no fragment at all, and rays through both
+      // walls with two.
+      false,
     );
 
     beamGeometry.applyMatrix4(new THREE.Matrix4().makeTranslation(
@@ -1519,21 +1575,16 @@ class MovingHead {
       transparent: true,
       depthWrite: false,
       clipping: true,
-      // DoubleSide. `beamProfile` works out the whole path a view ray takes
-      // through the cone from the ray and the axis alone, so one fragment
-      // would do -- but FrontSide meets no face at all for a ray entering
-      // through the open end, which is every ray when a beam is pointed at the
-      // camera: the beam goes hollow, leaving only the rims where the wall is
-      // still edge-on.
-      //
-      // The cost: the cone is an open tube, so a ray crossing both walls is
-      // shaded twice while one leaving through the open far end is shaded
-      // once. The count steps along the rim, and a 2:1 step in the middle of a
-      // smooth gradient reads as a dark edge -- an ellipse down one beam, a
-      // line where one cone's rim crosses another (30 above the rim against 17
-      // below it on the two-mover scene). Chosen over a back-face rework that
-      // covers properly and looks worse.
-      side: THREE.DoubleSide,
+      // One fragment per ray. `beamProfile` works out the whole path a view
+      // ray takes through the cone from the ray and the axis alone, so the
+      // fragment only has to exist once, and a closed convex solid drawn
+      // back-face only guarantees exactly that from every camera position,
+      // inside the beam included. No depth test, or the exit face under the
+      // floor would take its ray with it: the shader clips the ray's lit
+      // stretch against the scene depth itself, which is what ends a beam at
+      // a surface without the wall drawing a line into it.
+      depthTest: false,
+      side: THREE.BackSide,
       blending: THREE.AdditiveBlending,
       vertexShader: VOLUMETRIC_BEAM_VERTEX_SHADER,
       fragmentShader: BEAM_FRAGMENT_SHADER,
@@ -1587,6 +1638,10 @@ class MovingHead {
         fogTurbulence: {
           type: 'f',
           value: SceneEnv.hazeDriftRate,
+        },
+        scatterAmount: {
+          type: 'f',
+          value: beamScatterValue,
         },
         glowFactor: {
           type: 'f',

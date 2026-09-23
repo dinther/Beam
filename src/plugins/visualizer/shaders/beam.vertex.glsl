@@ -4,7 +4,7 @@ attribute float index;      //fragment index
 attribute vec3 direction;   //beam direction
 attribute vec3 color;       //beam color
 attribute float intensity;  //beam intensity
-attribute vec3 angle;       //beam angle
+attribute vec3 angle;       //x half-angle of the field, y brightness normaliser, z inner cone over the field
 attribute vec3 wpos;        //beam position
 
 uniform float vertexCount;  //Total vertex count
@@ -19,9 +19,11 @@ varying vec2 vUv;               //UV position
 varying vec3 vDirection;        //Beam direction in worldspace coordinates
 varying vec3 vColor;            //Beam color
 varying float vIntensity;       //Beam intensity
-varying float vAngle;           //Beam angle
-varying float vPenumbra;        //Beam penumbra, from the fixture's focus channel
-varying float vSlope;           //Cone slope, dRadius/dz, of the cone actually drawn
+varying float vAngle;           //Half-angle of the beam's field, degrees
+varying float vInner;           //Inner cone radius over the field's, where the falloff starts
+varying float vGain;            //Brightness normaliser, 1 being the reference cone's light
+varying float vSlope;           //Cone slope, dRadius/dz, of the cone drawn
+varying float vLensRadius;      //Radius of the cone at the lens, in metres
 varying float vZFar;            //Local z of the cone's far rim
 varying float vIndex;           //Vertex index
 
@@ -34,14 +36,19 @@ varying float vIndex;           //Vertex index
  * @returns vec3 the transformed vertex position vector
  */
 vec3 computeRadiusVertexScaleFactor(vec3 vector, float radialScale) {
-  if(index >= vertexCount / 2.0) {
-    // The far ring, in world units, is the start ring plus the spread the
-    // angle gives over the length. The start ring is topRadius scaled by the
-    // instance; the spread is not, so it is divided back out of the local
-    // radius the instance matrix will scale. The 20.0 stands in for the
-    // conical frustum the light really leaves from; see vSlope below.
-    float spread = tan(radians(angle.x)) * (length + 20.0) / radialScale;
-    float scaleFactor = 1.0 + spread / topRadius;
+  // The far half of the cylinder, cap included: the geometry runs from the
+  // lens at z = 0 to the far ring at z = length, so a vertex's own z says
+  // which end it belongs to, which a vertex index cannot once caps are in.
+  if(vector.z > length * 0.5) {
+    // The far ring, in world units, is the start ring plus what the field
+    // spreads over the length: the drawn cone is the field, the stated
+    // angle, which is where the pool on the floor ends and where the
+    // fragment shader's falloff reaches nothing. The start ring is topRadius
+    // scaled by the instance; the spread is not, so it is divided back out
+    // of the local radius the instance matrix will scale. The far ring sits
+    // at 1.5 times the cylinder length, see the z scale below.
+    float grow = tan(radians(angle.x)) * (length * 1.5) / radialScale;
+    float scaleFactor = 1.0 + grow / topRadius;
     return vector * vec3(scaleFactor, scaleFactor, 1.5);
   }
   return vector;
@@ -57,15 +64,16 @@ void main() {
   vColor = color;             //forwarding color value to fragement shader
   vIntensity = intensity;     //forwarding intensity value to fragement shader
   vAngle = angle.x;           //forwarding angle value to fragement shader
-  vPenumbra = angle.z;        //forwarding penumbra value to fragement shader
 
-  // The slope of the cone this shader really draws, which is not
-  // tan(beam angle): `computeRadiusVertexScaleFactor` widens the far ring using
-  // `length + 20.0` and then scales z by 1.5, so the drawn cone is shallower
-  // than the nominal angle by exactly that ratio. The fragment shader needs the
-  // drawn slope, not the intended one, or its idea of the cone sits inside or
-  // outside the silhouette it is shading.
-  vSlope = tan(radians(angle.x)) * (length + 20.0) / (length * 1.5);
+  // The falloff: full inside the inner cone, smoothstep to nothing at the
+  // field. Both come from the same penumbra the floor pool's SpotLight
+  // gets, see `writeBeamProfile`. The normaliser is computed there too.
+  vInner = clamp(angle.z, 0.0, 0.99);
+  vGain = angle.y;
+
+  // The slope is what the fragment shader builds its cone from, or its idea
+  // of the cone sits inside or outside the silhouette it is shading.
+  vSlope = tan(radians(angle.x));
   // Where the cone ends, in the same local z the displacement produced: the far
   // ring is the one scaled by 1.5 above. The fragment shader needs it to keep a
   // ray's closest approach inside the geometry that is actually drawn.
@@ -80,6 +88,10 @@ void main() {
   // Spelled out: length is the cylinder length uniform in this shader.
   vec3 xBasis = instanceMatrix[0].xyz;
   float radialScale = sqrt(dot(xBasis, xBasis));
+  // The cone's own start radius, for the fragment shader to build the cone
+  // from. Not derivable there from the fragment's position: a fragment on a
+  // cap is not on the wall.
+  vLensRadius = topRadius * radialScale;
   vec3 displaced = computeRadiusVertexScaleFactor(position, radialScale);     //Displacing vertex position to match desired angle
 
   // The fragment shader measures its cone in the beam's frame, in metres, and

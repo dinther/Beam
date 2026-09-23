@@ -21,6 +21,7 @@ import { setHazeWarp, setHazeTurn } from './haze_noise';
 import { EMITTER_UNIFORMS, GLOW_UNIFORMS } from './led_field';
 import LEDPanel from './led_panel';
 import Laser from './laser';
+import MovingHead from './moving_head';
 import { setAmbientCeiling } from './ambient';
 import ContactShadows from './contact_shadows';
 import PatchSingleton from '../../models/DMX/patch.model';
@@ -81,6 +82,8 @@ const CONTROLS = {
   airScale: (value, vis) => {
     if (vis.ambientHaze) vis.ambientHaze.setScaleMultiplier(value);
   },
+  // Mover beams.
+  beamScatter: (value) => MovingHead.setScatterAmount(value / 100),
   // Laser. The air and the surface are two different renderers -- geometry
   // through haze, and a projected figure -- so they need separate hands.
   laserAir: (value) => Laser.setScatterGain(value),
