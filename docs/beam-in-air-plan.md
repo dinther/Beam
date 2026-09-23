@@ -197,6 +197,18 @@ starts until the previous one is accepted.
 5. **Mover depth atlas with the queue.** Gate: 200 movers in a chase hold
    60 fps; a beam through a truss is cut; the floor plane still holds for
    beams without a tile.
+   *Built 2026-09-23, ahead of steps 2 to 4 because the wall scene showed
+   it missing; awaiting review.* A `DepthAtlas` of 16 x 16 tiles of 128 px
+   for the movers, a tile per lit head at its instance id, drawn from a
+   camera at the beam's origin looking down its axis. The atlas engine
+   gained a per-frame budget with priority (intensity, nearness, turn since
+   the tile was drawn) so a chase across hundreds stays bounded, and holes
+   for dark heads. The fragment shader projects each chord sample into the
+   tile from the beam's own axes, so no matrix travels per instance, and
+   drops samples past the first surface the lens sees. Verified on the
+   two-mover wall scene: the air stops at the wall. The 200-mover chase and
+   the truss cut are not yet measured. The floor pool still passes through
+   obstacles, since it is three's spotlight without a shadow map.
 6. **Gobos and prisms.** Texture array, instance attributes, rotation and
    prism in the aperture read. Gate: an animated gobo on a moving beam at no
    measurable cost over step 5.

@@ -6,10 +6,13 @@ attribute vec3 color;       //beam color
 attribute float intensity;  //beam intensity
 attribute vec3 angle;       //x half-angle of the field, y brightness normaliser, z inner cone over the field
 attribute vec3 wpos;        //beam position
+attribute float depthSlot;  //atlas slot of this beam's depth tile, -1 for none
 
 uniform float vertexCount;  //Total vertex count
 uniform float topRadius;    //Top radius of the cylinder
 uniform float length;       //Maximum length of the cylinder
+uniform float depthColumns; //depth atlas tiles across
+uniform float depthRows;    //depth atlas tiles down
 
 varying vec3 vPosition;         //Vertex local position
 varying vec3 beamPos;
@@ -26,6 +29,9 @@ varying float vSlope;           //Cone slope, dRadius/dz, of the cone drawn
 varying float vLensRadius;      //Radius of the cone at the lens, in metres
 varying float vZFar;            //Local z of the cone's far rim
 varying float vIndex;           //Vertex index
+varying vec4 vTile;             //Depth tile rect in the atlas, z < 0 for no tile
+varying vec3 vAxisX;            //The beam frame's x axis, world, unit
+varying vec3 vAxisY;            //The beam frame's y axis, world, unit
 
 /**
  * @function computeRadiusVertexScaleFactor
@@ -88,6 +94,20 @@ void main() {
   // Spelled out: length is the cylinder length uniform in this shader.
   vec3 xBasis = instanceMatrix[0].xyz;
   float radialScale = sqrt(dot(xBasis, xBasis));
+
+  // The frame the depth tile was drawn in: the tile camera sits at the
+  // beam's origin looking down its z, with its up along the beam's y, so the
+  // fragment shader can project a point into the tile from these two axes
+  // and the direction alone, and no matrix has to travel per instance.
+  vAxisX = normalize(xBasis);
+  vAxisY = normalize(instanceMatrix[1].xyz);
+  if (depthSlot < 0.0) {
+    vTile = vec4(0.0, 0.0, -1.0, -1.0);
+  } else {
+    float column = mod(depthSlot, depthColumns);
+    float row = floor(depthSlot / depthColumns);
+    vTile = vec4(column / depthColumns, row / depthRows, 1.0 / depthColumns, 1.0 / depthRows);
+  }
   // The cone's own start radius, for the fragment shader to build the cone
   // from. Not derivable there from the fragment's position: a fragment on a
   // cap is not on the wall.

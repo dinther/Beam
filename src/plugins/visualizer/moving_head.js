@@ -9,6 +9,7 @@ import { kelvinToRgb } from '../../models/DMX/colour_temperature';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
 import LightField from './light_field';
 import { castsContactShadow } from './contact_shadows';
+import { DepthAtlas } from './projector_depth';
 
 const MODEL_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x000000,
@@ -90,6 +91,62 @@ const BEAM_MAX_ANGLE = 45;
  * so the room's brightness did not move when the profile did.
  */
 const PROFILE_REFERENCE_FLUX = 0.1734;
+
+/**
+ * What each beam can see from its lens, packed into one texture.
+ *
+ * A tile per head, drawn from a camera at the beam's origin looking down
+ * its axis. The fragment shader projects each of a ray's chord samples into
+ * the tile and drops the ones past the first surface the lens sees, which
+ * is what stops a beam at a wall and darkens the air behind a cube in it.
+ *
+ * Sixteen by sixteen tiles of 128 pixels: a cut against a truss needs far
+ * less resolution than a laser figure on a wall, and 256 slots cover a rig
+ * of hundreds. A head past the last slot gets no tile and stops at the
+ * floor plane alone. Depth is linear distance over `far`, which is the
+ * drawn cone's length.
+ */
+const MOVER_DEPTH = new DepthAtlas({
+  columns: 16, rows: 16, tile: 128, near: 0.1, far: BEAM_LENGTH * 1.5, linear: true,
+});
+
+/**
+ * How many tiles may be redrawn in one frame.
+ *
+ * One head panning dirties the scene for every tile, so a chase across two
+ * hundred heads would otherwise be two hundred passes a frame. The atlas
+ * draws the most important ones first and the rest keep their last drawing
+ * until their turn; a beam with a stale tile is briefly wrong only where it
+ * cuts a truss.
+ */
+const DEPTH_TILE_BUDGET = 4;
+
+/**
+ * How much wider than the beam's own cone its tile looks, as a ratio of the
+ * half-angle's tangent.
+ *
+ * The cone starts at the lens ring rather than at a point, so close to the
+ * lens its edge sits outside the stated angle. Samples that fall outside the
+ * tile are taken as lit; the margin keeps that to the first metre or so.
+ */
+const DEPTH_FOV_MARGIN = 1.2;
+
+/** Metres a sample may sit past the tile's surface and still count as lit. */
+const DEPTH_BIAS = 0.05;
+
+/**
+ * The tile camera's frame in the beam's: it looks down the beam's +z, so
+ * its -z is that, and its x is turned to keep the frame right-handed.
+ */
+const depthBasis = new THREE.Matrix4().makeBasis(
+  new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, -1),
+);
+const depthScale = new THREE.Vector3(1, 1, 1);
+
+/** Beams stop at surfaces. A diagnostic switch, never stored. */
+let occlusionEnabled = true;
 
 /**
  * How much of the haze's forward scattering the beams show, 0..1.
@@ -186,6 +243,14 @@ let emissive_buffer_attribute = new THREE.InstancedBufferAttribute(
 let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
   new Float32Array(capacity * 3),
   3,
+);
+/**
+ * Per instance: the atlas slot holding this beam's depth tile, or -1 for a
+ * beam without one. Written by `renderDepth` every frame.
+ */
+let depth_slot_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity).fill(-1),
+  1,
 );
 
 const baseGeo = new THREE.InstancedBufferGeometry();
@@ -452,6 +517,11 @@ class MovingHead {
     MovingHead.writeBeamProfile(this._id, SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA);
     this._position = new THREE.Vector3();
     this._rotation = new THREE.Vector3();
+    /** The camera the beam's depth tile is drawn from; set by hand. */
+    this._depthCam = new THREE.PerspectiveCamera();
+    this._depthCam.matrixWorldAutoUpdate = false;
+    /** Where the beam pointed when its tile was last drawn. */
+    this._depthDir = new THREE.Vector3();
     this._minAngle = data.minAngle + 1.0;
     this._maxAngle = data.maxAngle + 1.0;
     /** What the shutter let through this frame, 0..1. */
@@ -1257,6 +1327,93 @@ class MovingHead {
     rigidMatrix.compose(rigidPosition, rigidQuaternion, beamScale);
   }
 
+  /**
+   * Aims the depth tile's camera down the beam.
+   *
+   * The same origin and orientation the instance matrix gives the cone,
+   * without the body's scale, times the fixed basis; its frustum is the
+   * beam's field plus a margin. Matrices are set by hand and the automatic
+   * pass is off, as the laser's are, because three would otherwise rebuild
+   * them from an untouched position.
+   *
+   * @private
+   */
+  updateDepthCamera() {
+    this.rigidBeamMatrix();
+    const cam = this._depthCam;
+    cam.matrixWorld.compose(rigidPosition, rigidQuaternion, depthScale).multiply(depthBasis);
+    cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    const tanHalf = Math.tan(MovingHead.degToRad(this._angle)) * DEPTH_FOV_MARGIN;
+    cam.fov = 2 * Math.atan(tanHalf) * (180 / Math.PI);
+    cam.aspect = 1;
+    cam.near = MOVER_DEPTH.near;
+    cam.far = MOVER_DEPTH.far;
+    cam.updateProjectionMatrix();
+  }
+
+  /**
+   * Draws each lit beam's view of the scene into its tile, within the frame's
+   * budget, and tells the beams which tiles are theirs.
+   *
+   * Dark beams submit nothing: a tile no one can see is not worth a pass.
+   * Priority is how much the beam matters on screen -- its intensity, how
+   * near it is, and how far it has turned since its tile was drawn -- so a
+   * chase spends the budget on the beams the eye is on.
+   *
+   * @public
+   * @param {Object} renderer THREE.WebGLRenderer
+   * @param {Object} scene
+   */
+  static renderDepth(renderer, scene) {
+    if (!beamMesh || !beamMesh.material || !beamMesh.material.uniforms) return;
+    const u = beamMesh.material.uniforms;
+    if (!occlusionEnabled) {
+      instances.forEach((instance) => depth_slot_attribute.setX(instance._id, -1));
+      depth_slot_attribute.needsUpdate = true;
+      return;
+    }
+    scene.updateMatrixWorld();
+    const projections = [];
+    instances.forEach((instance) => {
+      const id = instance._id;
+      if (id >= MOVER_DEPTH.maxProjections || instance.intensity <= 0) return;
+      instance.updateDepthCamera();
+      instance._beamDummy.getWorldDirection(vector_beam);
+      const turned = 1 - Math.max(vector_beam.dot(instance._depthDir), 0);
+      const distance = Math.max(vector_cam_pos.distanceTo(rigidPosition), 1);
+      projections[id] = {
+        camera: instance._depthCam,
+        priority: (instance.intensity / distance) * (1 + 4 * turned),
+      };
+    });
+    const drawn = MOVER_DEPTH.render(renderer, scene, projections, DEPTH_TILE_BUDGET);
+    drawn.forEach((slot) => {
+      const instance = instances[slot];
+      if (instance) instance._beamDummy.getWorldDirection(instance._depthDir);
+    });
+    instances.forEach((instance) => {
+      const id = instance._id;
+      const has = projections[id] !== undefined && MOVER_DEPTH.hasTile(id);
+      depth_slot_attribute.setX(id, has ? id : -1);
+    });
+    depth_slot_attribute.needsUpdate = true;
+    u.depthAtlas.value = MOVER_DEPTH.texture();
+    u.depthColumns.value = MOVER_DEPTH.columns;
+    u.depthRows.value = MOVER_DEPTH.rows;
+    u.depthFar.value = MOVER_DEPTH.far;
+    u.depthBias.value = DEPTH_BIAS;
+  }
+
+  /** @public @param {Boolean} on whether beams stop at surfaces */
+  static setOcclusion(on) {
+    occlusionEnabled = !!on;
+  }
+
+  /** @public @returns {Boolean} */
+  static occlusion() {
+    return occlusionEnabled;
+  }
+
   updateDirectionVector() {
     this._beamDummy.getWorldDirection(vector_beam.normalize());
     direction_buffer_attribute.setXYZ(this._id, vector_beam.x, vector_beam.y, vector_beam.z);
@@ -1570,6 +1727,7 @@ class MovingHead {
     beamGeo.setAttribute('color', color_buffer_attribute);
     beamGeo.setAttribute('intensity', intensity_buffer_attribute);
     beamGeo.setAttribute('angle', angle_buffer_attribute);
+    beamGeo.setAttribute('depthSlot', depth_slot_attribute);
 
     beamMesh = new THREE.InstancedMesh(beamGeo, new THREE.ShaderMaterial({
       transparent: true,
@@ -1655,6 +1813,12 @@ class MovingHead {
         sceneDepth: {
           value: null,
         },
+        // What each beam's own lens sees, from `renderDepth`.
+        depthAtlas: { value: null },
+        depthColumns: { value: MOVER_DEPTH.columns },
+        depthRows: { value: MOVER_DEPTH.rows },
+        depthFar: { value: MOVER_DEPTH.far },
+        depthBias: { value: DEPTH_BIAS },
         cameraNear: {
           type: 'f',
           value: 0.01,
@@ -1819,6 +1983,8 @@ class MovingHead {
     color_buffer_attribute = grownAttribute(color_buffer_attribute);
     emissive_buffer_attribute = grownAttribute(emissive_buffer_attribute);
     angle_buffer_attribute = grownAttribute(angle_buffer_attribute);
+    depth_slot_attribute = grownAttribute(depth_slot_attribute);
+    depth_slot_attribute.array.fill(-1, instanceCount);
 
     // Re-attached because `setAttribute` stores the attribute, not a reference
     // to whatever the variable holds now.
@@ -1830,6 +1996,7 @@ class MovingHead {
     beamGeo.setAttribute('color', color_buffer_attribute);
     beamGeo.setAttribute('intensity', intensity_buffer_attribute);
     beamGeo.setAttribute('angle', angle_buffer_attribute);
+    beamGeo.setAttribute('depthSlot', depth_slot_attribute);
 
     baseMesh = grownMesh(baseMesh);
     yokeMesh = grownMesh(yokeMesh);

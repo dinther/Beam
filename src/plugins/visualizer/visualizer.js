@@ -1069,6 +1069,9 @@ class Visualizer {
       // surface rather than running through it. Drawn before the frame, like the
       // projectors' depth pass above.
       Laser.renderDepth(this.renderer, SceneManager);
+      // Each lit mover beam's depth from its lens, the same way, within a
+      // per-frame tile budget; see `MovingHead.renderDepth`.
+      MovingHead.renderDepth(this.renderer, SceneManager);
       Laser.renderFigures(this.renderer);
       if (laserEffect) {
         laserEffect.setLasers(

@@ -18,6 +18,8 @@
 // without the cone's wall ever drawing a line into it.
 
 #include <clipping_planes_pars_fragment>
+// For unpackRGBAToDepth, matching the RGBA depth the atlas writes.
+#include <packing>
 #define M_PI 3.1415926535897932384626433832795
 
 precision highp float;
@@ -26,6 +28,16 @@ uniform float glowFactor; // Global glow factor
 uniform sampler2D sceneDepth;    // Depth of everything solid, from the composer
 uniform float cameraNear;
 uniform float cameraFar;
+uniform sampler2D depthAtlas;    // What each beam's lens sees, a tile per beam
+uniform float depthFar;          // Metres a tile's depth of 1.0 stands for
+uniform float depthBias;         // Metres past the surface a sample may still be lit
+
+/**
+ * How much wider than the beam's cone its depth tile looks, as a ratio of the
+ * half-angle's tangent. Must match `DEPTH_FOV_MARGIN` in moving_head.js,
+ * which draws the tile.
+ */
+#define DEPTH_FOV_MARGIN 1.2
 
 /**
  * The height a beam stops at, in world units.
@@ -108,6 +120,9 @@ varying float vSlope;        // Cone slope, dRadius/dz, of the cone drawn
 varying float vLensRadius;   // Radius of the cone at the lens, in metres
 varying float vZFar;         // Local z of the cone's far rim
 varying float vIndex;        // Vertex index
+varying vec4 vTile;          // Depth tile rect in the atlas, z < 0 for no tile
+varying vec3 vAxisX;         // The beam frame's x axis, world, unit
+varying vec3 vAxisY;         // The beam frame's y axis, world, unit
 
 /**
  * @function rgb2hsv
@@ -352,6 +367,17 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   // the profile there lit the whole drawn cone at full brightness out to a
   // hard rim. What the eye collects is the profile integrated along the
   // chord, and a few samples of it are that integral.
+  //
+  // **Each sample also asks the beam's own depth tile whether the lens can
+  // see it.** The tile was drawn from a camera at the beam's origin looking
+  // down the axis with its up along the beam's y, so a sample's place in
+  // it is its offset from the origin resolved on the beam's axes. Past the
+  // first surface the lens sees, the light never arrived: the sample is
+  // dark, which is what stops a beam at a wall and shadows the air behind
+  // a cube standing in it. A sample outside the tile, which happens only in
+  // the first metre where the lens ring pokes past the stated angle, is
+  // taken as lit.
+  float tanHalf = tan(radians(vAngle)) * DEPTH_FOV_MARGIN;
   float sumProfile = 0.0;
   float sumU = 0.0;
   for (int i = 0; i < BEAM_PROFILE_SAMPLES; i++) {
@@ -359,8 +385,18 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
     float z = clamp(oz + vz * s, 0.0, vZFar);
     // As a fraction of the field's radius there, lens ring included, so
     // the edge is the field at every depth.
-    float x = length(oR + vR * s) / max(r0 + m * z, 1e-4);
-    sumProfile += 1.0 - smoothstep(vInner, 1.0, x);
+    vec3 radialVec = oR + vR * s;
+    float x = length(radialVec) / max(r0 + m * z, 1e-4);
+    float lit = 1.0;
+    if (vTile.z > 0.0 && z > 0.0) {
+      vec2 ndc = vec2(-dot(radialVec, vAxisX), dot(radialVec, vAxisY)) / (z * tanHalf);
+      if (all(lessThan(abs(ndc), vec2(1.0)))) {
+        vec2 atlasUv = vTile.xy + (ndc * 0.5 + 0.5) * vTile.zw;
+        float surface = unpackRGBAToDepth(texture2D(depthAtlas, atlasUv)) * depthFar;
+        lit = z > surface + depthBias ? 0.0 : 1.0;
+      }
+    }
+    sumProfile += (1.0 - smoothstep(vInner, 1.0, x)) * lit;
     sumU += x;
   }
   float profile = sumProfile / float(BEAM_PROFILE_SAMPLES);

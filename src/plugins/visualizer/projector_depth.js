@@ -295,11 +295,13 @@ export class DepthAtlas {
    * @public
    * @param {Object} renderer THREE.WebGLRenderer
    * @param {Object} scene
-   * @param {Array} projections each `{ camera }`, in slot order
-   * @returns {Number} how many tiles were redrawn
+   * @param {Array} projections each `{ camera, priority }`, in slot order,
+   *   holes for slots with nothing to draw this frame
+   * @param {Number} [budget] at most this many tiles redrawn this frame
+   * @returns {Array} the slots redrawn
    */
-  render(renderer, scene, projections) {
-    if (!projections || !projections.length) return 0;
+  render(renderer, scene, projections, budget = Infinity) {
+    if (!projections || !projections.length) return [];
     const { tile } = this;
     // Before the keys are read, not after: a target being created here empties
     // them, and doing that afterwards threw away the keys just written and made
@@ -321,19 +323,31 @@ export class DepthAtlas {
     // clear below is scissored to the tile rather than wiping the atlas: a full
     // clear would make the pass all-or-nothing, since every tile it kept would
     // have been blanked to the far plane.
-    const slots = [];
+    //
+    // With a budget, only that many of the tiles owed a redraw get one this
+    // frame, the most important first: a projection may carry a `priority`,
+    // and a tile left for later keeps its old key, so it stays owed and its
+    // last drawing stays in use meanwhile. This is what keeps a rig of
+    // hundreds of moving heads bounded, since one head panning dirties the
+    // scene for every tile. Holes in `projections` are fixtures with nothing
+    // to draw this frame; their tiles are left as they are.
+    const owed = [];
     const sceneKey = sceneDepthKey(scene);
     const drawn = projections.slice(0, this.maxProjections);
     drawn.forEach((projection, slot) => {
+      if (!projection) return;
       const key = tileDepthKey(sceneKey, projection.camera);
       if (this.tileKeys[slot] === key) return;
-      this.tileKeys[slot] = key;
-      slots.push(slot);
+      owed.push({ slot, key, priority: projection.priority || 0 });
     });
     // A tile no fixture owns any more must not answer for the next one that
     // lands in it.
     this.tileKeys.length = drawn.length;
-    if (!slots.length) return 0;
+    if (!owed.length) return [];
+    if (owed.length > budget) owed.sort((a, b) => b.priority - a.priority);
+    const chosen = owed.slice(0, budget);
+    const slots = chosen.map((entry) => entry.slot);
+    chosen.forEach((entry) => { this.tileKeys[entry.slot] = entry.key; });
 
     // The matrices updated above are now frozen for the tiles.
     //
@@ -445,7 +459,19 @@ export class DepthAtlas {
       hidden.forEach((object) => { object.visible = true; });
       hidden.length = 0;
     }
-    return slots.length;
+    return slots;
+  }
+
+  /**
+   * Whether a slot holds a drawing at all. A fresh target holds nothing, and
+   * reading an undrawn tile as depth puts a surface at the near plane.
+   *
+   * @public
+   * @param {Number} slot
+   * @returns {Boolean}
+   */
+  hasTile(slot) {
+    return this.tileKeys[slot] !== undefined;
   }
 
   /** @public Releases the atlas. */

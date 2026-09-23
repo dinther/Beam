@@ -97,6 +97,7 @@ export default function createLEDDebugPanel(visualizer, host) {
     strictPatch: PatchSingleton.strict,
     // Mover beams
     beamScatter: Math.round(MovingHead.scatterAmount() * 100),
+    beamOcclusion: MovingHead.occlusion(),
     // Laser
     laserAir: Laser.scatterGain(),
     laserSurface: Laser.surfaceGain(),
@@ -334,6 +335,11 @@ export default function createLEDDebugPanel(visualizer, host) {
   beam.add(state, 'beamScatter', 0, 100, 1)
     .name('facing brightness %')
     .onChange((v) => Tuning.write('beamScatter', v, visualizer));
+  // A diagnostic, not a preference: not stored, so a session cannot start
+  // with beams passing through walls because a switch was left off.
+  beam.add(state, 'beamOcclusion')
+    .name('stop at surfaces')
+    .onChange((v) => MovingHead.setOcclusion(v));
 
   // Two separate hands, because a laser is drawn twice: the shaft through the
   // haze is geometry, the figure on the stone is a projected picture. Turning
