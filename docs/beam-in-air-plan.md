@@ -194,6 +194,16 @@ starts until the previous one is accepted.
    line absent.
 4. **Extinction and the wider proxy.** Gate: beams shorten as haze rises;
    fill cost measured.
+   *Steps 3 and 4 built together on 2026-09-23, after step 5; awaiting
+   review.* Each of the four chord samples now carries its own irradiance
+   and its own haze read: inverse square from the virtual apex behind the
+   lens, flat within a 3 m knee as the projector shaft does, times
+   Beer-Lambert extinction from the lens at the projector's 0.06 per metre
+   per unit haze, times the field at the sample. The invented
+   1/(1 + z + angle z^2) falloff is gone; the gain is 3.3 so a 150 m shaft
+   carries the light it did. No wider proxy: the cone is drawn to the field
+   since the pool-matched profile. Cost on the wall scene at its opening
+   view, two lit beams: 1.34 ms to about 1.8 ms.
 5. **Mover depth atlas with the queue.** Gate: 200 movers in a chase hold
    60 fps; a beam through a truss is cut; the floor plane still holds for
    beams without a tile.

@@ -64,15 +64,41 @@ uniform float depthBias;         // Metres past the surface a sample may still b
 #define BEAM_FIELD_DEPTH 0.5
 
 /**
- * Brightness of a ray straight through the axis at the lens, before the haze.
+ * Brightness of a ray straight through the axis within the knee, before the
+ * haze.
  *
- * One number for the lot: the profile, the attenuation and the fragment count
+ * One number for the lot: the profile, the irradiance and the fragment count
  * are all unity there, so this is the level the fixture's intensity is scaled
- * to. The cone this profile replaced peaked here over a disc 0.8 times the
- * stated half-angle wide; `vGain` scales each beam's profile so its
- * cross-section carries that cone's light whatever the focus.
+ * to. The cone this shader replaced peaked at 8 with a falloff of
+ * 1 / (1 + z + angle z^2) along the shaft; the inverse-square falloff below
+ * integrates to 2.4 times that along a 150 m shaft, and 8 / 2.4 is this, so
+ * a shaft carries the light it did. `vGain` scales each beam's profile so
+ * its cross-section carries the old cone's light whatever the focus.
  */
-#define BEAM_GAIN 8.0
+#define BEAM_GAIN 3.3
+
+/**
+ * Nearest the lens the irradiance falls off from, in metres.
+ *
+ * Light spreads as the inverse square of the distance from the virtual
+ * point the cone opens from, which sits just behind the lens. Unbounded,
+ * that puts hundreds of times more light in the first half metre than at
+ * the far end, a white core at the lens that hides the colour. A lens has
+ * area rather than being a point, so the falloff has to stop somewhere;
+ * three metres, further out than the physics alone gives, is what the
+ * projector shaft settled on for the same reason.
+ */
+#define BEAM_KNEE 3.0
+
+/**
+ * How fast the beam is eaten by the air it lights, per metre per unit haze.
+ *
+ * Beer-Lambert from the lens: thicker haze scatters more light towards the
+ * eye and swallows the beam sooner, which is why a heavily hazed room has
+ * short fat beams rather than long ones. The same number the projector
+ * shaft uses, so a beam and a projector in the same air fade alike.
+ */
+#define BEAM_EXTINCTION 0.06
 
 /**
  * How many points along a ray's lit stretch the radial profile is read at.
@@ -86,8 +112,8 @@ uniform float depthBias;         // Metres past the surface a sample may still b
 /**
  * Draws one term as greyscale instead of the beam, from the debug panel:
  * 1 the mean field fraction u, 2 the radial profile, 3 the chord fraction,
- * 4 the attenuation, 5 the phase, 6 the haze, 7 the whole intensity before
- * colour. 0 is the beam. Each is scaled so it survives the tone curve and
+ * 4 the irradiance, 5 the phase, 6 the haze field, 7 the whole intensity
+ * before colour. 0 is the beam. Each is scaled so it survives the tone curve and
  * bloom readably. Additive blending still applies, so read these on a scene
  * with a single beam.
  */
@@ -95,6 +121,8 @@ uniform int debugTerm;
 float dbgU = 0.0;
 float dbgProfile = 0.0;
 float dbgThrough = 0.0;
+float dbgIrradiance = 0.0;
+float dbgField = 0.0;
 
 uniform bool fogState;
 uniform float scatterAmount; // How much of the haze's forward scattering to show, 0..1
@@ -154,29 +182,17 @@ vec3 hsv2rgb(vec3 c) {
 }
 
 /**
- * @function computeFog
- * @brief how much the air scatters at a point of the beam
- * @param vec3 point world position, the middle of the ray's lit stretch
- * @returns float fogging intensity there
+ * @function hazeField
+ * @brief how the air's texture modulates the light at a point of the beam
+ * @param vec3 point world position along the ray's lit stretch
+ * @returns float around 1, the field's variation at that point
  */
-float computeFog(vec3 point) {
-  // No haze, no beam. A beam is only visible because something in the air
-  // scatters it back at you, so the amount of haze is the amount of beam --
-  // at zero there is nothing to light up and the cone has to go with it,
-  // leaving only whatever the light lands on.
-  //
-  // The switch and the slider say the same thing, so they resolve to one
-  // number here, the way `SceneEnv.hazeAmount` already does for the LED glows.
-  float haze = fogState ? clamp(fogFactor, 0.0, 1.0) : 0.0;
-  if(haze <= 0.0) {
-    return 0.0;
-  }
-
-  // Sampled in the room's coordinates at a point inside the beam -- the
-  // middle of the ray's lit stretch -- never at the fragment. The fragment is
-  // wherever the ray happens to leave the cone, which for a beam pointing
-  // away is its far cap 150 m out, and haze read there is a different room's
-  // haze from the air the eye is looking through.
+float hazeField(vec3 point) {
+  // Sampled in the room's coordinates at points inside the beam -- along the
+  // ray's lit stretch -- never at the fragment. The fragment is wherever the
+  // ray happens to leave the cone, which for a beam pointing away is its
+  // far cap 150 m out, and haze read there is a different room's haze from
+  // the air the eye is looking through.
   //
   // All three axes, with time driving drift rather than standing in for one
   // of them: a beam rising through a room has to pass through vertical
@@ -189,8 +205,7 @@ float computeFog(vec3 point) {
   // in `SceneEnv.hazeDriftRate` -- scale-corrected, and the same for every
   // renderer that reads this field.
   float drift = time * fogTurbulence;
-  vec3 fogCoord = point / max(fogScale, 0.01);
-  float field = fogging(fogCoord, drift);
+  float field = fogging(point / max(fogScale, 0.01), drift);
 
   // How much the air scatters, and **nothing about the beam's own strength**.
   //
@@ -205,7 +220,7 @@ float computeFog(vec3 point) {
   //
   // Scattered light is beam intensity times air density, and multiplying them
   // once is the whole of it. Two beams add the way light does.
-  return mix(1.0, field, BEAM_FIELD_DEPTH) * haze;
+  return mix(1.0, field, BEAM_FIELD_DEPTH);
 }
 
 /**
@@ -427,8 +442,23 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   // a cube standing in it. A sample outside the tile, which happens only in
   // the first metre where the lens ring pokes past the stated angle, is
   // taken as lit.
+  //
+  // **Each sample also carries the light that reaches it and the air it
+  // sits in.** Irradiance falls as the inverse square of the distance from
+  // the virtual point the cone opens from, flat within the knee, and pays
+  // Beer-Lambert extinction from the lens through the haze on the way. The
+  // haze field is read at the sample itself, so the texture passes through
+  // the shaft rather than sitting on it: the core averages the field along
+  // a long chord and comes out smoother, the thin edges keep its detail,
+  // which is what a real beam does. Four field reads per fragment, which
+  // measured nearly free where arithmetic is not.
   float tanHalf = tan(radians(vAngle)) * DEPTH_FOV_MARGIN;
+  float apexBehind = r0 / max(m, 1e-4);
+  float haze = clamp(fogFactor, 0.0, 1.0);
+  float sumLight = 0.0;
   float sumProfile = 0.0;
+  float sumIrradiance = 0.0;
+  float sumField = 0.0;
   float sumU = 0.0;
   for (int i = 0; i < BEAM_PROFILE_SAMPLES; i++) {
     float s = sLo + chord * (float(i) + 0.5) / float(BEAM_PROFILE_SAMPLES);
@@ -446,11 +476,18 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
         lit = z > surface + depthBias ? 0.0 : 1.0;
       }
     }
-    sumProfile += (1.0 - smoothstep(vInner, 1.0, x)) * lit;
+    float profileHere = (1.0 - smoothstep(vInner, 1.0, x)) * lit;
+    float spread = BEAM_KNEE / max(z + apexBehind, BEAM_KNEE);
+    float irradiance = spread * spread * exp(-BEAM_EXTINCTION * haze * z);
+    float field = hazeField(cameraPos + viewDir * s);
+    sumLight += profileHere * irradiance * field;
+    sumProfile += profileHere;
+    sumIrradiance += irradiance;
+    sumField += field;
     sumU += x;
   }
-  float profile = sumProfile / float(BEAM_PROFILE_SAMPLES);
-  float u = clamp(sumU / float(BEAM_PROFILE_SAMPLES), 0.0, 1.0);
+  float samples = float(BEAM_PROFILE_SAMPLES);
+  float u = clamp(sumU / samples, 0.0, 1.0);
 
   // How much cone the ray gets to cross, against the widest chord at that
   // depth. 1 through the middle, falling to nothing where the floor, the far
@@ -460,37 +497,45 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   float through = clamp(chord / (2.0 * radiusMid), 0.0, 1.0);
 
   dbgU = u;
-  dbgProfile = profile;
+  dbgProfile = sumProfile / samples;
   dbgThrough = through;
-  return profile * through;
+  dbgIrradiance = sumIrradiance / samples;
+  dbgField = sumField / samples;
+  return (sumLight / samples) * through;
 }
 
 void main() {
   #include <clipping_planes_fragment>
 
-  vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
-  float zAlong;
-  float sAlong;
-  float anglePower = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong);
-
-  if (debugTerm == 1) { gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return; }
-  if (debugTerm == 2) { gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return; }
-  if (debugTerm == 3) { gl_FragColor = vec4(vec3(dbgThrough * 0.2), 1.0); return; }
-
-  // Without a depth test the cone's whole exit face is shaded, the part
-  // under the floor included, and most of those rays carry no light at all.
-  // The haze fetches are the expensive part, so they are not paid for a ray
-  // that has already come out dark.
-  if (anglePower <= 0.0) {
+  // No haze, no beam. A beam is only visible because something in the air
+  // scatters it back at you, so the amount of haze is the amount of beam --
+  // at zero there is nothing to light up and the cone has to go with it,
+  // leaving only whatever the light lands on. The switch and the slider say
+  // the same thing, so they resolve to one number here, the way
+  // `SceneEnv.hazeAmount` already does for the LED glows.
+  float haze = fogState ? clamp(fogFactor, 0.0, 1.0) : 0.0;
+  if (haze <= 0.0) {
     gl_FragColor = vec4(0.0);
     return;
   }
 
-  // Dimming down the shaft, from where the ray's lit stretch sits on the
-  // axis. A property of the ray, so it cannot disagree with the profile.
-  // Nothing about the view angle is in here: that is the phase function's
-  // job below.
-  float attenuation = 1.0 / (1.0 + zAlong + radians(vAngle) * zAlong * zAlong);
+  vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
+  float zAlong;
+  float sAlong;
+  float light = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong);
+
+  if (debugTerm == 1) { gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return; }
+  if (debugTerm == 2) { gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return; }
+  if (debugTerm == 3) { gl_FragColor = vec4(vec3(dbgThrough * 0.2), 1.0); return; }
+  if (debugTerm == 4) { gl_FragColor = vec4(vec3(dbgIrradiance * 0.2), 1.0); return; }
+  if (debugTerm == 6) { gl_FragColor = vec4(vec3(dbgField * 0.2), 1.0); return; }
+
+  // Without a depth test the cone's whole exit face is shaded, the part
+  // under the floor included, and most of those rays carry no light at all.
+  if (light <= 0.0) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
 
   // How the air throws this light at the eye: the haze's phase function on
   // the angle between the beam's travel and the way back to the camera. 1
@@ -498,20 +543,13 @@ void main() {
   // scatterAmount allows.
   float phase = hazePhase(dot(safeNormalize(vDirection), -viewDir), scatterAmount);
 
-  float intensity = attenuation * anglePower * phase;
+  float intensity = light * phase * haze;
 
-  float fog = computeFog(cameraPos + viewDir * sAlong);
-
-  if (debugTerm == 4) { gl_FragColor = vec4(vec3(attenuation * 0.2), 1.0); return; }
   if (debugTerm == 5) { gl_FragColor = vec4(vec3(phase * 0.05), 1.0); return; }
-  if (debugTerm == 6) { gl_FragColor = vec4(vec3(fog * 0.2), 1.0); return; }
-  if (debugTerm == 7) { gl_FragColor = vec4(vec3(intensity * fog * 0.05), 1.0); return; }
+  if (debugTerm == 7) { gl_FragColor = vec4(vec3(intensity * 0.05), 1.0); return; }
 
-  // One term at a time, as greyscale, so a step can be seen in the quantity
-  // that carries it rather than inferred from the sum. Additive blending still
-  // applies, so read these on a scene with a single beam.
   vec3 hsvColor = rgb2hsv(vColor);
   hsvColor.z = hsvColor.z > 0.001 ? hsvColor.z * intensity : 0.0;
   vec3 rgbColor = hsv2rgb(hsvColor);
-  gl_FragColor = vec4(rgbColor * fog * vIntensity, 1.0);
+  gl_FragColor = vec4(rgbColor * vIntensity, 1.0);
 }
