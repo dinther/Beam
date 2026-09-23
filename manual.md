@@ -44,6 +44,7 @@
 - [Placing things](#placing-things)
 - [Groups and structures](#groups-and-structures)
 - [The visualizer](#the-visualizer)
+- [Moving head beams](#moving-head-beams)
 - [Art-Net input](#art-net-input)
 - [Lasers](#lasers)
 - [The MadMapper export in detail](#the-madmapper-export-in-detail)
@@ -530,6 +531,17 @@ Each group owns its mappings independently — one group can go out as a front e
 **The view cube.** Click a face to snap to that elevation. Faster than orbiting when you want a straight-on view — and straight-on views are what you want before exporting a camera projection.
 
 **How it draws.** Every emitter's colour is looked up per-frame on the GPU, from a texture holding all 512 universes. Nothing per-LED happens on the CPU, so the cost is set by how many universes you're running rather than how many individual LEDs are lit. Thousands of emitters is normal.
+
+## Moving head beams
+
+A beam is light scattered by the haze, so with haze off there is no beam, only the pool it throws. The air and the pool are drawn from the same numbers, so they always agree on where the light is.
+
+- **Width and edge.** The fixture's stated angle is the edge of the light. The focus channel sets how soft that edge is, from nearly hard at full focus to soft halfway in. A fixture without a focus channel gets a middling edge.
+- **Where it stops.** Each lit head keeps a small depth view from its lens. The beam stops at the first thing it hits, and the pool is shadowed by it, so a wall ends both and a cube in the beam casts a shadow on the floor. With hundreds of heads moving, only a few of those views are redrawn each frame, the most visible first; a beam can briefly lag where it cuts a truss.
+- **Along the beam.** Light thins with distance and is eaten by thick haze, so dense haze makes short beams. The haze texture runs through the beam rather than sitting on its surface.
+- **Facing the camera.** Haze throws light mostly forwards, so a beam pointing at you is brighter than one crossing your view. **Debug → Mover beam → facing brightness %** sets how much.
+- **Gobos.** Every gobo wheel a profile has works, with slot, rotation and wheel scroll. Profiles don't come with gobo images, so Beam draws twelve patterns of its own and deals them out by slot. Focus blurs the gobo as well as the edge.
+- **Prisms.** The prism channel splits the beam into copies of the whole cross-section, a third as bright each for three facets, so where copies overlap they add up. Prism rotation spins it.
 
 ## Art-Net input
 

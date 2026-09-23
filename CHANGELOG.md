@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.0-alpha.13
+
+### Moving head beams
+
+- The beam is computed per view ray. Rays from inside the beam and looking down it are handled.
+- The air uses the same falloff as the pool on the floor: full to an inner cone, soft to nothing at the stated angle.
+- Focus sets the edge over its own range, nearly hard to soft. Fixtures without a focus channel default to a penumbra of 0.5, so overlapping pools no longer show dark curves.
+- Beams are brighter facing the camera, from the haze's forward scattering. Debug panel: **Mover beam → facing brightness %**.
+- Light falls off with distance from the lens and is absorbed by the haze. Dense haze shortens beams.
+- The haze texture is sampled inside the beam, not on its surface.
+- Beams stop at the first surface their lens sees, from a depth view per lit head. At most four views are redrawn per frame, most visible first. Debug panel: **Mover beam → stop at surfaces**.
+- The pool on surfaces reads the same depth view, so objects cast shadows and walls stop the pool.
+- Debug panel: **Mover beam → draw term** shows one shader term as greyscale.
+
+### Gobos and prisms
+
+- Every wheel in a profile is used: gobo slot, slot rotation, wheel scroll, prism and prism rotation.
+- Twelve procedural gobo patterns. Seven match the OFL resource names in the shipped profiles; other slots get patterns by order.
+- Focus blurs the gobo, blended between three baked blur levels.
+- The gobo lines up between the air and the pool. In the air it blurs with distance.
+- A prism draws copies of the whole cross-section; overlapping copies add.
+- Rotation speeds map a profile's slow to fast onto a range per fixture.
+
+### Objects
+
+- Three 4290 truss models: a straight 2 m section and two arcs.
+
+### Fixes
+
+- A DMX range of a single value no longer produces NaN. A stated value of zero counts as a value.
+- Rotation capabilities report only the speed or angle the profile states.
+- A prism rotation channel no longer switches the prism on.
+
 ## 0.1.0-alpha.12
 
 ### Strobe
