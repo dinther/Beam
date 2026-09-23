@@ -1402,6 +1402,11 @@ class MovingHead {
     u.depthRows.value = MOVER_DEPTH.rows;
     u.depthFar.value = MOVER_DEPTH.far;
     u.depthBias.value = DEPTH_BIAS;
+    // The surfaces read the same tiles, so the pool stops where the beam does.
+    LightField.uniforms.lightFieldDepth.value = MOVER_DEPTH.texture();
+    LightField.uniforms.lightFieldDepthFar.value = MOVER_DEPTH.far;
+    LightField.uniforms.lightFieldDepthBias.value = DEPTH_BIAS;
+    LightField.uniforms.lightFieldDepthTile.value = MOVER_DEPTH.tile;
   }
 
   /** @public @param {Boolean} on whether beams stop at surfaces */
@@ -1938,6 +1943,29 @@ class MovingHead {
     record.cosOuter = Math.cos(this._spotLight.angle);
     // The same penumbra three derives, so the soft edge matches.
     record.cosInner = Math.cos(this._spotLight.angle * (1 - this._spotLight.penumbra));
+
+    // The beam's depth tile, so the pool stops where the beam does. The slot
+    // is last frame's, written by `renderDepth` after the field is read,
+    // which is one frame of lag on a tile that changes rarely. The tile's
+    // frame is the beam's rigid frame, the same one the tile camera and the
+    // beam shader use.
+    const slot = depth_slot_attribute.getX(this._id);
+    record.hasTile = occlusionEnabled && slot >= 0;
+    if (record.hasTile) {
+      const column = slot % MOVER_DEPTH.columns;
+      const row = Math.floor(slot / MOVER_DEPTH.columns);
+      record.tile.set(
+        column / MOVER_DEPTH.columns,
+        row / MOVER_DEPTH.rows,
+        1 / MOVER_DEPTH.columns,
+        1 / MOVER_DEPTH.rows,
+      );
+      this.rigidBeamMatrix();
+      record.tileOrigin.copy(rigidPosition);
+      record.axisX.set(1, 0, 0).applyQuaternion(rigidQuaternion);
+      record.axisY.set(0, 1, 0).applyQuaternion(rigidQuaternion);
+      record.tanHalf = Math.tan(MovingHead.degToRad(this._angle)) * DEPTH_FOV_MARGIN;
+    }
     return true;
   }
 

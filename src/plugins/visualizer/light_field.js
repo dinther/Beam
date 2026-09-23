@@ -27,29 +27,41 @@ import * as THREE from 'three';
  * frustum so a fragment reads only the handful that can reach it; the data is
  * already in the shape that wants. Correct first, then fast.
  *
- * **Shadows are deliberately not here.** A shadow costs a depth pass and a
- * texture unit, so it is genuinely scarce however the lighting is done. Heads
- * that cast one keep a real `THREE.SpotLight` and three's own shadow path,
- * capped as before; everything else contributes through this.
+ * **Shadows come from the fixtures' own depth tiles, not from three.** A
+ * moving head already draws what its lens sees into a tile of the mover
+ * depth atlas so its beam can stop at a surface; the same tile says whether
+ * a surface point is the first thing the lens sees, which is a shadow map.
+ * A source that has a tile passes it in its record, and the loop drops the
+ * light on any point past the tile's surface. One depth from one camera
+ * serves the beam and the pool, so they cannot disagree about where the
+ * light stops. Heads that cast a three shadow keep a real `THREE.SpotLight`
+ * and three's own path, capped as before.
  */
 
 /**
  * How many texels one light occupies.
  *
- * Three, packed so nothing is wasted:
+ * Seven, packed so nothing is wasted:
  *
  *   0: position.xyz, range
  *   1: direction.xyz, cosine of the cone's outer edge
  *   2: colour.rgb (already scaled by intensity), cosine of the penumbra
+ *   3: the depth tile's rect in the atlas, x y width height
+ *   4: the tile camera's x axis, world; tangent of its half fov
+ *   5: the tile camera's y axis, world; 1 when the light has a tile, else 0
+ *   6: the tile camera's origin, world
  *
  * `direction` is stored three's way round -- `normalize(position - target)`,
  * pointing back up the beam rather than along it -- so that the angle test
  * here is the same arithmetic as `getSpotLightInfo`, and a surface lit through
  * this path matches one lit by a real `SpotLight`.
  *
+ * Texels 3 to 6 are only read once a fragment has passed the range and cone
+ * tests, so a light that cannot reach a fragment costs the same as before.
+ *
  * @constant {Number}
  */
-const TEXELS_PER_LIGHT = 3;
+const TEXELS_PER_LIGHT = 7;
 
 /** Lights the texture holds before it is grown. Doubles on demand. */
 const INITIAL_CAPACITY = 128;
@@ -81,6 +93,13 @@ const record = {
   range: 60,
   cosOuter: Math.cos(Math.PI / 4),
   cosInner: Math.cos(Math.PI / 8),
+  /** Whether the fields below are set; cleared before every source reads. */
+  hasTile: false,
+  tile: new THREE.Vector4(),
+  tileOrigin: new THREE.Vector3(),
+  axisX: new THREE.Vector3(),
+  axisY: new THREE.Vector3(),
+  tanHalf: 1,
 };
 
 /**
@@ -93,6 +112,11 @@ const uniforms = {
   lightField: { value: null },
   lightFieldCount: { value: 0 },
   lightFieldDecay: { value: 1.0 },
+  // The mover depth atlas, set by `MovingHead.renderDepth` each frame.
+  lightFieldDepth: { value: null },
+  lightFieldDepthFar: { value: 1 },
+  lightFieldDepthBias: { value: 0.05 },
+  lightFieldDepthTile: { value: 128 },
 };
 
 /** Builds the texture, or rebuilds it after the store has grown. */
@@ -150,6 +174,38 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
       * getDistanceAttenuation( lightDistance, packedPosition.w, lightFieldDecay );
     if ( attenuation <= 0.0 ) continue;
 
+    // Is this point the first thing the light's lens sees? The light's depth
+    // tile was drawn from a camera at the tile origin looking down the
+    // beam, up along the beam's y, so the point's place in the tile is its
+    // offset from that origin resolved on the beam's axes, all in view
+    // space since the view transform is rigid. The point is first pushed
+    // off its surface along the normal by a texel and a half at its
+    // distance, so a surface does not shadow itself where a tile texel
+    // spans a stretch of it.
+    vec4 packedAxisY = texelFetch( lightField, ivec2( 5, i ), 0 );
+    if ( packedAxisY.w > 0.5 ) {
+      vec4 packedTile = texelFetch( lightField, ivec2( 3, i ), 0 );
+      vec4 packedAxisX = texelFetch( lightField, ivec2( 4, i ), 0 );
+      vec4 packedOrigin = texelFetch( lightField, ivec2( 6, i ), 0 );
+      vec3 tileAxisX = normalize( ( viewMatrix * vec4( packedAxisX.xyz, 0.0 ) ).xyz );
+      vec3 tileAxisY = normalize( ( viewMatrix * vec4( packedAxisY.xyz, 0.0 ) ).xyz );
+      vec3 tileAxisZ = cross( tileAxisX, tileAxisY );
+      vec3 tileOrigin = ( viewMatrix * vec4( packedOrigin.xyz, 1.0 ) ).xyz;
+      vec3 offset = geometryPosition - tileOrigin;
+      float along = dot( offset, tileAxisZ );
+      if ( along > 0.0 ) {
+        float texel = 2.0 * along * packedAxisX.w / lightFieldDepthTile;
+        offset += geometryNormal * ( texel * 1.5 );
+        along = dot( offset, tileAxisZ );
+        vec2 ndc = vec2( -dot( offset, tileAxisX ), dot( offset, tileAxisY ) ) / ( along * packedAxisX.w );
+        if ( all( lessThan( abs( ndc ), vec2( 1.0 ) ) ) ) {
+          vec2 tileUv = packedTile.xy + ( ndc * 0.5 + 0.5 ) * packedTile.zw;
+          float seen = unpackRGBAToDepth( texture2D( lightFieldDepth, tileUv ) ) * lightFieldDepthFar;
+          if ( along > seen + lightFieldDepthBias ) continue;
+        }
+      }
+    }
+
     fieldLight.color = packedColor.rgb * attenuation;
     fieldLight.visible = true;
     RE_Direct( fieldLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
@@ -163,6 +219,10 @@ const FIELD_PARS_CHUNK = /* glsl */`
 uniform sampler2D lightField;
 uniform int lightFieldCount;
 uniform float lightFieldDecay;
+uniform sampler2D lightFieldDepth;
+uniform float lightFieldDepthFar;
+uniform float lightFieldDepthBias;
+uniform float lightFieldDepthTile;
 `;
 
 const LightField = {
@@ -220,6 +280,8 @@ const LightField = {
     let count = 0;
     for (let i = 0; i < sources.length; i += 1) {
       if (count >= MAX_LIGHTS) break;
+      // A source without a tile need not know the field exists.
+      record.hasTile = false;
       if (sources[i].readLight(record)) {
         LightField.ensureCapacity(count + 1);
         const at = count * TEXELS_PER_LIGHT * 4;
@@ -237,6 +299,26 @@ const LightField = {
         data[at + 9] = record.color.g * record.intensity;
         data[at + 10] = record.color.b * record.intensity;
         data[at + 11] = record.cosInner;
+
+        data[at + 12] = record.tile.x;
+        data[at + 13] = record.tile.y;
+        data[at + 14] = record.tile.z;
+        data[at + 15] = record.tile.w;
+
+        data[at + 16] = record.axisX.x;
+        data[at + 17] = record.axisX.y;
+        data[at + 18] = record.axisX.z;
+        data[at + 19] = record.tanHalf;
+
+        data[at + 20] = record.axisY.x;
+        data[at + 21] = record.axisY.y;
+        data[at + 22] = record.axisY.z;
+        data[at + 23] = record.hasTile ? 1 : 0;
+
+        data[at + 24] = record.tileOrigin.x;
+        data[at + 25] = record.tileOrigin.y;
+        data[at + 26] = record.tileOrigin.z;
+        data[at + 27] = 0;
         count += 1;
       }
     }
