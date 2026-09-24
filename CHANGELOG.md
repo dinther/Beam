@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.0-alpha.14
+
+### Gobos
+
+- The 46 gobo images from the Open Fixture Library replace the procedural patterns. A slot that names an image gets it; other slots get images by order. Credited in CREDITS.html.
+- A wheel travels between slots at 7.5 slots per second instead of switching instantly, in the air and on the pool.
+- Gobo shake, as a rocking wheel or a gobo turning in its holder, at the profile's angle where it states one.
+
+### Colour wheels
+
+- Colour slots take their colour from the slot's name, including gel names such as congo, lavender and minus green.
+- A colour wheel set between two slots shows both colours, split across the beam.
+
+### Prisms and iris
+
+- A prism's facet count and whether it is linear come from the profile's text; three round facets when it says nothing.
+- A linear prism lays its copies in a row along its angle.
+- A prism costs 12% of the light.
+- The iris channel closes the beam, in the air and on the pool.
+
+### Fixture panel
+
+- **Model** has a quick guide written from the profile: what to set before there is light, and what each channel's DMX ranges do. Channels Beam does not draw are marked.
+
+### Fixes
+
+- A fixture rotated 180° about Y no longer snaps to X 180°, Z 180° when the field loses focus.
+- Changing the prism no longer clips the projected gobo until the view moves. A still head no longer re-uploads its matrices every frame, and a depth view that waits for its turn gains priority each frame.
+
 ## 0.1.0-alpha.13
 
 ### Moving head beams
