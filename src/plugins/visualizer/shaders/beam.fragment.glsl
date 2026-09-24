@@ -34,7 +34,7 @@ uniform float depthBias;         // Metres past the surface a sample may still b
 uniform sampler2D goboAtlas;     // Every gobo pattern, in a grid; pattern 0 open
 
 /** The atlas is a grid of this many patterns across, as gobo_library.js. */
-#define GOBO_GRID 4.0
+#define GOBO_GRID 8.0
 
 /**
  * How blurred a gobo reads in the air, as mip levels of its 256 px pattern:
@@ -45,9 +45,36 @@ uniform sampler2D goboAtlas;     // Every gobo pattern, in a grid; pattern 0 ope
  * so structure in a beam washes out with distance while the same pattern
  * lands crisp on the wall. The surface reads the pattern sharp.
  */
-#define GOBO_LOD_BASE 1.0
+#define GOBO_LOD_BASE 1.5
 #define GOBO_BLUR_PER_METRE 0.12
 #define GOBO_LOD_MAX 4.0
+
+/**
+ * The distance between neighbouring holes on a gobo wheel, in the field's
+ * radius: two, the holes' own diameter, and a margin of metal between them.
+ * It sets how far a gobo travels while the wheel moves one slot.
+ */
+#define GOBO_PITCH 2.3
+
+/**
+ * How much of the light a prism lets through: glass loses some at every
+ * face, so a beam dims a little when the prism goes in.
+ */
+#define PRISM_TRANSMISSION 0.88
+
+/**
+ * Where a prism puts its k-th copy, as an offset in the aperture: round
+ * prisms spread the copies round a circle of the spread's radius, linear ones
+ * in a row along the prism's angle, the outermost at the spread.
+ */
+vec2 prismOffset(int k, int facets, bool linear, float angle, float spread) {
+  if (linear) {
+    float t = float(k) / float(facets - 1) * 2.0 - 1.0;
+    return spread * t * vec2(cos(angle), sin(angle));
+  }
+  float a = angle + 6.2831853 * float(k) / float(facets);
+  return spread * vec2(cos(a), sin(a));
+}
 
 /** The most facets a prism is drawn with. */
 #define PRISM_FACETS_MAX 8
@@ -156,9 +183,10 @@ uniform vec3 cameraPos;
 
 varying vec3 vPosition;      // Vertex local position
 varying vec3 beamPos;        // Vertex local position
-varying vec2 vUv;            // UV position
 varying vec3 vDirection;     // Intance direction
-varying vec3 vColor;         // Instance colro
+varying vec3 vColor;         // Instance colour, the near side of any colour split
+flat varying vec4 vColorB;        // Colour past a colour wheel split, rgb; w the split, 0 none
+flat varying float vIris;         // How far the iris is open, 1 fully to 0 closed
 varying vec4 vWorldPosition; // Vertex world position
 varying vec4 vAbsoluteWorldPosition;
 varying float vIntensity;    // Instance intensity
@@ -168,12 +196,11 @@ varying float vGain;         // Brightness normaliser, 1 being the reference con
 varying float vSlope;        // Cone slope, dRadius/dz, of the cone drawn
 varying float vLensRadius;   // Radius of the cone at the lens, in metres
 varying float vZFar;         // Local z of the cone's far rim
-varying float vIndex;        // Vertex index
-varying vec4 vTile;          // Depth tile rect in the atlas, z < 0 for no tile
+flat varying vec4 vTile;          // Depth tile rect in the atlas, z < 0 for no tile
 varying vec3 vAxisX;         // The beam frame's x axis, world, unit
 varying vec3 vAxisY;         // The beam frame's y axis, world, unit
-varying vec4 vGobo;          // The gobos in the beam, two of (texture layer, angle)
-varying vec4 vPrism;         // The prism: facets, angle, spread (under 2 facets none); w the gobo defocus in baked levels
+flat varying vec4 vGobo;          // The gobos in the beam, two of (texture layer, angle)
+flat varying vec4 vPrism;         // The prism: facets (negative linear, under 2 none), angle, spread; w the gobo defocus in baked levels
 varying float vSpread;       // Drawn cone radius over the field's
 
 /**
@@ -309,6 +336,21 @@ float beamGobo(vec2 p, vec2 patternAngle, float lod, float defocus) {
 }
 
 /**
+ * @function beamIris
+ * @brief how much of a point of the aperture the iris lets through
+ * @param vec2 p aperture position, 1 the field's radius
+ * @returns float 1 inside the iris, 0 outside
+ *
+ * A circle of the iris's radius, cropping the beam without shrinking the
+ * gobo in it. Its edge is as soft as the focus makes the gobo.
+ */
+float beamIris(vec2 p) {
+  if (vIris >= 0.999) return 1.0;
+  float soft = 0.01 + 0.06 * vPrism.w;
+  return 1.0 - smoothstep(vIris - soft, vIris + 0.001, length(p));
+}
+
+/**
  * @function beamStencil
  * @brief the beam's cross-section at a point of the aperture
  * @param vec2 p aperture position, (0,0) the axis, 1 the field's radius
@@ -320,21 +362,91 @@ float beamGobo(vec2 p, vec2 patternAngle, float lod, float defocus) {
  * whole cross-section displaced by the spread in its facet's direction, so
  * a three-facet prism is three overlapping beams a third as bright.
  */
-float beamStencil(vec2 p, float lod) {
-  int facets = int(vPrism.x);
-  if (facets < 2) {
-    return (1.0 - smoothstep(vInner, 1.0, length(p)))
-      * beamGobo(p, vGobo.xy, lod, vPrism.w) * beamGobo(p, vGobo.zw, lod, vPrism.w);
+/**
+ * @function beamGobos
+ * @brief every gobo in the beam at a point of the aperture
+ * @param vec2 p aperture position
+ * @param float lod how blurred to read them for the air
+ * @returns float 1 where light passes
+ *
+ * At rest, the first wheel's gobo and a second wheel's. A wheel between two
+ * slots carries the fraction of the way it has gone in the first pattern
+ * number: the old gobo slides out along the wheel and the next slides in
+ * behind it, each through its own round hole, with metal between them.
+ */
+float beamGobos(vec2 p, float lod) {
+  // Never sharper than the first baked blur in the air: light scattered by
+  // haze has bounced and mixes directions, and a sharp read gave each pixel
+  // a different slice of a fine pattern, a grain along every ray.
+  float airDefocus = max(vPrism.w, 1.0);
+  // Flat, so the number arrives exact, and read with a margin all the same:
+  // a whole pattern number that arrived as 4.9999999 read as a wheel a
+  // hair from the next slot, open, pixel by pixel, a grain along every ray.
+  float frac = fract(vGobo.x + 0.0005) - 0.0005;
+  if (frac < 0.001) frac = 0.0;
+  if (frac <= 0.0) {
+    return beamGobo(p, vGobo.xy, lod, airDefocus) * beamGobo(p, vGobo.zw, lod, airDefocus);
   }
-  float sum = 0.0;
+  float soft = 0.02 + 0.08 * vPrism.w;
+  vec2 pa = p + vec2(frac * GOBO_PITCH, 0.0);
+  vec2 pb = p - vec2((1.0 - frac) * GOBO_PITCH, 0.0);
+  float holeA = 1.0 - smoothstep(1.0 - soft, 1.0, length(pa));
+  float holeB = 1.0 - smoothstep(1.0 - soft, 1.0, length(pb));
+  return holeA * beamGobo(pa, vec2(floor(vGobo.x + 0.0005), vGobo.y), lod, airDefocus)
+    + holeB * beamGobo(pb, vGobo.zw, lod, airDefocus);
+}
+
+/**
+ * @function beamSplit
+ * @brief how much of a point of the aperture lies past a colour wheel split
+ * @param vec2 p aperture position
+ * @returns float 0 the near colour, 1 the far one
+ *
+ * The boundary between two filters crosses the aperture as a straight line.
+ * It enters from one side as the wheel turns, reaches the middle at a half
+ * slot and leaves by the other. Its edge is as soft as the focus makes the
+ * gobo, since the wheel sits in the same plane.
+ */
+float beamSplit(vec2 p) {
+  if (vColorB.w <= 0.0) return 0.0;
+  float line = 1.0 - 2.0 * vColorB.w;
+  float soft = 0.02 + 0.12 * vPrism.w;
+  return smoothstep(line - soft, line + soft, p.x);
+}
+
+/**
+ * @function beamStencil
+ * @brief the beam's cross-section at a point of the aperture, per colour
+ * @param vec2 p aperture position, (0,0) the axis, 1 the field's radius
+ * @param float lod how blurred the gobos read
+ * @returns vec2 light on the near side of any colour split, and past it
+ *
+ * The falloff from the inner cone to the field, through every gobo in the
+ * beam. With a prism, the mean over the prism's copies, each the whole
+ * cross-section displaced by the spread, split included, so a three-facet
+ * prism is three overlapping beams a third as bright.
+ */
+vec2 beamStencil(vec2 p, float lod) {
+  int facets = int(abs(vPrism.x));
+  bool linear = vPrism.x < 0.0;
+  if (facets < 2) {
+    float v = (1.0 - smoothstep(vInner, 1.0, length(p)))
+      * beamGobos(p, lod)
+      * beamIris(p);
+    float far = beamSplit(p);
+    return vec2(v * (1.0 - far), v * far);
+  }
+  vec2 sum = vec2(0.0);
   for (int k = 0; k < PRISM_FACETS_MAX; k++) {
     if (k >= facets) break;
-    float a = vPrism.y + 6.2831853 * float(k) / float(facets);
-    vec2 q = p - vPrism.z * vec2(cos(a), sin(a));
-    sum += (1.0 - smoothstep(vInner, 1.0, length(q)))
-      * beamGobo(q, vGobo.xy, lod, vPrism.w) * beamGobo(q, vGobo.zw, lod, vPrism.w);
+    vec2 q = p - prismOffset(k, facets, linear, vPrism.y, vPrism.z);
+    float v = (1.0 - smoothstep(vInner, 1.0, length(q)))
+      * beamGobos(q, lod)
+      * beamIris(q);
+    float far = beamSplit(q);
+    sum += vec2(v * (1.0 - far), v * far);
   }
-  return sum / float(facets);
+  return sum * (PRISM_TRANSMISSION / float(facets));
 }
 
 /**
@@ -357,7 +469,8 @@ float beamStencil(vec2 p, float lod) {
  * say. All properties of the ray and the cone alone, so they hold at every
  * angle.
  */
-float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
+float beamProfile(vec3 viewDir, out float zAlong, out float sAlong, out float farShare) {
+  farShare = 0.0;
   vec3 axis = safeNormalize(vDirection);
 
   // The cone this shader is really drawing, from the instance rather than
@@ -538,6 +651,7 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
   float haze = clamp(fogFactor, 0.0, 1.0);
   float sampleStep = chord / float(BEAM_PROFILE_SAMPLES);
   float sumLight = 0.0;
+  float sumFar = 0.0;
   float sumProfile = 0.0;
   float sumIrradiance = 0.0;
   float sumField = 0.0;
@@ -570,24 +684,27 @@ float beamProfile(vec3 viewDir, out float zAlong, out float sAlong) {
     // faint shifted copies of the gobo beside the pool. Where the ray runs
     // along the beam the stretch covers little of the pattern and the read
     // stays sharp. The span is in aperture units, 2 across the field, which
-    // is the pattern's 256 texels; the distance blur is a floor under it.
+    // is the pattern's 128 texels; the distance blur is a floor under it.
     float zNext = oz + vz * (s + sampleStep);
     vec3 radialNext = oR + vR * (s + sampleStep);
     float fieldNext = max(r0 + (m / vSpread) * clamp(zNext, 0.0, vZFar), 1e-4);
     vec2 apertureNext = vec2(dot(radialNext, vAxisX), dot(radialNext, vAxisY)) / fieldNext;
-    float spanTexels = length(apertureNext - aperture) * 128.0;
+    float spanTexels = length(apertureNext - aperture) * 64.0;
     float lod = max(GOBO_LOD_BASE + GOBO_BLUR_PER_METRE * z, log2(max(spanTexels, 1.0)));
-    float profileHere = beamStencil(aperture, lod) * lit;
+    vec2 sides = beamStencil(aperture, lod) * lit;
+    float profileHere = sides.x + sides.y;
     float spread = BEAM_KNEE / max(z + apexBehind, BEAM_KNEE);
     float irradiance = spread * spread * exp(-BEAM_EXTINCTION * haze * z);
     float field = hazeField(cameraPos + viewDir * s);
     sumLight += profileHere * irradiance * field;
+    sumFar += sides.y * irradiance * field;
     sumProfile += profileHere;
     sumIrradiance += irradiance;
     sumField += field;
     sumU += x;
   }
   float samples = float(BEAM_PROFILE_SAMPLES);
+  farShare = sumLight > 0.0 ? sumFar / sumLight : 0.0;
   float u = clamp(sumU / samples, 0.0, 1.0);
 
   // How much cone the ray gets to cross, against the widest chord at that
@@ -623,7 +740,8 @@ void main() {
   vec3 viewDir = safeNormalize(vAbsoluteWorldPosition.xyz - cameraPos);
   float zAlong;
   float sAlong;
-  float light = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong);
+  float farShare;
+  float light = BEAM_GAIN * vGain * beamProfile(viewDir, zAlong, sAlong, farShare);
 
   if (debugTerm == 1) { gl_FragColor = vec4(vec3(dbgU * 0.2), 1.0); return; }
   if (debugTerm == 2) { gl_FragColor = vec4(vec3(dbgProfile * 0.2), 1.0); return; }
@@ -649,8 +767,8 @@ void main() {
   if (debugTerm == 5) { gl_FragColor = vec4(vec3(phase * 0.05), 1.0); return; }
   if (debugTerm == 7) { gl_FragColor = vec4(vec3(intensity * 0.05), 1.0); return; }
 
-  vec3 hsvColor = rgb2hsv(vColor);
-  hsvColor.z = hsvColor.z > 0.001 ? hsvColor.z * intensity : 0.0;
-  vec3 rgbColor = hsv2rgb(hsvColor);
+  // Each side of a colour split in its own colour, weighted by how much of
+  // this ray's light it carried. Light adds, so this is exact.
+  vec3 rgbColor = mix(vColor, vColorB.rgb, farShare) * intensity;
   gl_FragColor = vec4(rgbColor * vIntensity, 1.0);
 }

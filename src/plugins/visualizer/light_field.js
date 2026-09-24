@@ -41,7 +41,7 @@ import * as THREE from 'three';
 /**
  * How many texels one light occupies.
  *
- * Nine, packed so nothing is wasted:
+ * Eleven:
  *
  *   0: position.xyz, range
  *   1: direction.xyz, cosine of the cone's outer edge
@@ -53,18 +53,21 @@ import * as THREE from 'three';
  *   7: the gobos in the beam, two of (texture layer, angle)
  *   8: the prism in the beam: facets, angle, spread (facets under 2 is
  *      none); w the gobo defocus from the focus, in baked blur levels
+ *   9: the colour past a colour wheel split, rgb scaled by intensity; w the
+ *      split, 0 none
+ *  10: how far the iris is open, 1 fully to 0 closed; yzw unused
  *
  * `direction` is stored three's way round -- `normalize(position - target)`,
  * pointing back up the beam rather than along it -- so that the angle test
  * here is the same arithmetic as `getSpotLightInfo`, and a surface lit through
  * this path matches one lit by a real `SpotLight`.
  *
- * Texels 3 to 8 are only read once a fragment has passed the range and cone
+ * Texels 3 to 10 are only read once a fragment has passed the range and cone
  * tests, so a light that cannot reach a fragment costs the same as before.
  *
  * @constant {Number}
  */
-const TEXELS_PER_LIGHT = 9;
+const TEXELS_PER_LIGHT = 11;
 
 /** Lights the texture holds before it is grown. Doubles on demand. */
 const INITIAL_CAPACITY = 128;
@@ -109,6 +112,11 @@ const record = {
   gobo: new THREE.Vector4(),
   /** The prism as (facets, angle, spread, 0); facets under 2 is none. */
   prism: new THREE.Vector4(),
+  /** The colour past a colour wheel split, and the split, 0 none. */
+  colorB: new THREE.Color(),
+  split: 0,
+  /** How far the iris is open, 1 fully to 0 closed. */
+  iris: 1,
 };
 
 /**
@@ -183,6 +191,9 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
 
     float attenuation = getDistanceAttenuation( lightDistance, packedPosition.w, lightFieldDecay );
     if ( attenuation <= 0.0 ) continue;
+    // A colour wheel split: how much of this point's light is the far colour.
+    float farShare = 0.0;
+    vec3 farColor = packedColor.rgb;
 
     // The pool's shape, and whether this point is the first thing the
     // light's lens sees. A light with a depth tile carries its beam frame:
@@ -213,12 +224,17 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
       // The tile's half fov is the field's tangent times the margin, times
       // the prism's spread while one is in; the field's own tangent is
       // what the aperture coordinate is measured against.
-      float drawnSpread = packedPrism.x >= 2.0 ? 1.0 + packedPrism.z : 1.0;
+      float drawnSpread = abs( packedPrism.x ) >= 2.0 ? 1.0 + packedPrism.z : 1.0;
       float tanField = packedAxisX.w / ( FIELD_DEPTH_FOV_MARGIN * drawnSpread );
       vec2 aperture = vec2( dot( offset, tileAxisX ), dot( offset, tileAxisY ) ) / ( along * tanField );
-      float shape = fieldStencil( aperture, packedOrigin.w, packedGobo, packedPrism );
+      vec4 packedColorB = texelFetch( lightField, ivec2( 9, i ), 0 );
+      float packedIris = texelFetch( lightField, ivec2( 10, i ), 0 ).x;
+      vec2 sides = fieldStencil( aperture, packedOrigin.w, packedGobo, packedPrism, packedColorB.w, packedIris );
+      float shape = sides.x + sides.y;
       if ( shape <= 0.0 ) continue;
       attenuation *= shape;
+      farShare = sides.y / shape;
+      farColor = packedColorB.rgb;
 
       float texel = 2.0 * along * packedAxisX.w / lightFieldDepthTile;
       vec3 lifted = offset + geometryNormal * ( texel * 1.5 );
@@ -234,7 +250,7 @@ const FIELD_LIGHT_CHUNK = /* glsl */`
       if ( attenuation <= 0.0 ) continue;
     }
 
-    fieldLight.color = packedColor.rgb * attenuation;
+    fieldLight.color = mix( packedColor.rgb, farColor, farShare ) * attenuation;
     fieldLight.visible = true;
     RE_Direct( fieldLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
   }
@@ -255,10 +271,24 @@ uniform sampler2D lightFieldGobo;
 
 // The tile looks wider than the field by this, as in moving_head.js.
 #define FIELD_DEPTH_FOV_MARGIN 1.2
+// How much of the light a prism lets through, as in the beam shader.
+#define FIELD_PRISM_TRANSMISSION 0.88
+
+// Where a prism puts its k-th copy: round a circle of the spread's radius,
+// or for a linear prism in a row along its angle, the outermost at the spread.
+vec2 fieldPrismOffset( int k, int facets, bool linear, float angle, float spread ) {
+  if ( linear ) {
+    float t = float( k ) / float( facets - 1 ) * 2.0 - 1.0;
+    return spread * t * vec2( cos( angle ), sin( angle ) );
+  }
+  float a = angle + 6.2831853 * float( k ) / float( facets );
+  return spread * vec2( cos( a ), sin( a ) );
+}
+
 // The most facets a prism is drawn with.
 #define FIELD_PRISM_FACETS 8
 // The gobo atlas is a grid of this many patterns across, as gobo_library.js.
-#define FIELD_GOBO_GRID 4.0
+#define FIELD_GOBO_GRID 8.0
 
 // A gobo's stencil at a point of the aperture, (0,0) the axis and 1 the
 // field's radius; 1 where light passes. Pattern 0 is open and skips the
@@ -283,21 +313,67 @@ float fieldGobo( vec2 p, vec2 patternAngle, float defocus ) {
 // The pool's shape at a point of the aperture: the falloff from the inner
 // cone to the field, through every gobo in the beam. With a prism, the mean
 // of that over the prism's displaced copies.
-float fieldStencil( vec2 p, float inner, vec4 gobo, vec4 prism ) {
-  int facets = int( prism.x );
-  if ( facets < 2 ) {
-    return ( 1.0 - smoothstep( inner, 1.0, length( p ) ) )
-      * fieldGobo( p, gobo.xy, prism.w ) * fieldGobo( p, gobo.zw, prism.w );
+// How much of a point of the aperture lies past a colour wheel split, 0 the
+// near colour and 1 the far: a straight boundary entering from one side,
+// through the middle at a half slot, as soft as the focus makes the gobo.
+float fieldSplit( vec2 p, float split, float defocus ) {
+  if ( split <= 0.0 ) return 0.0;
+  float line = 1.0 - 2.0 * split;
+  float soft = 0.02 + 0.12 * defocus;
+  return smoothstep( line - soft, line + soft, p.x );
+}
+
+// The pool's shape at a point of the aperture, per colour: light on the near
+// side of any colour split, and past it. The falloff from the inner cone to
+// the field, through every gobo in the beam; with a prism, the mean over the
+// prism's displaced copies, split included.
+// Every gobo in the beam at a point of the aperture. A wheel between two
+// slots carries the fraction of the way it has gone in the first pattern
+// number: the old gobo slides out along the wheel and the next slides in,
+// each through its own round hole, the holes 2.3 field radii apart.
+float fieldGobos( vec2 p, vec4 gobo, float defocus ) {
+  float frac = fract( gobo.x );
+  if ( frac <= 0.0 ) {
+    return fieldGobo( p, gobo.xy, defocus ) * fieldGobo( p, gobo.zw, defocus );
   }
-  float sum = 0.0;
+  float soft = 0.02 + 0.08 * defocus;
+  vec2 pa = p + vec2( frac * 2.3, 0.0 );
+  vec2 pb = p - vec2( ( 1.0 - frac ) * 2.3, 0.0 );
+  float holeA = 1.0 - smoothstep( 1.0 - soft, 1.0, length( pa ) );
+  float holeB = 1.0 - smoothstep( 1.0 - soft, 1.0, length( pb ) );
+  return holeA * fieldGobo( pa, vec2( floor( gobo.x ), gobo.y ), defocus )
+    + holeB * fieldGobo( pb, gobo.zw, defocus );
+}
+
+// How much of a point of the aperture the iris lets through: a circle of
+// its radius, cropping without shrinking the gobo, edge softened by focus.
+float fieldIris( vec2 p, float iris, float defocus ) {
+  if ( iris >= 0.999 ) return 1.0;
+  float soft = 0.01 + 0.06 * defocus;
+  return 1.0 - smoothstep( iris - soft, iris + 0.001, length( p ) );
+}
+
+vec2 fieldStencil( vec2 p, float inner, vec4 gobo, vec4 prism, float split, float iris ) {
+  int facets = int( abs( prism.x ) );
+  bool linear = prism.x < 0.0;
+  if ( facets < 2 ) {
+    float v = ( 1.0 - smoothstep( inner, 1.0, length( p ) ) )
+      * fieldGobos( p, gobo, prism.w )
+      * fieldIris( p, iris, prism.w );
+    float far = fieldSplit( p, split, prism.w );
+    return vec2( v * ( 1.0 - far ), v * far );
+  }
+  vec2 sum = vec2( 0.0 );
   for ( int k = 0; k < FIELD_PRISM_FACETS; k ++ ) {
     if ( k >= facets ) break;
-    float a = prism.y + 6.2831853 * float( k ) / float( facets );
-    vec2 q = p - prism.z * vec2( cos( a ), sin( a ) );
-    sum += ( 1.0 - smoothstep( inner, 1.0, length( q ) ) )
-      * fieldGobo( q, gobo.xy, prism.w ) * fieldGobo( q, gobo.zw, prism.w );
+    vec2 q = p - fieldPrismOffset( k, facets, linear, prism.y, prism.z );
+    float v = ( 1.0 - smoothstep( inner, 1.0, length( q ) ) )
+      * fieldGobos( q, gobo, prism.w )
+      * fieldIris( q, iris, prism.w );
+    float far = fieldSplit( q, split, prism.w );
+    sum += vec2( v * ( 1.0 - far ), v * far );
   }
-  return sum / float( facets );
+  return sum * ( FIELD_PRISM_TRANSMISSION / float( facets ) );
 }
 `;
 
@@ -361,6 +437,8 @@ const LightField = {
       record.hasTile = false;
       record.gobo.set(0, 0, 0, 0);
       record.prism.set(0, 0, 0, 0);
+      record.split = 0;
+      record.iris = 1;
       if (sources[i].readLight(record)) {
         LightField.ensureCapacity(count + 1);
         const at = count * TEXELS_PER_LIGHT * 4;
@@ -408,6 +486,17 @@ const LightField = {
         data[at + 33] = record.prism.y;
         data[at + 34] = record.prism.z;
         data[at + 35] = record.prism.w;
+
+        const far = record.split > 0 ? record.colorB : record.color;
+        data[at + 36] = far.r * record.intensity;
+        data[at + 37] = far.g * record.intensity;
+        data[at + 38] = far.b * record.intensity;
+        data[at + 39] = record.split;
+
+        data[at + 40] = record.iris;
+        data[at + 41] = 0;
+        data[at + 42] = 0;
+        data[at + 43] = 0;
         count += 1;
       }
     }

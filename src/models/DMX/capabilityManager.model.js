@@ -328,12 +328,15 @@ const CAPABILITY_TYPES = {
       min: 0,
       max: 0,
     },
+    // A percent of the fixture's own slow to fast, as rotation speeds are;
+    // the head maps it onto its shake rate.
     shakeSpeed: {
       alias: 'shakeSpeed',
       entity: EntityManager.entities.Speed,
-      unit: ENTITY_UNIT_RPM,
+      unit: ENTITY_UNIT_PERC,
       min: 0,
-      max: 360,
+      max: 100,
+      optional: true,
     },
     shakeAngle: {
       alias: 'shakeAngle',
@@ -341,6 +344,7 @@ const CAPABILITY_TYPES = {
       unit: ENTITY_UNIT_DEG,
       min: 0,
       max: 90,
+      optional: true,
     },
   },
   // A gobo spinning in its slot. Speed is a signed percent, -100 fast CCW to
@@ -475,6 +479,17 @@ const CAPABILITY_TYPES = {
   },
   SoundSensitivity: {
 
+  },
+  // How far the iris is open, 0 closed to 100 open. "open" and "closed" are
+  // presets of the entity.
+  Iris: {
+    openPercent: {
+      alias: 'openPercent',
+      entity: EntityManager.entities.IrisPercent,
+      unit: ENTITY_UNIT_PERC,
+      min: 0,
+      max: 100,
+    },
   },
   Focus: {
     angle: {

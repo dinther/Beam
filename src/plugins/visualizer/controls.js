@@ -4,6 +4,7 @@ import {
   TransformControls,
 } from 'three/examples/jsm/controls/TransformControls.js';
 import EventBus from '@/plugins/eventbus';
+import closestEuler from '@/models/DMX/closest_euler';
 import { SCENE_ITEM_KINDS, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
 import SceneManager from './scene_manager';
@@ -1579,7 +1580,7 @@ class Controls {
       dummy.getWorldQuaternion(quaternion);
       euler.setFromQuaternion(quaternion);
       instance.position = { x: position.x, y: position.y, z: position.z };
-      instance.rotationRad = { x: euler.x, y: euler.y, z: euler.z };
+      instance.rotationRad = closestEuler(euler, instance.rotationRad);
       // The outline is its own object in the scene, so it does not ride along.
       instance._3DModel.fitOutline();
     });
@@ -1626,10 +1627,14 @@ class Controls {
         // whole numbers, which would put every dropped fixture on the metre.
         instanceHandle.position = position.multiplyScalar(100).round().divideScalar(100);
         euler.setFromQuaternion(quaternion);
+        // The triple nearest what the item had: the other one for the same
+        // orientation turns a 180 about Y into X 180, Z 180, which a mover
+        // reads as hung and flips its body.
+        const angles = closestEuler(euler, instanceHandle.rotationRad);
         instanceHandle.rotation = {
-          x: Math.round(THREE.MathUtils.radToDeg(euler.x)),
-          y: Math.round(THREE.MathUtils.radToDeg(euler.y)),
-          z: Math.round(THREE.MathUtils.radToDeg(euler.z)),
+          x: Math.round(THREE.MathUtils.radToDeg(angles.x)),
+          y: Math.round(THREE.MathUtils.radToDeg(angles.y)),
+          z: Math.round(THREE.MathUtils.radToDeg(angles.z)),
         };
       }
     }

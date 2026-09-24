@@ -1,14 +1,14 @@
 #include <clipping_planes_pars_vertex>
 
-attribute float index;      //fragment index
 attribute vec3 direction;   //beam direction
 attribute vec3 color;       //beam color
 attribute float intensity;  //beam intensity
 attribute vec3 angle;       //x half-angle of the field, y brightness normaliser, z inner cone over the field
 attribute vec3 wpos;        //beam position
-attribute float depthSlot;  //atlas slot of this beam's depth tile, -1 for none
+attribute vec2 depthSlot;   //x atlas slot of this beam's depth tile, -1 for none; y how far the iris is open, 1 fully
 attribute vec4 gobo;        //two gobos as (texture layer, angle); layer 0 open
-attribute vec4 prism;       //the prism as (facets, angle, spread, unused); under 2 facets none
+attribute vec4 prism;       //the prism as (facets, negative for linear; angle; spread; gobo defocus); under 2 facets none
+attribute vec4 colorB;      //colour past a colour wheel split, rgb; w the split, 0 none
 
 uniform float vertexCount;  //Total vertex count
 uniform float topRadius;    //Top radius of the cylinder
@@ -20,7 +20,6 @@ varying vec3 vPosition;         //Vertex local position
 varying vec3 beamPos;
 varying vec4 vWorldPosition;    //Vertex world position
 varying vec4 vAbsoluteWorldPosition;    //Vertex world position
-varying vec2 vUv;               //UV position
 varying vec3 vDirection;        //Beam direction in worldspace coordinates
 varying vec3 vColor;            //Beam color
 varying float vIntensity;       //Beam intensity
@@ -30,12 +29,13 @@ varying float vGain;            //Brightness normaliser, 1 being the reference c
 varying float vSlope;           //Cone slope, dRadius/dz, of the cone drawn
 varying float vLensRadius;      //Radius of the cone at the lens, in metres
 varying float vZFar;            //Local z of the cone's far rim
-varying float vIndex;           //Vertex index
-varying vec4 vTile;             //Depth tile rect in the atlas, z < 0 for no tile
+flat varying vec4 vTile;             //Depth tile rect in the atlas, z < 0 for no tile
 varying vec3 vAxisX;            //The beam frame's x axis, world, unit
 varying vec3 vAxisY;            //The beam frame's y axis, world, unit
-varying vec4 vGobo;             //The gobos in the beam, see the attribute
-varying vec4 vPrism;            //The prism in the beam, see the attribute
+flat varying vec4 vGobo;             //The gobos in the beam, see the attribute
+flat varying vec4 vPrism;            //The prism in the beam, see the attribute
+flat varying vec4 vColorB;           //Colour past a colour wheel split; w the split
+flat varying float vIris;            //How far the iris is open, 1 fully
 varying float vSpread;          //Drawn cone radius over the field's: 1, or more with a prism
 
 /**
@@ -83,10 +83,12 @@ void main() {
   vGain = angle.y;
   vGobo = gobo;
   vPrism = prism;
+  vColorB = colorB;
+  vIris = depthSlot.y;
 
   // A prism throws copies of the beam out past the field by its spread, so
   // the drawn cone widens to hold them; otherwise the cone is the field.
-  vSpread = prism.x >= 2.0 ? 1.0 + prism.z : 1.0;
+  vSpread = abs(prism.x) >= 2.0 ? 1.0 + prism.z : 1.0;
 
   // The slope is what the fragment shader builds its cone from, or its idea
   // of the cone sits inside or outside the silhouette it is shading.
@@ -95,8 +97,6 @@ void main() {
   // ring is the one scaled by 1.5 above. The fragment shader needs it to keep a
   // ray's closest approach inside the geometry that is actually drawn.
   vZFar = length * 1.5;
-  vUv = uv;                   //forwarding UV values to fragement shader
-  vIndex = index;             //forwarding vertex index to fragement shader
 
   // The instance matrix scales the beam across its axis to match the lens of a
   // body that scaled with its profile height, and leaves the axis alone. The
@@ -112,11 +112,11 @@ void main() {
   // and the direction alone, and no matrix has to travel per instance.
   vAxisX = normalize(xBasis);
   vAxisY = normalize(instanceMatrix[1].xyz);
-  if (depthSlot < 0.0) {
+  if (depthSlot.x < 0.0) {
     vTile = vec4(0.0, 0.0, -1.0, -1.0);
   } else {
-    float column = mod(depthSlot, depthColumns);
-    float row = floor(depthSlot / depthColumns);
+    float column = mod(depthSlot.x, depthColumns);
+    float row = floor(depthSlot.x / depthColumns);
     vTile = vec4(column / depthColumns, row / depthRows, 1.0 / depthColumns, 1.0 / depthRows);
   }
   // The cone's own start radius, for the fragment shader to build the cone

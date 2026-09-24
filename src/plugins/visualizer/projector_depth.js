@@ -237,6 +237,8 @@ export class DepthAtlas {
     this.target = null;
     /** One key per slot, so a still fixture's tile is left where it is. */
     this.tileKeys = [];
+    /** Frames each slot has been owed a redraw and not had one. */
+    this.waiting = [];
   }
 
   ensureTarget() {
@@ -343,11 +345,26 @@ export class DepthAtlas {
     // A tile no fixture owns any more must not answer for the next one that
     // lands in it.
     this.tileKeys.length = drawn.length;
+    this.waiting.length = drawn.length;
     if (!owed.length) return [];
-    if (owed.length > budget) owed.sort((a, b) => b.priority - a.priority);
+    // A tile gains priority for every frame it waits, so one that matters
+    // little is late rather than never drawn: in a rig that moves all the
+    // time, the few fixtures nearest the camera would otherwise take the
+    // whole budget, and a tile whose frustum changed without the fixture
+    // turning, such as a prism going in, would wait for the view to move.
+    if (owed.length > budget) {
+      owed.forEach((entry) => {
+        entry.rank = entry.priority * (1 + (this.waiting[entry.slot] || 0));
+      });
+      owed.sort((a, b) => b.rank - a.rank);
+    }
     const chosen = owed.slice(0, budget);
     const slots = chosen.map((entry) => entry.slot);
-    chosen.forEach((entry) => { this.tileKeys[entry.slot] = entry.key; });
+    owed.forEach((entry) => { this.waiting[entry.slot] = (this.waiting[entry.slot] || 0) + 1; });
+    chosen.forEach((entry) => {
+      this.tileKeys[entry.slot] = entry.key;
+      this.waiting[entry.slot] = 0;
+    });
 
     // The matrices updated above are now frozen for the tiles.
     //

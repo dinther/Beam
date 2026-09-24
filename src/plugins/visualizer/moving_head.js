@@ -95,6 +95,87 @@ const BEAM_MAX_ANGLE = 45;
  */
 const PROFILE_REFERENCE_FLUX = 0.1734;
 
+/** Facets a prism has when its profile does not say. */
+const PRISM_DEFAULT_FACETS = 3;
+
+/** The most facets drawn; must match PRISM_FACETS_MAX in the shaders. */
+const PRISM_MAX_FACETS = 8;
+
+/**
+ * What a prism describes itself as, from the text a profile gives it: "4-facet
+ * linear, rotating", "8-facet 45° circular". Only the text has it; OFL has no
+ * field for either on a prism channel.
+ *
+ * @param {String} text
+ * @returns {Object} `{ facets, linear }`, facets null when unstated
+ */
+function prismFromText(text) {
+  const t = String(text || '');
+  const match = /(\d+)\s*-?\s*facet/i.exec(t);
+  const facets = match ? Math.min(Math.max(parseInt(match[1], 10), 2), PRISM_MAX_FACETS) : null;
+  return { facets, linear: /linear/i.test(t) };
+}
+
+/**
+ * How fast a wheel travels from slot to slot when a new one is chosen, in
+ * slots a second: about 0.13 s a slot, so passing several takes
+ * proportionally longer, as a real wheel's motor does. It takes the shorter
+ * way round.
+ */
+const WHEEL_SLOTS_PER_SECOND = 7.5;
+
+/**
+ * Colours for colour-wheel slots a profile names but gives no value, by the
+ * word in the name. Checked in order, so "minus green" wins over "green" and
+ * "pink" over "red". Gel numbers are not looked up: the word is what the
+ * profile's author chose to describe it by.
+ */
+const GEL_WORDS = [
+  ['minus green', [1, 0.72, 1]],
+  ['uv', [0.35, 0, 1]],
+  ['ultraviolet', [0.35, 0, 1]],
+  ['congo', [0.3, 0, 0.8]],
+  ['lavender', [0.75, 0.55, 1]],
+  ['violet', [0.55, 0.1, 1]],
+  ['purple', [0.6, 0, 1]],
+  ['magenta', [1, 0, 1]],
+  ['pink', [1, 0.45, 0.7]],
+  ['red', [1, 0, 0]],
+  ['amber', [1, 0.6, 0]],
+  ['orange', [1, 0.45, 0]],
+  ['yellow', [1, 1, 0]],
+  ['lime', [0.6, 1, 0]],
+  ['green', [0, 1, 0]],
+  ['turquoise', [0, 1, 0.8]],
+  ['cyan', [0, 1, 1]],
+  ['light blue', [0.4, 0.7, 1]],
+  ['blue', [0, 0.2, 1]],
+  ['white', [1, 1, 1]],
+];
+
+/**
+ * The colour a colour-wheel slot puts in the beam, or null for white.
+ *
+ * The profile's own value first. Failing that, a colour temperature: the
+ * slot's `colorTemperature`, or a Kelvin figure in a CTO, CTB or CTC name,
+ * the first when the name gives a range. Failing that, the colour word in
+ * its name. A slot with nothing to go on is white.
+ *
+ * @param {Object} slot an OFL wheel slot of type Color
+ * @returns {THREE.Color|null}
+ */
+function gelColour(slot) {
+  if (!slot || slot.type !== 'Color') return null;
+  if (slot.colors && slot.colors.length) return new THREE.Color(slot.colors[0]);
+  const kelvin = parseFloat(slot.colorTemperature)
+    || parseFloat((/(\d{4,5})\s*-?\s*\d*\s*K\b/i.exec(slot.name || '') || [])[1])
+    || parseFloat((/\bCT[OBC]\b\D*(\d{4,5})/i.exec(slot.name || '') || [])[1]);
+  if (kelvin) return new THREE.Color(...kelvinToRgb(kelvin));
+  const name = String(slot.name || '').toLowerCase();
+  const word = GEL_WORDS.find(([w]) => new RegExp(`\\b${w}\\b`).test(name));
+  return word ? new THREE.Color(...word[1]) : null;
+}
+
 /**
  * How blurred a gobo is with the focus wound fully out, in the atlas's baked
  * blur levels: the softest there is.
@@ -269,12 +350,32 @@ let angle_buffer_attribute = new THREE.InstancedBufferAttribute(
   3,
 );
 /**
- * Per instance: the atlas slot holding this beam's depth tile, or -1 for a
- * beam without one. Written by `renderDepth` every frame.
+ * The depth-slot-and-iris pairs for `count` heads: no tile, iris open.
+ *
+ * @param {Number} count
+ * @returns {Float32Array}
+ */
+function slotIrisArray(count) {
+  const array = new Float32Array(count * 2);
+  for (let i = 0; i < count; i += 1) {
+    array[i * 2] = -1;
+    array[i * 2 + 1] = 1;
+  }
+  return array;
+}
+/**
+ * Per instance: x the atlas slot holding this beam's depth tile, or -1 for a
+ * beam without one, written by `renderDepth` every frame; y how far the iris
+ * is open, 1 fully to 0 closed, written by `writeOptics`.
+ *
+ * Two quantities in one attribute because a GPU gives a shader a fixed
+ * number of per-vertex inputs, and the beam is at the limit: this one works
+ * out to 14 active inputs, the instance matrix taking four. A fifteenth,
+ * the colour split, stopped the beam compiling at all.
  */
 let depth_slot_attribute = new THREE.InstancedBufferAttribute(
-  new Float32Array(capacity).fill(-1),
-  1,
+  slotIrisArray(capacity),
+  2,
 );
 /**
  * Per instance: the gobos in the beam, two layers of (texture layer, angle
@@ -286,8 +387,18 @@ let gobo_attribute = new THREE.InstancedBufferAttribute(
   4,
 );
 /**
+ * Per instance: the colour on the far side of a colour wheel split, rgb, and
+ * w the split's position, 0 for no split to 1 for fully the second colour.
+ * Written by `recomputeBeamColor`.
+ */
+let color_b_attribute = new THREE.InstancedBufferAttribute(
+  new Float32Array(capacity * 4),
+  4,
+);
+/**
  * Per instance: the prism in the beam as (facets, angle in radians, spread
- * as a fraction of the field's radius, unused); facets below 2 is no prism.
+ * as a fraction of the field's radius, gobo defocus); facets below 2 is no
+ * prism.
  */
 let prism_attribute = new THREE.InstancedBufferAttribute(
   new Float32Array(capacity * 4),
@@ -352,6 +463,7 @@ const ABSOLUTE_MAX_INSTANCES = 4096;
  * @param {THREE.InstancedBufferAttribute} attribute
  * @returns {THREE.InstancedBufferAttribute}
  */
+
 function grownAttribute(attribute) {
   const array = new Float32Array(capacity * attribute.itemSize);
   array.set(attribute.array);
@@ -591,6 +703,8 @@ class MovingHead {
      * profile only says how far along that range a value sits.
      */
     this._goboSpeed = { min: 1, max: 60, ...(data.goboSpeed || {}) };
+    /** What a shake's slow and fast are for this fixture, in shakes a second. */
+    this._shakeSpeed = { min: 1, max: 8, ...(data.shakeSpeed || {}) };
     this._prismSpeed = { min: 1, max: 120, ...(data.prismSpeed || {}) };
     /** How far a prism throws its copies, as a fraction of the field's radius. */
     this._prismSpread = data.prismSpread === undefined ? 0.6 : data.prismSpread;
@@ -604,10 +718,29 @@ class MovingHead {
      * pattern: 0 in focus. Carried in the prism data's spare slot.
      */
     this._goboDefocus = MovingHead.goboDefocusFor(SPOTLIGHT_PHYSICALLY_CORRECT_PENUMBRA);
+    /**
+     * How far the iris is open, 1 fully to 0 closed, as a fraction of the
+     * field's radius. It crops the beam to a smaller circle without
+     * shrinking the gobo in it. Set by an iris channel or an iris slot on a
+     * wheel; `_irisWheel` names the wheel that set it, so moving that wheel
+     * off its iris slot opens it again.
+     */
+    this._iris = 1;
+    this._irisWheel = null;
     this._prism = {
-      on: false, facets: 3, angle: 0, speedRpm: 0,
+      on: false, facets: PRISM_DEFAULT_FACETS, linear: false, angle: 0, speedRpm: 0,
     };
     this._colorWheel = data.colorWheel;
+    /**
+     * A colour wheel parked between two slots: the colour on the far side of
+     * the boundary, null for an open slot, and how far across the beam the
+     * boundary has come, 0 none to 1 all. Both colours are distinct on
+     * screen with a line between them, sharpened by the focus as a gobo is.
+     */
+    this._wheelColorB = null;
+    this._wheelSplit = 0;
+    /** The beam colour on the far side of a split, the same mix as `color`. */
+    this._colorB = new THREE.Color(1, 1, 1);
     this._activeColorPreset = false;
     /**
      * The colour the wheel currently puts in front of the lamp, or null for an
@@ -653,6 +786,10 @@ class MovingHead {
    */
   set id(id) {
     this._id = id;
+    // A head moved into another slot must write its matrices there, whether
+    // or not they changed.
+    if (this._writtenMatrices) this._writtenMatrices.forEach((m) => m.elements.fill(NaN));
+    this._matrixNeedsUpdate = true;
   }
 
   get id() {
@@ -688,6 +825,7 @@ class MovingHead {
     this._spotLight.color = this._color;
     color_buffer_attribute.setXYZ(this._id, this._color.r, this._color.g, this._color.b);
     color_buffer_attribute.needsUpdate = true;
+    if (!this._wheelSplit) this.writeColorB();
     this.updateLensColor();
   }
 
@@ -1076,7 +1214,7 @@ class MovingHead {
    *
    * @private
    * @param {Object} wheels OFL wheels by name, each `{ slots: [...] }`
-   * @returns {Object} by name: `{ kind, slots, slot, angle, speedRpm, wheelAngle, wheelSpeedRpm }`
+   * @returns {Object} by name: `{ kind, slots, slot, position, angle, speedRpm, wheelSpeedRpm }`
    */
   static buildWheels(wheels) {
     const built = {};
@@ -1089,10 +1227,15 @@ class MovingHead {
       built[name] = {
         kind,
         slots,
+        // Where the wheel is going, and where it is: slots, fractional
+        // between two, and the same when it has arrived.
         slot: 0,
+        position: 0,
         angle: 0,
+        // A gobo shake in progress, or null: `{ rate, amplitude, onSlot,
+        // phase, offset }`; see `setWheelShake`.
+        shake: null,
         speedRpm: 0,
-        wheelAngle: 0,
         wheelSpeedRpm: 0,
       };
     });
@@ -1130,26 +1273,74 @@ class MovingHead {
       if (this._colorWheel && this._colorWheel.length) this.colorWheelSlot = slotIndex;
       return;
     }
-    if (slotIndex < 0 || slotIndex >= wheel.slots.length) return;
-    wheel.slot = slotIndex;
-    // Choosing a slot parks the wheel on it: a scroll left running by a
-    // WheelRotation range would otherwise go on cycling the patterns.
+    if (!(slotIndex >= 0) || slotIndex >= wheel.slots.length) return;
+    // A colour wheel keeps the fraction, a split; gobos and prisms take the
+    // slot the fraction starts from.
+    wheel.slot = wheel.kind === 'color' ? slotIndex : Math.floor(slotIndex);
+    // Choosing a slot stops a scroll or a shake left running by another range;
+    // the wheel then travels to the slot, see `spinOptics`.
     wheel.wheelSpeedRpm = 0;
-    wheel.wheelAngle = 0;
-    if (wheel.kind === 'color') {
-      this._colorWheel = wheel.slots;
-      this.colorWheelSlot = slotIndex;
-      return;
+    wheel.shake = null;
+    if (wheel.kind === 'color') this._colorWheel = wheel.slots;
+    const irisSlot = wheel.slots[Math.floor(slotIndex)];
+    if (irisSlot && irisSlot.type === 'Iris') {
+      const open = parseFloat(irisSlot.openPercent);
+      this._iris = Number.isFinite(open) ? Math.min(Math.max(open / 100, 0), 1) : 1;
+      this._irisWheel = wheelName;
+    } else if (this._irisWheel === wheelName) {
+      this._iris = 1;
+      this._irisWheel = null;
     }
     if (wheel.kind === 'prism') {
       const slot = wheel.slots[slotIndex];
       if (slot && slot.type === 'Prism') {
+        const described = prismFromText(slot.name);
         this._prism.on = true;
-        this._prism.facets = Math.max(2, Math.floor(Number(slot.facets) || 3));
+        this._prism.facets = Math.min(
+          Math.max(2, Math.floor(Number(slot.facets) || described.facets || PRISM_DEFAULT_FACETS)),
+          PRISM_MAX_FACETS,
+        );
+        this._prism.linear = described.linear;
       } else {
         this._prism.on = false;
       }
     }
+    this.writeOptics();
+  }
+
+  /**
+   * Shakes a wheel on one of its slots: the gobo swings quickly to and fro
+   * about its place, the whole wheel rocking, or, where the profile says the
+   * slot shakes, the gobo turning to and fro in its holder. Speed is the
+   * fixture's slow to fast; the swing is the profile's angle where it gives
+   * one.
+   *
+   * @public
+   * @param {String} wheelName
+   * @param {Object} values `{ slotNumber, shakeSpeed, shakeAngle, isShaking }`
+   */
+  setWheelShake(wheelName, values) {
+    const wheel = this._wheels[wheelName];
+    if (!wheel || !wheel.slots.length) return;
+    const slot = Math.floor(values.slotNumber) - 1;
+    if (!(slot >= 0) || slot >= wheel.slots.length) return;
+    wheel.slot = slot;
+    wheel.wheelSpeedRpm = 0;
+    const percent = Number.isFinite(values.shakeSpeed) ? values.shakeSpeed : 50;
+    const range = this._shakeSpeed;
+    const rate = range.min + (Math.min(Math.max(percent, 0), 100) / 100) * (range.max - range.min);
+    const onSlot = values.isShaking === 'slot';
+    const degrees = Number.isFinite(values.shakeAngle) && values.shakeAngle > 0
+      ? values.shakeAngle : null;
+    // Rocking the wheel, the swing is a share of a slot: the profile's angle
+    // as a share of the wheel's turn, else a fifth of a slot. Turning in the
+    // holder, the swing is an angle: the profile's, else 20 degrees.
+    let amplitude = degrees ? (degrees / 360) * wheel.slots.length : 0.2;
+    if (onSlot) amplitude = MovingHead.degToRad(degrees || 20);
+    const phase = wheel.shake ? wheel.shake.phase : 0;
+    wheel.shake = {
+      rate, amplitude, onSlot, phase, offset: 0,
+    };
     this.writeOptics();
   }
 
@@ -1182,9 +1373,10 @@ class MovingHead {
   setWheelRotation(wheelName, values) {
     const wheel = this._wheels[wheelName];
     if (!wheel) return;
+    wheel.shake = null;
     if (Number.isFinite(values.angle)) {
       wheel.wheelSpeedRpm = 0;
-      wheel.wheelAngle = MovingHead.degToRad(values.angle);
+      wheel.slot = ((values.angle / 360) * wheel.slots.length) % wheel.slots.length;
     } else if (Number.isFinite(values.speed)) {
       wheel.wheelSpeedRpm = MovingHead.percentToRpm(values.speed, this._goboSpeed);
     }
@@ -1222,14 +1414,46 @@ class MovingHead {
   }
 
   /**
+   * Opens or closes the iris, from an iris channel.
+   *
+   * @public
+   * @param {Number} open 1 fully open to 0 closed
+   */
+  setIris(open) {
+    if (!Number.isFinite(open)) return;
+    this._iris = Math.min(Math.max(open, 0), 1);
+    this._irisWheel = null;
+    this.writeOptics();
+  }
+
+  /**
    * Puts a prism in the beam or takes it out.
    *
    * @public
    * @param {Boolean} on
+   * @param {String} [text] how the profile describes it, for its facets and
+   *   whether it is linear; a prism it does not describe has three, round
    */
-  setPrism(on) {
+  setPrism(on, text) {
     this._prism.on = !!on;
+    if (on && text !== undefined) {
+      const described = prismFromText(text);
+      this._prism.facets = described.facets || PRISM_DEFAULT_FACETS;
+      this._prism.linear = described.linear;
+    }
     this.writeOptics();
+  }
+
+  /**
+   * The prism as the shaders read it: its facet count, negative for a
+   * linear prism, 0 with none in.
+   *
+   * @private
+   * @returns {Number}
+   */
+  get prismCode() {
+    if (!this._prism.on || this._prism.facets < 2) return 0;
+    return this._prism.linear ? -this._prism.facets : this._prism.facets;
   }
 
   /**
@@ -1258,13 +1482,45 @@ class MovingHead {
     let moving = false;
     Object.keys(this._wheels).forEach((name) => {
       const wheel = this._wheels[name];
+      const count = wheel.slots.length;
       if (wheel.speedRpm !== 0) {
         wheel.angle += (wheel.speedRpm / 60) * Math.PI * 2 * dt;
         moving = true;
       }
-      if (wheel.wheelSpeedRpm !== 0) {
-        wheel.wheelAngle += (wheel.wheelSpeedRpm / 60) * Math.PI * 2 * dt;
+      if (!count) return;
+      let travelled = false;
+      if (wheel.shake) {
+        // Swinging about the slot. Rocking the wheel moves its position,
+        // which the slide draws; turning in the holder moves the gobo's
+        // angle, which `goboPack` adds on.
+        const { shake } = wheel;
+        shake.phase = (shake.phase + shake.rate * Math.PI * 2 * dt) % (Math.PI * 2);
+        shake.offset = shake.amplitude * Math.sin(shake.phase);
+        wheel.position = shake.onSlot
+          ? wheel.slot
+          : (((wheel.slot + shake.offset) % count) + count) % count;
+        travelled = true;
+      } else if (wheel.wheelSpeedRpm !== 0) {
+        // Scrolling: the whole wheel turns, the target going with it.
+        wheel.position += (wheel.wheelSpeedRpm / 60) * count * dt;
+        wheel.position = ((wheel.position % count) + count) % count;
+        wheel.slot = wheel.position;
+        travelled = true;
+      } else if (wheel.position !== wheel.slot) {
+        // Travelling to a chosen slot, the shorter way round.
+        let d = wheel.slot - wheel.position;
+        d = (((d % count) + count * 1.5) % count) - count / 2;
+        const step = WHEEL_SLOTS_PER_SECOND * dt;
+        if (Math.abs(d) <= step) wheel.position = wheel.slot;
+        else wheel.position = (((wheel.position + Math.sign(d) * step) % count) + count) % count;
+        travelled = true;
+      }
+      if (travelled) {
         moving = true;
+        if (wheel.kind === 'color') {
+          this._colorWheel = wheel.slots;
+          this.colorWheelSlot = wheel.position;
+        }
       }
     });
     if (this._prism.on && this._prism.speedRpm !== 0) {
@@ -1275,28 +1531,62 @@ class MovingHead {
   }
 
   /**
-   * The gobos in the beam, first to last along the light path, as
-   * `{ layer, angle }` for every gobo wheel that is not on an open slot. A
-   * turning wheel shows the slot its angle has scrolled to.
+   * The pattern a gobo wheel's slot shows: an OFL image for a gobo slot, 0,
+   * open, for anything else.
+   *
+   * @private
+   * @param {Object} wheel
+   * @param {Number} index slot index
+   * @returns {Number}
+   */
+  static goboPatternAt(wheel, index) {
+    const slot = wheel.slots[index];
+    if (!slot || slot.type !== SLOT_TYPES.GOBO) return 0;
+    const goboIndex = wheel.slots.slice(0, index)
+      .filter((s) => s && s.type === SLOT_TYPES.GOBO).length;
+    return goboLayerFor(slot, goboIndex);
+  }
+
+  /**
+   * The gobos in the beam, packed as the shaders read them: `[pattern,
+   * angle, pattern, angle]`.
+   *
+   * At rest, the first gobo wheel's pattern and a second wheel's, pattern 0
+   * being open. A wheel between two slots, travelling or scrolling, packs
+   * the fraction of the way it has gone into the first pattern number, which
+   * is otherwise whole, and the next slot's pattern into the second place: the
+   * shader then slides the one out and the other in. A second gobo wheel
+   * gives way while the first is between slots.
    *
    * @private
    * @returns {Array}
    */
-  gobosInBeam() {
-    const out = [];
-    Object.keys(this._wheels).forEach((name) => {
-      const wheel = this._wheels[name];
-      if (wheel.kind !== 'gobo' || !wheel.slots.length) return;
-      const scrolled = Math.floor((wheel.wheelAngle / (Math.PI * 2)) * wheel.slots.length);
+  goboPack() {
+    const wheels = Object.keys(this._wheels)
+      .map((name) => this._wheels[name])
+      .filter((wheel) => wheel.kind === 'gobo' && wheel.slots.length);
+    const pack = [0, 0, 0, 0];
+    wheels.forEach((wheel, n) => {
+      if (n > 1) return;
       const count = wheel.slots.length;
-      const index = (((wheel.slot + scrolled) % count) + count) % count;
-      const slot = wheel.slots[index];
-      if (!slot || slot.type !== SLOT_TYPES.GOBO) return;
-      const goboIndex = wheel.slots.slice(0, index)
-        .filter((s) => s && s.type === SLOT_TYPES.GOBO).length;
-      out.push({ layer: goboLayerFor(slot, goboIndex), angle: wheel.angle });
+      const whole = Math.floor(wheel.position);
+      const frac = wheel.position - whole;
+      const index = ((whole % count) + count) % count;
+      const angle = wheel.angle
+        + (wheel.shake && wheel.shake.onSlot ? wheel.shake.offset : 0);
+      if (n === 0 && frac > 0.001 && frac < 0.999) {
+        pack[0] = MovingHead.goboPatternAt(wheel, index) + frac;
+        pack[1] = angle;
+        pack[2] = MovingHead.goboPatternAt(wheel, (index + 1) % count);
+        pack[3] = angle;
+        return;
+      }
+      if (n === 1 && pack[0] % 1 !== 0) return;
+      const at = frac >= 0.999 ? (index + 1) % count : index;
+      pack[n * 2] = MovingHead.goboPatternAt(wheel, at);
+      pack[n * 2 + 1] = angle;
     });
-    return out;
+    return pack;
   }
 
   /**
@@ -1306,15 +1596,14 @@ class MovingHead {
    * @private
    */
   writeOptics() {
-    const gobos = this.gobosInBeam();
-    const first = gobos[0] || { layer: 0, angle: 0 };
-    const second = gobos[1] || { layer: 0, angle: 0 };
-    gobo_attribute.setXYZW(this._id, first.layer, first.angle, second.layer, second.angle);
+    gobo_attribute.setXYZW(this._id, ...this.goboPack());
     gobo_attribute.needsUpdate = true;
-    const facets = this._prism.on ? this._prism.facets : 0;
+    const facets = this.prismCode;
     const defocus = this._goboDefocus;
     prism_attribute.setXYZW(this._id, facets, this._prism.angle, this._prismSpread, defocus);
     prism_attribute.needsUpdate = true;
+    depth_slot_attribute.setY(this._id, this._iris);
+    depth_slot_attribute.needsUpdate = true;
   }
 
   /**
@@ -1323,18 +1612,27 @@ class MovingHead {
    * @type {Number}
    */
   set colorWheelSlot(slotId) {
-    // `slotId >= 0` matters: a slot number of zero computes an index of -1,
-    // which passed the upper bound, read past the start of the wheel and threw
-    // on the undefined it found.
-    if (slotId < 0 || slotId >= this._colorWheel.length) return;
-    const slotValue = this._colorWheel[slotId];
-    if (slotValue.type === SLOT_TYPES.COLOR) {
-      this._wheelColor = new THREE.Color(slotValue.colors ? slotValue.colors[0] : 'white');
-    } else if (slotValue.type === SLOT_TYPES.OPEN) {
-      this._wheelColor = null;
+    // A position on the wheel, fractional between slots: 2.5 is the boundary
+    // between slots 3 and 4 (0-based 2 and 3) across the middle of the beam.
+    // Wraps, so a turning wheel passes from the last slot back to the first.
+    const count = this._colorWheel ? this._colorWheel.length : 0;
+    if (!count || !Number.isFinite(slotId) || slotId < 0) return;
+    const position = ((slotId % count) + count) % count;
+    const first = Math.floor(position);
+    const split = position - first;
+    const colourOf = gelColour;
+    const slotA = this._colorWheel[first];
+    if (slotA && slotA.type !== SLOT_TYPES.COLOR && slotA.type !== SLOT_TYPES.OPEN) return;
+    this._wheelColor = colourOf(slotA);
+    // A split this close to a slot is that slot; the line would sit on the
+    // beam's edge where nothing shows it.
+    if (split > 0.02 && split < 0.98) {
+      this._wheelColorB = colourOf(this._colorWheel[(first + 1) % count]);
+      this._wheelSplit = split;
     } else {
-      // A shake or a rotation is not a colour; leave the beam as it is.
-      return;
+      if (split >= 0.98) this._wheelColor = colourOf(this._colorWheel[(first + 1) % count]);
+      this._wheelColorB = null;
+      this._wheelSplit = 0;
     }
     // Through the mix rather than straight onto the beam: a head with a wheel
     // *and* CMY has both in the light path, and writing the beam here would
@@ -1417,7 +1715,34 @@ class MovingHead {
    */
   recomputeBeamColor() {
     if (this._activeColorPreset) return;
+    const a = this.mixThrough(this._wheelColor);
+    const b = this._wheelSplit > 0 ? this.mixThrough(this._wheelColorB) : a;
+    this.color = a;
+    this._colorB.copy(b);
+    this.writeColorB();
+  }
 
+  /**
+   * Writes the far side of a colour split into the instance buffer.
+   *
+   * @private
+   */
+  writeColorB() {
+    const b = this._wheelSplit > 0 ? this._colorB : this.color;
+    color_b_attribute.setXYZW(this._id, b.r, b.g, b.b, this._wheelSplit);
+    color_b_attribute.needsUpdate = true;
+  }
+
+  /**
+   * The beam's colour with a given filter from the colour wheel in the light
+   * path, or none: the head's own emitters, or its lamp through the wheel,
+   * less whatever the CMY filters take.
+   *
+   * @private
+   * @param {THREE.Color|null} wheelColor
+   * @returns {THREE.Color}
+   */
+  mixThrough(wheelColor) {
     const white = this.whitePoint;
     const mix = [0, 0, 0];
 
@@ -1447,8 +1772,8 @@ class MovingHead {
     // zero. It would also discard the colour wheel, written earlier in the
     // same frame by a lower channel number.
     if (!additive) {
-      const [r, g, b] = this._wheelColor
-        ? [this._wheelColor.r, this._wheelColor.g, this._wheelColor.b]
+      const [r, g, b] = wheelColor
+        ? [wheelColor.r, wheelColor.g, wheelColor.b]
         : white;
       mix[0] = r;
       mix[1] = g;
@@ -1465,7 +1790,7 @@ class MovingHead {
     const scale = peak > 1 ? 1 / peak : 1;
     // Never fully black: a zero-length colour vector leaves the beam shader
     // with nothing to work with, which is why the original clamped too.
-    this.color = new THREE.Color(
+    return new THREE.Color(
       Math.max(mix[0] * scale, 0.00001),
       Math.max(mix[1] * scale, 0.00001),
       Math.max(mix[2] * scale, 0.00001),
@@ -1582,6 +1907,13 @@ class MovingHead {
     scene_handle.add(this._dummy);
     instances.push(this);
     LightField.register(this);
+    // What was last uploaded for this head: body, yoke, head, beam, lens.
+    // NaN so the first comparison always fails and the first frame uploads.
+    this._writtenMatrices = Array.from({ length: 5 }, () => {
+      const unwritten = new THREE.Matrix4();
+      unwritten.elements.fill(NaN);
+      return unwritten;
+    });
     this._matrixNeedsUpdate = true;
   }
 
@@ -1597,10 +1929,26 @@ class MovingHead {
       this._headDummy.updateMatrixWorld();
       this._beamDummy.updateMatrixWorld();
       this._targetDummy.updateMatrixWorld();
+      this.rigidBeamMatrix();
+      // The flag stays set, because a head dragged in a group moves through
+      // its parent and nothing else tells it so. Uploading only on a real
+      // change keeps the instance buffers' versions still while the rig is
+      // still; the depth tiles hash those versions, so an upload every frame
+      // would owe every tile a redraw every frame.
+      const written = this._writtenMatrices;
+      if (written[0].equals(this._dummy.matrixWorld)
+        && written[1].equals(this._yokeDummy.matrixWorld)
+        && written[2].equals(this._headDummy.matrixWorld)
+        && written[3].equals(rigidMatrix)
+        && written[4].equals(this._targetDummy.matrixWorld)) return;
+      written[0].copy(this._dummy.matrixWorld);
+      written[1].copy(this._yokeDummy.matrixWorld);
+      written[2].copy(this._headDummy.matrixWorld);
+      written[3].copy(rigidMatrix);
+      written[4].copy(this._targetDummy.matrixWorld);
       baseMesh.setMatrixAt(this._id, this._dummy.matrixWorld);
       yokeMesh.setMatrixAt(this._id, this._yokeDummy.matrixWorld);
       headMesh.setMatrixAt(this._id, this._headDummy.matrixWorld);
-      this.rigidBeamMatrix();
       beamMesh.setMatrixAt(this._id, rigidMatrix);
       // The lens is part of the body, so it takes the scaled frame.
       capMesh.setMatrixAt(this._id, this._targetDummy.matrixWorld);
@@ -2073,6 +2421,7 @@ class MovingHead {
     beamGeo.setAttribute('depthSlot', depth_slot_attribute);
     beamGeo.setAttribute('gobo', gobo_attribute);
     beamGeo.setAttribute('prism', prism_attribute);
+    beamGeo.setAttribute('colorB', color_b_attribute);
 
     beamMesh = new THREE.InstancedMesh(beamGeo, new THREE.ShaderMaterial({
       transparent: true,
@@ -2282,6 +2631,8 @@ class MovingHead {
     this._targetDummy.getWorldPosition(vector_light_target);
     record.direction.copy(record.position).sub(vector_light_target).normalize();
     record.color.copy(this._spotLight.color);
+    record.colorB.copy(this._wheelSplit > 0 ? this._colorB : this._spotLight.color);
+    record.split = this._wheelSplit || 0;
     record.intensity = this._spotLight.intensity;
     record.range = SPOTLIGHT_RANGE;
     // A prism throws copies of the pool out past the cone, so the cone test
@@ -2297,16 +2648,14 @@ class MovingHead {
     record.inner = Math.min(Math.abs(1 - this._spotLight.penumbra), 0.99);
 
     // The gobos and the prism in the beam, the same numbers the beam draws.
-    const gobos = this.gobosInBeam();
-    const first = gobos[0] || { layer: 0, angle: 0 };
-    const second = gobos[1] || { layer: 0, angle: 0 };
-    record.gobo.set(first.layer, first.angle, second.layer, second.angle);
+    record.gobo.set(...this.goboPack());
     record.prism.set(
-      prismOn ? this._prism.facets : 0,
+      prismOn ? this.prismCode : 0,
       this._prism.angle,
       this._prismSpread,
       this._goboDefocus,
     );
+    record.iris = this._iris;
 
     // The beam's depth tile, so the pool stops where the beam does. The slot
     // is last frame's, written by `renderDepth` after the field is read,
@@ -2382,9 +2731,10 @@ class MovingHead {
     emissive_buffer_attribute = grownAttribute(emissive_buffer_attribute);
     angle_buffer_attribute = grownAttribute(angle_buffer_attribute);
     depth_slot_attribute = grownAttribute(depth_slot_attribute);
-    depth_slot_attribute.array.fill(-1, instanceCount);
+    depth_slot_attribute.array.set(slotIrisArray(capacity - instanceCount), instanceCount * 2);
     gobo_attribute = grownAttribute(gobo_attribute);
     prism_attribute = grownAttribute(prism_attribute);
+    color_b_attribute = grownAttribute(color_b_attribute);
 
     // Re-attached because `setAttribute` stores the attribute, not a reference
     // to whatever the variable holds now.
@@ -2399,6 +2749,7 @@ class MovingHead {
     beamGeo.setAttribute('depthSlot', depth_slot_attribute);
     beamGeo.setAttribute('gobo', gobo_attribute);
     beamGeo.setAttribute('prism', prism_attribute);
+    beamGeo.setAttribute('colorB', color_b_attribute);
 
     baseMesh = grownMesh(baseMesh);
     yokeMesh = grownMesh(yokeMesh);

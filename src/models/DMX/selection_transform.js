@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import Controls from '@/plugins/visualizer/controls';
+import closestEuler from './closest_euler';
 import { PLACEABLE_KINDS, kindOf } from './scene_item';
 
 /**
@@ -244,7 +245,7 @@ export default class SelectionTransform {
         euler.set(finite(held.x) || 0, finite(held.y) || 0, finite(held.z) || 0);
         facing.setFromEuler(euler).premultiply(turn);
         euler.setFromQuaternion(facing);
-        item.rotationRad = { x: euler.x, y: euler.y, z: euler.z };
+        item.rotationRad = closestEuler(euler, held);
       });
     });
   }

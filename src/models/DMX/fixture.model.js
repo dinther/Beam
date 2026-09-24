@@ -63,6 +63,7 @@ const CAPABILITY_TYPES = {
   WheelRotation: 'WheelRotation',
   Prism: 'Prism',
   PrismRotation: 'PrismRotation',
+  Iris: 'Iris',
   Effect: 'Effect',
   BeamAngle: 'BeamAngle',
   BeamPosition: 'BeamPosition',
@@ -1077,7 +1078,9 @@ class Fixture extends withTransform(Proxify) {
           this._3DModel.colorIntensity = values; // Updating fixture 3D model color intensity with provided color value
           break;
         case CAPABILITY_TYPES.WheelSlot: { // Capability is wheelSlot
-          const slot = Math.floor(values.slotNumber) - 1.0; // Parsing slot number from value
+          // Fractional on purpose: slot 2.5 is a split, the wheel parked with the
+          // boundary between slots 2 and 3 across the beam.
+          const slot = values.slotNumber - 1.0;
           // The wheel is the one the capability names, or the channel's own
           // name when it names none, which is OFL's rule. The head decides
           // by the slot's type whether that is a colour, a gobo or a prism.
@@ -1088,6 +1091,11 @@ class Fixture extends withTransform(Proxify) {
           }
           break;
         }
+        case CAPABILITY_TYPES.WheelShake:
+          if (typeof this._3DModel.setWheelShake === 'function') {
+            this._3DModel.setWheelShake(values.wheel || channel.name, values);
+          }
+          break;
         case CAPABILITY_TYPES.WheelSlotRotation:
           if (typeof this._3DModel.setWheelSlotRotation === 'function') {
             this._3DModel.setWheelSlotRotation(values.wheel || channel.name, values);
@@ -1100,13 +1108,20 @@ class Fixture extends withTransform(Proxify) {
           break;
         case CAPABILITY_TYPES.Prism:
           if (typeof this._3DModel.setPrism === 'function') {
-            this._3DModel.setPrism(true);
+            // The facet count and layout are only ever in the text: the
+            // range's comment, or the channel's own name.
+            this._3DModel.setPrism(true, `${values.comment || ''} ${channel.name || ''}`);
             this._prismChannelId = id;
           }
           break;
         case CAPABILITY_TYPES.PrismRotation:
           if (typeof this._3DModel.setPrismRotation === 'function') {
             this._3DModel.setPrismRotation(values);
+          }
+          break;
+        case CAPABILITY_TYPES.Iris:
+          if (typeof this._3DModel.setIris === 'function') {
+            this._3DModel.setIris(values.openPercent / 100);
           }
           break;
         case CAPABILITY_TYPES.ColorTemperature:

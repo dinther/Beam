@@ -130,6 +130,54 @@
         </dl>
       </div>
 
+      <!-- A short manual for the mode in use, written from the profile: what
+           to set before there is light, and what each channel's ranges do.
+           Collapsed until asked for; see `fixtureGuide`. -->
+      <details
+        v-if="guide"
+        class="fixture_guide"
+      >
+        <summary>Quick guide</summary>
+        <p
+          v-if="guide.light.length"
+          class="guide_light"
+        >
+          To get light: {{ guide.light.join(', then ') }}.
+        </p>
+        <dl>
+          <template
+            v-for="row in guide.channels"
+            :key="row.n"
+          >
+            <dt :class="{ undrawn: !row.drawn }">
+              {{ row.n }} {{ row.name }}
+            </dt>
+            <dd :class="{ undrawn: !row.drawn }">
+              <!-- Many ranges read as a table, DMX values beside what they
+                   do; one or two stay on the line. -->
+              <table
+                v-if="row.ranges && row.ranges.length > 2"
+                class="guide_ranges"
+              >
+                <tr
+                  v-for="(r, i) in row.ranges"
+                  :key="i"
+                >
+                  <td class="guide_range">
+                    {{ r.range }}
+                  </td>
+                  <td>{{ r.text }}</td>
+                </tr>
+              </table>
+              <template v-else>
+                {{ row.text }}
+              </template>
+              <span v-if="!row.drawn"> (no effect in Beam)</span>
+            </dd>
+          </template>
+        </dl>
+      </details>
+
       <!-- A bar's channels are one thing repeated, so they are described
            rather than listed here, and only a bar is: every other fixture's
            channels are on the Settings widget, with their addresses and what
@@ -213,6 +261,7 @@ import {
 import { DEFAULT_PAN_SPEED, DEFAULT_TILT_SPEED } from '@/models/DMX/fixture.model';
 import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
 import { isShowKey } from '@/models/DMX/definition_store';
+import fixtureGuide from '@/models/DMX/fixture_guide';
 
 /** How long the copy button confirms for, in ms. */
 const COPY_FEEDBACK_MS = 1500;
@@ -339,6 +388,19 @@ export default {
      *
      * @type {Boolean}
      */
+    /**
+     * The quick guide for this fixture's mode, or null where it would say
+     * nothing useful: a bar is described by its own summary, and a fixture
+     * with no channels has nothing to guide.
+     *
+     * @type {Object|null}
+     */
+    guide() {
+      const fixture = this.fixture || {};
+      if (!fixture.OFLData || !fixture.mode || this.barSummary) return null;
+      const guide = fixtureGuide(fixture.OFLData, fixture.mode);
+      return guide.channels.length ? guide : null;
+    },
     hasHead() {
       const accessors = (this.fixture || {}).quickChannelsAccessors || {};
       return !!(accessors.Pan || accessors.Tilt);
@@ -698,9 +760,67 @@ export default {
   color: var(--secondary-lighter);
   margin: 0;
 }
+.fixture_guide {
+  font-family: Roboto-Regular, sans-serif;
+  font-size: 11px;
+  color: var(--secondary-lighter);
+}
+.fixture_guide summary {
+  font-family: Roboto-Medium, sans-serif;
+  color: var(--secondary-light-alt);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.fixture_guide .guide_light {
+  margin: 4px 0 6px;
+  white-space: normal;
+}
+.fixture_guide dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+}
+.fixture_guide dt {
+  font-family: Roboto-Medium, sans-serif;
+  color: var(--secondary-light-alt);
+  white-space: nowrap;
+}
+.fixture_guide dd {
+  margin: 0;
+  white-space: normal;
+}
+.fixture_guide .guide_ranges {
+  width: auto;
+  border-collapse: collapse;
+}
+.fixture_guide .guide_ranges td {
+  padding: 0 10px 1px 0;
+  vertical-align: top;
+  border: none;
+}
+.fixture_guide .guide_range {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--secondary-light-alt);
+  text-align: right;
+}
+.fixture_guide .undrawn {
+  opacity: 0.55;
+}
+/* Narrow, like the Placement widget: the guide and the facts wrap rather
+   than setting the width, and a long channel line would otherwise stretch the
+   whole column. */
+.fixture_model {
+  max-width: 500px;
+  min-width: 500px;
+}
+.fixture_model > :deep(.body) {
+  white-space: normal;
+}
 .fixture_model_body {
   padding: 8px;
-  min-width: 340px;
+  min-width: 0;
 }
 .scope_note {
   margin: 0;
