@@ -1133,8 +1133,27 @@ class Laser {
         service = at > MAX_SERVICES ? -1 : at;
       }
       laser._serviceId = service === null ? 1 : service;
-      // Replaced by the resolved one once the hub answers; null until then.
-      laser._address = address;
+      // The hub's resolved answer, not the one asked for. A laser storing
+      // nothing means "the default", and the default is an address the renderer
+      // only learns from the hub's reply -- which arrives asynchronously, and
+      // only when the input list actually changes.
+      //
+      // So it is written here only when the asked-for address itself has
+      // changed. Resetting it unconditionally clobbered the resolved value on
+      // the very next frame, and the signature guard below then skipped the
+      // send that would have replaced it: from the second frame onward the
+      // address went back to null for good.
+      //
+      // Nothing drew, because a DAC stream is looked up by the address the
+      // device tags its batches with -- `idn@192.168.100.109#1` -- and a laser
+      // holding null asks for `idn#1`. The points arrived at full rate the
+      // whole time and were thrown away at the lookup, and the status line
+      // said nothing had connected. A hand-set address hid it, because a
+      // hand-set address is the same on both sides of the question.
+      if (laser._addressAsked !== address) {
+        laser._addressAsked = address;
+        laser._address = address;
+      }
       list.push({
         uid: (handle && handle.uid) || `laser-${i}`, name, protocol, address, service,
       });
