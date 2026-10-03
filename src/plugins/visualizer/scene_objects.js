@@ -37,8 +37,25 @@ import { castsContactShadow, standsUp } from './contact_shadows';
 /** Placements one model can hold before it needs a bigger buffer. */
 const INITIAL_CAPACITY = 64;
 
+/**
+ * Where the Draco decoder is served from, which is not the same place in a
+ * packaged build as in development.
+ *
+ * A bare relative path resolves against the document, and in a packaged build
+ * the document is a `file://` page while the assets are served over the custom
+ * `static://` protocol. The decoder is fetched by a Web Worker as well as by
+ * the page, so a `file://` relative fetch is a cross-origin request from an
+ * opaque origin and is refused -- so a Draco-compressed model failed to decode
+ * in a build and worked in development, which is the worst way for it to fail.
+ *
+ * `VITE_STATIC_URL` is the prefix the rest of the assets use (`electron.vite.config.js`
+ * sets it to `static:/` for a build and leaves it empty for the dev server), so
+ * the decoder travels with them.
+ */
+const DRACO_DECODER_PATH = `${import.meta.env.VITE_STATIC_URL}libs/gltf/`;
+
 const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('libs/gltf/');
+dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
 
 const loader = new GLTFLoader()
   .setCrossOrigin('anonymous')
