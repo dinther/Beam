@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import fetchJson from '@/plugins/fetch_json';
+import { choose } from '@/plugins/confirm';
 import { markRaw } from 'vue';
 import {
   EventEmitter,
@@ -7,6 +8,7 @@ import {
 import {
   ProxifySingleton,
 } from '../utils/proxify.utils';
+import { onSceneChange } from './scene_changes';
 
 import PatchSingleton from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
@@ -271,6 +273,8 @@ class Show extends EventEmitter {
     });
     // Measurements are kept by the measure tool, outside the proxied data.
     MeasureTool.onChange(() => this.touch());
+    // Objects, structures and groups are not proxied; their setters report here.
+    onSceneChange(() => { if (this.isSaved) this.touch(); });
     this.preloadManufacturers();
     this.preloadFixtureList();
   }
@@ -682,10 +686,35 @@ class Show extends EventEmitter {
    */
   async openDocument() {
     if (typeof window === 'undefined' || !window.documentStore) return false;
+    if (!await this.releaseDocument('Open Project')) return false;
     const target = await window.documentStore.open();
     // Cancelling is an ordinary answer, not a failure.
     if (!target) return false;
     return this.openDocumentAt(target);
+  }
+
+  /**
+   * Asks what to do with unsaved changes before the show is replaced: save
+   * them, drop them, or stay. A save cancelled in its dialog counts as stay.
+   *
+   * @public
+   * @async
+   * @param {String} title the action that would replace the show
+   * @returns {Promise<Boolean>} whether the show may be replaced
+   */
+  async releaseDocument(title) {
+    if (this.isSaved) return true;
+    const answer = await choose({
+      title,
+      message: `${this.documentTitle} has unsaved changes.\nSave them first?`,
+      detail: "Don't save loses the changes.",
+      yes: 'Save',
+      also: "Don't save",
+      no: 'Cancel',
+    });
+    if (answer === 'also') return true;
+    if (answer === 'yes') return this.saveDocument();
+    return false;
   }
 
   /**
@@ -990,7 +1019,10 @@ class Show extends EventEmitter {
     this.loading.message = 'Finalizing';
     this.loading.percentage = 95;
     this.ready = true;
+    // Building the scene goes through the same setters as an edit, so the
+    // saved state is stated again once the load is done.
     this.isSaved = true;
+    this.emit('saveState', this.isSaved);
 
     // The opening view. A show that carries its own editor view gets that one:
     // it is where the project was left, and it is the only camera whose framing

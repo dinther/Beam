@@ -6,6 +6,7 @@ import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS, rowId } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
+import { sceneChanged } from './scene_changes';
 
 /** The smallest scale an axis may take: zero would collapse the model. */
 const MIN_SCALE = 0.001;
@@ -243,6 +244,7 @@ class SceneObject extends withTransform(Object) {
 
   set name(name) {
     this._name = name;
+    sceneChanged();
   }
 
   /**
@@ -379,6 +381,7 @@ class SceneObject extends withTransform(Object) {
       z: (position || {}).z || 0,
     };
     this.sync();
+    sceneChanged();
   }
 
   /**
@@ -399,6 +402,7 @@ class SceneObject extends withTransform(Object) {
       z: rad((rotation || {}).z),
     };
     this.sync();
+    sceneChanged();
   }
 
   /**
@@ -414,6 +418,7 @@ class SceneObject extends withTransform(Object) {
   set scale(scale) {
     this._scale = scaleOf(scale);
     this.sync();
+    sceneChanged();
   }
 
   /**
@@ -612,6 +617,7 @@ class SceneObject extends withTransform(Object) {
   async setPrimitive(primitive) {
     if (!this.primitive || !primitive) return false;
     this.primitive = { ...primitive };
+    sceneChanged();
     if (this._placement) {
       SceneObjects.remove(this._placement);
       this._placement = null;
@@ -657,6 +663,7 @@ class SceneObject extends withTransform(Object) {
     SceneObjects.forget(was);
     this.primitive = null;
     this.model = key;
+    sceneChanged();
     const attached = await this.attach(descriptor);
     Controls.refreshHelpers();
     return attached;
@@ -712,6 +719,7 @@ class SceneObject extends withTransform(Object) {
       color: descriptor.primitive.color,
     };
     this.model = undefined;
+    sceneChanged();
     const attached = await this.attach(null);
     Controls.refreshHelpers();
     return attached;
@@ -772,6 +780,7 @@ class SceneObject extends withTransform(Object) {
   set hidden(state) {
     this._hidden = !!state;
     this.applyHidden();
+    sceneChanged();
   }
 
   get hidden() {

@@ -135,6 +135,7 @@ export default {
   font-size: 13px;
   color: var(--secondary-lighter);
   margin: 0;
+  white-space: pre-line;
 }
 .confirm_detail {
   font-family: Roboto-Regular;

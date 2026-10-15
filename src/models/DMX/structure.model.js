@@ -6,6 +6,7 @@ import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
+import { sceneChanged } from './scene_changes';
 
 /**
  * @file One scene item built out of several, placed and moved as a unit.
@@ -130,6 +131,7 @@ class Structure extends withTransform(Proxify) {
 
   set name(name) {
     this._name = name;
+    sceneChanged();
   }
 
   /**
@@ -227,6 +229,7 @@ class Structure extends withTransform(Proxify) {
   set position(position) {
     this._position = { x: position.x, y: position.y, z: position.z };
     this.applyToMembers();
+    sceneChanged();
   }
 
   /**
@@ -333,6 +336,7 @@ class Structure extends withTransform(Proxify) {
     member.structure = this;
     this.captureLocal(member);
     if (member.applyHidden) member.applyHidden();
+    sceneChanged();
   }
 
   /**
@@ -346,6 +350,7 @@ class Structure extends withTransform(Proxify) {
   set hidden(state) {
     this._hidden = !!state;
     this.members.forEach((member) => { if (member.applyHidden) member.applyHidden(); });
+    sceneChanged();
   }
 
   get hidden() {
@@ -376,6 +381,7 @@ class Structure extends withTransform(Proxify) {
     // Leaving a hidden structure -- exploding it, most often -- must not make
     // anything appear: what could not be seen stays unseen, now on its own.
     if (this._hidden && 'hidden' in member) member.hidden = true;
+    sceneChanged();
   }
 
   /**

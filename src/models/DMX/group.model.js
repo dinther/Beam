@@ -3,6 +3,7 @@ import { Proxify } from '../utils/proxify.utils';
 import GroupHandle from '../../plugins/visualizer/group_handle';
 import { SCENE_ITEM_KINDS, newUid } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
+import { sceneChanged } from './scene_changes';
 
 /**
  * @file A named group of scene objects that moves as one.
@@ -95,6 +96,7 @@ class Group extends Proxify {
 
   set name(name) {
     this._name = name;
+    sceneChanged();
   }
 
   /**
@@ -139,6 +141,7 @@ class Group extends Proxify {
   set position(position) {
     this._position = { x: position.x, y: position.y, z: position.z };
     this.applyToMembers();
+    sceneChanged();
   }
 
   /**
@@ -202,6 +205,7 @@ class Group extends Proxify {
   set rotationRad(rotation) {
     this._rotation = { x: rotation.x, y: rotation.y, z: rotation.z };
     this.applyToMembers();
+    sceneChanged();
   }
 
   /**
@@ -234,6 +238,7 @@ class Group extends Proxify {
     member.group = this;
     this.captureLocal(member);
     if (member.applyHidden) member.applyHidden();
+    sceneChanged();
   }
 
   /**
@@ -247,6 +252,7 @@ class Group extends Proxify {
   set hidden(state) {
     this._hidden = !!state;
     this.members.forEach((member) => { if (member.applyHidden) member.applyHidden(); });
+    sceneChanged();
   }
 
   get hidden() {
@@ -271,6 +277,7 @@ class Group extends Proxify {
     member.group = null;
     member.localTransform = null;
     if (this._hidden && 'hidden' in member) member.hidden = true;
+    sceneChanged();
   }
 
   /**

@@ -580,7 +580,8 @@ export default {
      *
      * @public
      */
-    displayNewProjectPopup() {
+    async displayNewProjectPopup() {
+      if (!await this.$show.releaseDocument('New Project')) return;
       this.newProjectPopupState = true;
     },
     /**

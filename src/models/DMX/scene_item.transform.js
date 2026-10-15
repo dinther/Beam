@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import Controls from '../../plugins/visualizer/controls';
 import { newUid } from './scene_item';
 import { displayNameOf } from './item_naming';
+import { sceneChanged } from './scene_changes';
 
 /**
  * @file The transform every placeable scene item has.
@@ -80,6 +81,7 @@ const withTransform = (Base) => class SceneItemTransform extends Base {
     Controls.detach(this);
     this[field][axis] = value;
     this.applyTransform(field);
+    sceneChanged();
     Controls.attach(this);
   }
 
@@ -133,6 +135,7 @@ const withTransform = (Base) => class SceneItemTransform extends Base {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     this._rotation = { x, y, z };
     this.applyTransform('_rotation');
+    sceneChanged();
   }
 
   /**

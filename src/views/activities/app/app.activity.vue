@@ -202,8 +202,8 @@ export default {
     EventBus.on('confirm', this.askConfirmation);
     // Someone double-clicked a project while Beam was already running.
     if (window.documentStore) {
-      this.stopListeningForDocuments = window.documentStore.onRequested((target) => {
-        this.$show.openDocumentAt(target);
+      this.stopListeningForDocuments = window.documentStore.onRequested(async (target) => {
+        if (await this.$show.releaseDocument('Open Project')) this.$show.openDocumentAt(target);
       });
     }
   },
