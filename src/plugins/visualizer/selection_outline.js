@@ -178,10 +178,12 @@ export class SelectionOutlineEffect extends Effect {
     renderer.clear(true, false, false);
 
     // Drawn on its own, a mesh ignores its parents' visibility; a hidden
-    // fixture, or a part of one that is switched off, has no outline.
+    // fixture, or a part of one that is switched off, has no outline. Nor has
+    // a mesh no longer under a scene: its owner was deleted while outlined.
     const shown = (object) => {
-      for (let o = object; o; o = o.parent) if (!o.visible) return false;
-      return true;
+      let o = object;
+      for (; o.parent; o = o.parent) if (!o.visible) return false;
+      return o.visible && o.isScene === true;
     };
     const draw = (mesh, material) => {
       if (!shown(mesh)) return;
