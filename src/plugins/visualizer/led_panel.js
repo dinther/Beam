@@ -422,7 +422,8 @@ const PANEL_FRAGMENT_HEAD = /* glsl */`
   uniform vec2 halfQuad;
   /** Drawn footprint of one emitter, matching the billboard path's quad. */
   uniform float quadSize;
-  uniform float beamCutoff;
+  /** m in the die's intensity law cos^m, half intensity at the beam angle's edge. */
+  uniform float beamExponent;
   /** One die's luminance at full white, in scene units. */
   uniform float dieLuminance;
   /** One die's real radius, in metres. */
@@ -443,9 +444,12 @@ const PANEL_MAIN = /* glsl */`
     vec3 normal = normalize(vNormalWorld);
     vec3 toCamera = normalize(vToCamera);
     float facing = dot(normal, toCamera);
-    // Within the emission cone at full luminance, falling away near its edge.
-    // Behind the face nothing: the body and board hide the dies.
-    float visibility = smoothstep(beamCutoff, mix(beamCutoff, 1.0, 0.15), facing);
+    // Intensity falls as cos^m off axis and the dies are drawn foreshortened in
+    // the face plane, so their luminance is cos^(m-1): a bar stays visible
+    // outside its beam angle, dimmer. Edge-on and behind the face nothing.
+    float visibility = facing <= 0.0
+      ? 0.0
+      : pow(facing, beamExponent - 1.0) * smoothstep(0.0, 0.05, facing);
 
     vec2 p = (vUv - 0.5) * (halfQuad * 2.0);
     vec2 grid = vec2(
@@ -803,6 +807,22 @@ function emitterOutput(params) {
   };
 }
 
+/**
+ * The exponent m of a die's intensity law cos^m, chosen so intensity is half
+ * its on-axis value at the edge of the beam angle.
+ *
+ * At least 1, the Lambertian case reached at 120 degrees: a wider angle would
+ * make the drawn luminance rise towards grazing.
+ *
+ * @param {Number} beamAngle full beam angle, in degrees
+ * @returns {Number} the exponent
+ */
+function beamExponent(beamAngle) {
+  const cosHalf = Math.cos((beamAngle / 2) * (Math.PI / 180));
+  if (!(cosHalf > 0 && cosHalf < 1)) return 1;
+  return Math.max(1, Math.log(0.5) / Math.log(cosHalf));
+}
+
 /** The default strip's mean face luminance, which the tuned glow was set against. */
 const REFERENCE_FACE_LUMINANCE = emitterOutput(DEFAULT_BAR_PARAMS).faceLuminance;
 
@@ -851,7 +871,7 @@ function createPanel(params) {
       halfFace: { value: new THREE.Vector2(0.5, 0.5) },
       halfQuad: { value: new THREE.Vector2(0.5, 0.5) },
       quadSize: { value: 1 },
-      beamCutoff: { value: 0 },
+      beamExponent: { value: 1 },
       dieLuminance: { value: 0 },
       dieRadiusMetres: { value: 0.0025 },
     },
@@ -1003,7 +1023,7 @@ function sync(panel, {
     geometry.spanY / 2 + geometry.margin,
   );
   uniforms.quadSize.value = geometry.quadSize;
-  uniforms.beamCutoff.value = Math.cos((params.beamAngle / 2) * (Math.PI / 180));
+  uniforms.beamExponent.value = beamExponent(params.beamAngle);
   const output = emitterOutput(params);
   live.halfFace.set(geometry.spanX / 2, geometry.spanY / 2);
   live.faceLuminance = output.faceLuminance;
