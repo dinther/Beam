@@ -11,111 +11,77 @@
       class="position_tool_body"
       :gap="8"
     >
-      <uk-flex :gap="16">
-        <uk-flex
-          col
-          :gap="8"
+      <!-- One row per axis: position, rotation, then size for a model. Every
+           field has the same width and every row a button slot, so the
+           columns line up whether or not a field has a button. -->
+      <div class="position_tool_grid">
+        <template
+          v-for="axis in axes"
+          :key="axis.name"
         >
           <uk-num-input
-            v-model="posX"
+            class="col_position"
+            :model-value="axisValue(axis.position)"
             :disabled="locked"
-            color="var(--axis-x-field)"
+            :color="axis.color"
             :precision="2"
             :min="-1000"
             :max="1000"
-            label="Position X"
+            :label="`Position ${axis.name}`"
+            @update:model-value="(value) => setAxis(axis.position, value)"
+          />
+          <button
+            v-if="axis.name === 'Z'"
+            type="button"
+            class="drop_button col_position_button"
+            :disabled="locked"
+            title="Drop to ground: stand it on the surface below, or lift it onto one it sits in"
+            @click="drop"
+          >
+            <uk-icon name="drop_floor" />
+          </button>
+          <span
+            v-else
+            class="col_position_button"
           />
           <uk-num-input
-            v-model="posY"
+            class="col_rotation"
+            :model-value="axisValue(axis.rotation)"
             :disabled="locked"
-            color="var(--axis-y-field)"
-            :precision="2"
-            :min="-1000"
-            :max="1000"
-            label="Position Y"
-          />
-          <uk-num-input
-            v-model="posZ"
-            :disabled="locked"
-            color="var(--axis-z-field)"
-            :precision="2"
-            :min="-1000"
-            :max="1000"
-            label="Position Z"
-          />
-        </uk-flex>
-        <uk-flex
-          col
-          :gap="8"
-        >
-          <uk-num-input
-            v-model="rotX"
-            :disabled="locked"
-            color="var(--axis-x-field)"
+            :color="axis.color"
             :precision="1"
             :step="1"
             :min="-360"
             :max="360"
-            label="Rotation X"
+            :label="`Rotation ${axis.name}`"
+            @update:model-value="(value) => setAxis(axis.rotation, value)"
           />
-          <uk-num-input
-            v-model="rotY"
+          <button
+            type="button"
+            class="drop_button col_rotation_button"
             :disabled="locked"
-            color="var(--axis-y-field)"
-            :precision="1"
-            :step="1"
-            :min="-360"
-            :max="360"
-            label="Rotation Y"
-          />
+            :title="`Turn 180° about ${axis.name}`"
+            @click="turn180(axis.rotation)"
+          >
+            <uk-icon name="turn180" />
+          </button>
+          <!-- A model from a file is sized along its own axes, in metres. A
+               created shape is sized by its own dimensions instead, and a
+               fixture keeps its size. -->
           <uk-num-input
-            v-model="rotZ"
-            :disabled="locked"
-            color="var(--axis-z-field)"
-            :precision="1"
-            :step="1"
-            :min="-360"
-            :max="360"
-            label="Rotation Z"
-          />
-        </uk-flex>
-        <!-- A model from a file is sized along its own axes, in metres. A
-             created shape is sized by its own dimensions instead, and a
-             fixture keeps its size. -->
-        <uk-flex
-          v-if="scalable"
-          col
-          :gap="8"
-        >
-          <uk-num-input
-            v-model="sizeX"
+            v-if="scalable"
+            class="col_size"
+            :model-value="axisValue(axis.size)"
             :disabled="locked || !sized"
-            color="var(--axis-x-field)"
+            :color="axis.color"
             :precision="2"
             :min="0.01"
             :max="1000"
-            label="Length (X)"
+            :label="axis.sizeLabel"
+            @update:model-value="(value) => setAxis(axis.size, value)"
           />
-          <uk-num-input
-            v-model="sizeY"
-            :disabled="locked || !sized"
-            color="var(--axis-y-field)"
-            :precision="2"
-            :min="0.01"
-            :max="1000"
-            label="Width (Y)"
-          />
-          <uk-num-input
-            v-model="sizeZ"
-            :disabled="locked || !sized"
-            color="var(--axis-z-field)"
-            :precision="2"
-            :min="0.01"
-            :max="1000"
-            label="Height (Z)"
-          />
-        </uk-flex>
-      </uk-flex>
+        </template>
+      </div>
       <uk-flex
         v-if="scalable && sized"
         :gap="8"
@@ -136,6 +102,12 @@
       >
         {{ lockedNote }}
       </p>
+      <p
+        v-if="dropNote"
+        class="position_tool_locked"
+      >
+        {{ dropNote }}
+      </p>
     </uk-flex>
   </uk-widget>
 </template>
@@ -143,6 +115,7 @@
 <script>
 import EventBus from '@/plugins/eventbus';
 import Controls from '@/plugins/visualizer/controls';
+import dropToGround from '@/plugins/visualizer/drop_to_ground';
 
 /** Axis fields, and which side of the transform each belongs to. */
 const AXES = {
@@ -193,6 +166,35 @@ export default {
       liveTick: 0,
       /** Whether a re-read is already queued for the next frame. */
       liveQueued: false,
+      /** Why the last drop to ground left something where it was, or ''. */
+      dropNote: '',
+      /** One row per axis: its position, rotation and size fields. */
+      axes: [
+        {
+          name: 'X',
+          position: 'posX',
+          rotation: 'rotX',
+          size: 'sizeX',
+          sizeLabel: 'Length X',
+          color: 'var(--axis-x-field)',
+        },
+        {
+          name: 'Y',
+          position: 'posY',
+          rotation: 'rotY',
+          size: 'sizeY',
+          sizeLabel: 'Width Y',
+          color: 'var(--axis-y-field)',
+        },
+        {
+          name: 'Z',
+          position: 'posZ',
+          rotation: 'rotZ',
+          size: 'sizeZ',
+          sizeLabel: 'Height Z',
+          color: 'var(--axis-z-field)',
+        },
+      ],
     };
   },
   computed: {
@@ -280,6 +282,11 @@ export default {
       return `Held by ${names.length} structures. Move those instead.`;
     },
   },
+  watch: {
+    fixture() {
+      this.dropNote = '';
+    },
+  },
   mounted() {
     EventBus.on('transform_changed', this.queueLiveRead);
   },
@@ -294,6 +301,41 @@ export default {
      */
     restoreSize() {
       if (this.fixture) this.fixture.restoreSize();
+    },
+    /** @param {String} field an axis field, such as `posX` or `rotZ` */
+    axisValue(field) {
+      return this[field];
+    },
+    setAxis(field, value) {
+      this[field] = value;
+    },
+    /**
+     * Turns the subject half a turn about one axis, kept within -180 to 180.
+     *
+     * @public
+     * @param {String} field `rotX`, `rotY` or `rotZ`
+     */
+    turn180(field) {
+      if (!this.fixture) return;
+      let next = (Number(this[field]) || 0) + 180;
+      if (next > 180) next -= 360;
+      this[field] = Math.round(next * 10) / 10;
+      this.liveTick += 1;
+    },
+    /**
+     * Stands the subject on the ground under it: each item of a selection on
+     * its own, a structure as one piece.
+     *
+     * @public
+     */
+    drop() {
+      if (!this.fixture) return;
+      const items = Array.isArray(this.fixture.items) ? this.fixture.items : [this.fixture];
+      const { refused } = dropToGround(items);
+      if (!refused.length) this.dropNote = '';
+      else if (items.length === 1) this.dropNote = refused[0].reason;
+      else this.dropNote = `${refused.length} of ${items.length} left where they were: ${refused[0].reason}`;
+      this.liveTick += 1;
     },
     /**
      * Schedules one re-read per frame.
@@ -318,12 +360,36 @@ export default {
 
 <style scoped>
 .position_tool {
-  max-width: 170px;
-  min-width: 170px;
+  max-width: 212px;
+  min-width: 212px;
 }
 .position_tool.position_tool_scaled {
-  max-width: 255px;
-  min-width: 255px;
+  max-width: 296px;
+  min-width: 296px;
+}
+/* Position and rotation each take a 72 px field and an 18 px button; size,
+   shown for a model, is a field alone. The 8 px columns between them stay
+   empty, so a field sits 2 px from its own button and 8 px from the next. */
+.position_tool_grid {
+  display: grid;
+  grid-template-columns: 72px 18px 8px 72px 18px;
+  column-gap: 2px;
+  row-gap: 8px;
+  align-items: end;
+}
+.position_tool_scaled .position_tool_grid {
+  grid-template-columns: 72px 18px 8px 72px 18px 8px 72px;
+}
+.position_tool_grid > .col_position { grid-column: 1; }
+.position_tool_grid > .col_position_button { grid-column: 2; }
+.position_tool_grid > .col_rotation { grid-column: 4; }
+.position_tool_grid > .col_rotation_button { grid-column: 5; }
+.position_tool_grid > .col_size { grid-column: 7; }
+.position_tool_grid > :deep(.uikit_num_input) {
+  width: 72px;
+}
+.position_tool_grid :deep(.label) {
+  white-space: nowrap;
 }
 .position_tool_body {
   height: 100%;
@@ -333,6 +399,30 @@ export default {
 .position_tool > :deep(.body) {
   /* The note wraps, and a nowrap ancestor would keep it on one clipped line. */
   white-space: normal;
+}
+/* As tall as the field beside it. */
+.drop_button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  background: var(--primary-light, #2a2a2e);
+  cursor: pointer;
+}
+.drop_button:hover:not(:disabled) {
+  background: var(--primary-lighter);
+}
+.drop_button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.drop_button :deep(svg) {
+  width: 12px;
+  height: 12px;
+  fill: var(--secondary-lighter);
 }
 .position_tool_model {
   flex-wrap: wrap;

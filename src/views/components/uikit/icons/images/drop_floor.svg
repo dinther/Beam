@@ -1,0 +1,8 @@
+<!--
+  Drop to floor, drawn for Beam: a "next" sign turned to point down, its bar
+  the floor it stops on.
+
+  The fill attribute is deliberately absent: these icons take their colour from
+  CSS, and a fill on the path would win over it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" height="24"><path d="M6 6h20L16 19.5zM6 22h20v3.5H6z"/></svg>

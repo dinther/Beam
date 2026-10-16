@@ -1,0 +1,7 @@
+<!--
+  Turn 180 degrees, drawn for Beam: a half circle with an arrowhead.
+
+  The fill attribute is deliberately absent: these icons take their colour from
+  CSS, and a fill on the path would win over it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" height="24"><path d="M4 19a11 11 0 0 1 22 0h-3.2a7.8 7.8 0 0 0-15.6 0zM19.2 18h10.4l-5.2 7z"/></svg>
