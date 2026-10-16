@@ -48,6 +48,16 @@
           and each may ask for several.
         </p>
 
+        <uk-select-input
+          v-model="squaresIndex"
+          label="Squares"
+          :options="squareNames"
+        />
+
+        <p class="layout_hint">
+          {{ squaresHint }}
+        </p>
+
         <p class="layout_summary">
           {{ fixtureCount }} patched
           {{ fixtureCount === 1 ? 'fixture' : 'fixtures' }},
@@ -120,6 +130,7 @@ import {
   PROJECTIONS,
   PROTOCOL_LABELS,
   PROTOCOLS,
+  SQUARES,
   edgeOnFixtures,
   isCameraView,
   universeOffset,
@@ -130,6 +141,12 @@ import { labelOf } from '@/models/DMX/item_naming';
 import { exportPatchSheet, itemsScope } from '@/models/DMX/patch_sheet';
 import EventBus from '@/plugins/eventbus';
 import PatchSheetOptions from './patchsheet.options.vue';
+
+/** What gets a square of its own, in the order the choice lists them. */
+const SQUARE_CHOICES = [
+  { id: SQUARES.MAPPING, label: 'One per mapping' },
+  { id: SQUARES.GROUP, label: 'One per group or structure' },
+];
 
 /** What the items can be exported as. */
 const APPLICATIONS = ['MadMapper layout', 'Patch sheet (PDF)'];
@@ -219,6 +236,8 @@ export default {
       // imported into rather than to the show, and a rig only has one answer.
       protocolIndex: 0,
       protocolNames: PROTOCOL_LABELS.map((p) => p.label),
+      squaresIndex: 0,
+      squareNames: SQUARE_CHOICES.map((c) => c.label),
     };
   },
   computed: {
@@ -231,6 +250,14 @@ export default {
     },
     projection() {
       return (PROJECTION_LABELS[this.projectionIndex] || PROJECTION_LABELS[0]).id;
+    },
+    squares() {
+      return (SQUARE_CHOICES[this.squaresIndex] || SQUARE_CHOICES[0]).id;
+    },
+    squaresHint() {
+      return this.squares === SQUARES.MAPPING
+        ? 'Everything using a mapping shares its square, at its place in the room.'
+        : 'Each group or structure is fitted to a square of its own, per mapping.';
     },
     hint() {
       return HINTS[this.projection] || '';
@@ -311,12 +338,20 @@ export default {
       const groups = this.mappable
         .filter((g) => (g.members || []).some((m) => m.channels && m.channels.length));
       const grouped = new Set();
+      const mappings = new Set();
       let count = 0;
       groups.forEach((g) => {
         (g.members || []).forEach((m) => grouped.add(m.id));
-        count += Math.max(1, ((g.mappings || []).length));
+        const own = (g.mappings || []).length ? g.mappings : [this.projection];
+        own.forEach((m) => mappings.add(m));
+        count += own.length;
       });
-      return count + (this.exportable.some((f) => !grouped.has(f.id)) ? 1 : 0);
+      const loose = this.exportable.some((f) => !grouped.has(f.id));
+      if (this.squares === SQUARES.MAPPING) {
+        if (loose) mappings.add(this.projection);
+        return mappings.size;
+      }
+      return count + (loose ? 1 : 0);
     },
     /**
      * Fixtures this view sees end-on, which it cannot honestly represent.
@@ -403,6 +438,7 @@ export default {
         definitionName: nameOf,
         perspective: this.perspective,
         protocol: this.protocol,
+        squares: this.squares,
       });
       if (!svg) return;
       // Named for the one item when one is exported -- a single truss or

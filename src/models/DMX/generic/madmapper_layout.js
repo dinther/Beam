@@ -817,6 +817,21 @@ export const ISLAND_GROUPING = {
 };
 
 /**
+ * What gets a square of its own on the canvas.
+ *
+ * @constant {Object}
+ */
+export const SQUARES = {
+  /** Each group or structure per mapping, fitted to fill its square. */
+  GROUP: 'group',
+  /**
+   * Each mapping, holding every group, structure and fixture that uses it at
+   * its place in the room.
+   */
+  MAPPING: 'mapping',
+};
+
+/**
  * The mappings a group asks for, falling back to the export's own default.
  *
  * @param {Object} group
@@ -867,7 +882,8 @@ function islandParts(members) {
 /**
  * The scene as a MadMapper fixture layout.
  *
- * Every group is flattened its own way, into its own square. A group asking
+ * Every group is flattened its own way, into its own square, unless `squares`
+ * asks for one square per mapping shared by everything using it. A group asking
  * for more than one mapping appears once per mapping, at the same addresses
  * each time and under a different name -- which MadMapper accepts, because it
  * settles collisions on the name rather than the address. That is what lets a
@@ -889,6 +905,7 @@ function islandParts(members) {
  *   to whichever mappings are camera views
  * @param {String} [options.protocol] the wire the receiving MadMapper project
  *   is set to, which decides whether it counts universes from zero or from one
+ * @param {String} [options.squares] what gets a square of its own; see SQUARES
  * @returns {String|null} SVG document, or null when there is nothing to draw
  */
 export function buildMadMapperLayout({
@@ -898,6 +915,7 @@ export function buildMadMapperLayout({
   definitionName = (f) => `${f.manufacturer} - ${f.model}`,
   perspective = null,
   protocol = PROTOCOLS.ARTNET,
+  squares = SQUARES.GROUP,
 } = {}) {
   // Taken once and applied where the id is written, so everything between here
   // and there -- addresses, bands, the entries themselves -- stays in Beam's
@@ -956,30 +974,47 @@ export function buildMadMapperLayout({
   // apart from. One projection in the file needs no saying.
   const manyMappings = order.length > 1;
 
+  // A square holds one island, or with SQUARES.MAPPING every island of one
+  // mapping, so islands sharing a mapping keep their places in the room.
+  const squareList = [];
+  if (squares === SQUARES.MAPPING) {
+    const byMapping = new Map();
+    islands.forEach((island) => {
+      if (!byMapping.has(island.mapping)) {
+        byMapping.set(island.mapping, { mapping: island.mapping, islands: [] });
+        squareList.push(byMapping.get(island.mapping));
+      }
+      byMapping.get(island.mapping).islands.push(island);
+    });
+  } else {
+    islands.forEach((island) => squareList.push({ mapping: island.mapping, islands: [island] }));
+  }
+
   /**
-   * Flattens one island and fits it to its square.
+   * Flattens one square's islands and fits them to the square.
    *
-   * @param {Object} island
+   * @param {Object} square `{ mapping, islands }`
    * @returns {Object} rendered lines and the prefix used
    */
-  const buildIsland = (island) => {
-    const frame = layoutFrame(island.members);
-    const eye = perspective && isCameraView(island.mapping) ? perspective : null;
-    const prefix = prefixOf.get(island.mapping) || 'FRT';
+  const buildSquare = (square) => {
+    const frame = layoutFrame([...new Set([].concat(...square.islands.map((i) => i.members)))]);
+    const eye = perspective && isCameraView(square.mapping) ? perspective : null;
+    const prefix = prefixOf.get(square.mapping) || 'FRT';
 
     // A line-up hands each member a place in the row. It is the order they sit
     // in the structure's own list -- the order on screen, and the one the user
     // can see -- rather than anything derived from the patch or the geometry:
     // a circle of movers is rarely addressed the way it is arranged, and the
     // whole point of the mapping is that the arrangement no longer matters.
-    const inARow = island.mapping === PROJECTIONS.LINE;
+    const inARow = square.mapping === PROJECTIONS.LINE;
+    let slots = 0;
 
     // One fixture can contribute several entries: a tile too large for a single
     // MadMapper fixture is exported as one band per part.
-    const entries = [].concat(...island.members.map(
-      (fixture, place) => prepare(fixture, island.mapping, definitionName, frame, eye, {
+    const entries = [].concat(...square.islands.map((island) => [].concat(...island.members.map(
+      (fixture) => prepare(fixture, island.mapping, definitionName, frame, eye, {
         islandPart: island.part || null,
-        slot: inARow ? place : null,
+        slot: inARow ? slots++ : null,
       })
         // The outermost group is the biggest thing this fixture belongs to,
         // and the mapping is a group inside it. So a structure mapped two ways
@@ -997,7 +1032,7 @@ export function buildMadMapperLayout({
           group: (island.fromGroup ? island.name : entry.owner) || island.name,
           inner: manyMappings ? prefix : null,
         })),
-    ));
+    ))));
 
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
     const see = (x, y) => {
@@ -1039,11 +1074,11 @@ export function buildMadMapperLayout({
     const padY = (ISLAND_SIZE - spanY * scale) / 2;
 
     return {
-      entries, minX, minY, scale, padX, padY, prefix, name: island.name,
+      entries, minX, minY, scale, padX, padY, prefix,
     };
   };
 
-  const built = islands.map(buildIsland);
+  const built = squareList.map(buildSquare);
 
   // Laid out in as square a grid as the count allows.
   const columns = Math.max(1, Math.ceil(Math.sqrt(built.length)));

@@ -10,7 +10,9 @@
  *   npm test
  */
 import fs from 'node:fs';
-import { buildMadMapperLayout, PROJECTIONS, PROTOCOLS } from '@/models/DMX/generic/madmapper_layout';
+import {
+  buildMadMapperLayout, PROJECTIONS, PROTOCOLS, SQUARES,
+} from '@/models/DMX/generic/madmapper_layout';
 
 let failures = 0;
 
@@ -205,6 +207,43 @@ console.log('\n-- the real profile, in the shape of a real show --');
     false,
   );
   check('two groups, not sixteen', ids.length, 2);
+}
+
+console.log('\n-- one square per mapping keeps structures where they stand --');
+{
+  // Two structures of two heads, 4 m apart. A square each fits both alike;
+  // one shared square keeps the gap, and a group set to another mapping still
+  // gets that mapping's square.
+  const near = {
+    id: 1, name: 'near', members: [at(1, 0), at(4, 1)], mappings: [],
+  };
+  const far = {
+    id: 2, name: 'far', members: [at(7, 4), at(10, 5)], mappings: [],
+  };
+  const wall = {
+    id: 3, name: 'wall', members: [at(13, 0)], mappings: [PROJECTIONS.TOP],
+  };
+  const all = [...near.members, ...far.members, ...wall.members];
+  const svg = (squares) => buildMadMapperLayout({
+    fixtures: all,
+    groups: [near, far, wall],
+    projection: PROJECTIONS.FRONT,
+    definitionName: () => 'beatline - Head',
+    protocol: PROTOCOLS.ARTNET,
+    squares,
+  });
+  const sizeOf = (text) => String(text).match(/width="(\d+)" height="(\d+)"/).slice(1).map(Number);
+  const xsOf = (text, id) => {
+    const body = String(text).match(new RegExp(`<g id="${id}">([\\s\\S]*?)</g>`))[1];
+    return [...body.matchAll(/points="([-\d.]+),/g)].map((m) => Number(m[1]));
+  };
+  const shared = svg(SQUARES.MAPPING);
+  check('two mappings, two squares in a row', sizeOf(shared), [2 * 1024 + 64, 1024]);
+  const nearX = Math.max(...xsOf(shared, 'near'));
+  const farX = Math.min(...xsOf(shared, 'far'));
+  check('the far structure is right of the near one', farX > nearX, true);
+  check('each structure keeps its group', groupsIn(shared).sort(), ['far', 'near', 'wall']);
+  check('a square each is three squares in two rows', sizeOf(svg(SQUARES.GROUP)), [2 * 1024 + 64, 2 * 1024 + 64]);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
