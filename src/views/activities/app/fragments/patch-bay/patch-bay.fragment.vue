@@ -85,6 +85,7 @@ import Controls from '@/plugins/visualizer/controls';
 import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
+import ViewFilter from '@/models/DMX/view_filter';
 import { displayNameOf } from '@/models/DMX/item_naming';
 import { formatAddress } from '@/models/DMX/address_format';
 import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
@@ -240,8 +241,13 @@ export default {
       // By uid, which is unique across kinds: a structure holding object 3
       // must not hide fixture 3.
       const spokenFor = new Set();
+      // What the view filter leaves out is left out of the list as well.
+      const listed = (item) => !ViewFilter.hides(item);
       const groups = this.show.groups.map((group) => {
         group.members.forEach((member) => spokenFor.add(member.uid));
+        const members = group.members.filter(listed);
+        // A group whose every member is filtered out has nothing to show.
+        if (group.members.length && !members.length) return null;
         // Its own icon rather than the selector's folder: a group is a thing
         // in the show, not a place to look in.
         return [group, {
@@ -251,10 +257,10 @@ export default {
           kind: group.kind,
           uid: group.uid,
           groupId: group.id,
-          unfold: group.members
+          unfold: members
             .map((member) => this.withVisibility(member, this.describeFixture(member), counts)),
         }];
-      });
+      }).filter(Boolean);
       // Structures are flat rows with nothing to unfold. What they hold sits
       // at coordinates relative to them, which makes those things not scene
       // items -- they are reached through the structure's own widget, and
@@ -262,14 +268,14 @@ export default {
       const structures = this.show.structures.map((structure) => {
         structure.members.forEach((member) => spokenFor.add(member.uid));
         return [structure, structure.listable];
-      });
+      }).filter(([structure]) => listed(structure));
       // Objects are scene items too, and flat rows for the same reason
       // structures are, unless a structure holds them.
       const objects = (this.show.objects || [])
-        .filter((object) => !spokenFor.has(object.uid))
+        .filter((object) => !spokenFor.has(object.uid) && listed(object))
         .map((object) => [object, object.listable]);
       const loose = this.pool.fixtures
-        .filter((fixture) => !spokenFor.has(fixture.uid))
+        .filter((fixture) => !spokenFor.has(fixture.uid) && listed(fixture))
         .map((fixture) => [fixture, this.describeFixture(fixture)]);
       // In the order the user dragged them into. An item never placed has no
       // listOrder and follows the placed ones, in the order above; the sort is

@@ -1,9 +1,13 @@
 import * as THREE from 'three';
-import { reactive, markRaw, toRaw } from 'vue';
+import {
+  reactive, markRaw, toRaw, watch,
+} from 'vue';
+import Selection from '@/models/DMX/selection';
+import ViewFilter, { MEASURE_FILTERS } from '@/models/DMX/view_filter';
 import SceneObjects from './scene_objects';
 import {
   featureEdges, closestOnSegment, closestOnLine, footOnPlane, closestOnLineToRay,
-  angleAt, distanceBetween, lineAngle, formatLength, formatAngle,
+  angleAt, distanceBetween, lineAngle, angleToX, formatLength, formatAngle,
 } from './measure_math';
 
 /**
@@ -53,6 +57,8 @@ const LINE_COLOUR = '#ffffff';
 const LOCK_COLOUR = '#a855f7';
 const HIGHLIGHT_COLOUR = '#1ca6bd';
 const LABEL_HEIGHT = 18;
+/** How close, in screen pixels, a click must be to a line to pick it. */
+const PICK_LINE_PX = 5;
 
 const FLOOR = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const UP = new THREE.Vector3(0, 0, 1);
@@ -97,10 +103,77 @@ const ndc = new THREE.Vector2();
 const instanceMatrix = new THREE.Matrix4();
 const inverseMatrix = new THREE.Matrix4();
 const normalMatrix = new THREE.Matrix3();
+const frameMatrix = new THREE.Matrix4();
+const frameParts = {
+  position: new THREE.Vector3(),
+  euler: new THREE.Euler(),
+  quaternion: new THREE.Quaternion(),
+  scale: new THREE.Vector3(),
+};
+/** How far, in metres, an end has to move to count as moved. */
+const MOVED_M = 1e-6;
+
+/**
+ * An item's placement as a matrix: position and rotation from the scene node
+ * the gizmo moves, so an end follows a drag while it happens rather than when
+ * the model is written at its end; scale, for an object, from the model.
+ * Without a node, the model's own position and rotation.
+ *
+ * @param {Object} item a fixture or an object
+ * @param {THREE.Matrix4} target
+ * @returns {THREE.Matrix4|null} null when the item has no usable placement
+ */
+function frameOf(item, target) {
+  if (!item) return null;
+  const {
+    position, euler, quaternion, scale,
+  } = frameParts;
+  const model = toRaw(item._3DModel);
+  const node = model && model._dummy;
+  if (node) {
+    node.updateWorldMatrix(true, false);
+    node.matrixWorld.decompose(position, quaternion, scale);
+  } else {
+    const at = item.position;
+    const turn = item.rotationRad;
+    if (!at || !turn) return null;
+    position.set(at.x, at.y, at.z);
+    quaternion.setFromEuler(euler.set(turn.x, turn.y, turn.z));
+  }
+  const s = item.scale;
+  if (s && typeof s === 'object') scale.set(s.x, s.y, s.z);
+  else scale.set(1, 1, 1);
+  target.compose(position, quaternion, scale);
+  return Math.abs(target.determinant()) > 1e-12 ? target : null;
+}
+
+/**
+ * Ties an end to the item it was snapped to: the point, normal and direction
+ * in the item's own frame, so the end follows the item when it is moved,
+ * turned or scaled.
+ *
+ * @param {Object} item a fixture or an object
+ * @param {Object} fields `{ point, normal, dir }` in world space
+ * @returns {Object|null} the anchor, or null for an item without a placement
+ */
+function anchorFor(item, { point, normal, dir }) {
+  const placed = frameOf(item, frameMatrix);
+  if (!placed) return null;
+  const linear = new THREE.Matrix3().setFromMatrix4(placed);
+  return {
+    item,
+    local: point.clone().applyMatrix4(placed.clone().invert()),
+    // A normal goes back through the transpose and a direction through the
+    // inverse, so both come out right again under a non-uniform scale.
+    normal: normal ? normal.clone().applyMatrix3(linear.clone().transpose()).normalize() : null,
+    dir: dir ? dir.clone().applyMatrix3(linear.clone().invert()).normalize() : null,
+  };
+}
 
 /**
  * An end as a measurement keeps it: where it is, what it was snapped to, and
- * the face normal or edge direction that came with it.
+ * the face normal or edge direction that came with it. An end snapped to a
+ * fixture or an object carries an anchor to it.
  *
  * @param {Object} fields
  * @returns {Object} raw, so Vue leaves the vectors alone
@@ -113,6 +186,7 @@ function makeEnd(fields) {
     kind: fields.kind,
     label: fields.keepLabel || fields.label,
     axis: fields.axis || null,
+    anchor: fields.owner ? anchorFor(fields.owner, fields) : null,
   });
 }
 
@@ -289,19 +363,21 @@ function snapAt(event) {
     if (normal.dot(raycaster.ray.direction) > 0) normal.negate();
     const name = nameOf(owner);
     surface = {
-      kind: 'face', point: hit.point.clone(), normal, label: `face, ${name}`, d: 0,
+      kind: 'face', point: hit.point.clone(), normal, owner, label: `face, ${name}`, d: 0,
     };
-    if (!free) candidates.push(...edgeCandidates(hit, matrix, cursor, name));
+    if (!free) {
+      edgeCandidates(hit, matrix, cursor, name).forEach((c) => candidates.push({ ...c, owner }));
+    }
   } else if (hit && owner && free) {
     surface = {
-      kind: 'face', point: hit.point.clone(), normal: null, label: `free, ${nameOf(owner)}`, d: 0,
+      kind: 'face', point: hit.point.clone(), normal: null, owner, label: `free, ${nameOf(owner)}`, d: 0,
     };
   } else if (hit && owner) {
     // Fixtures are picked by an invisible box; their own points are what is
     // worth measuring to.
     fixturePoints(owner).forEach(({ name, point }) => {
       candidates.push({
-        kind: 'fixture', point, label: `${name}, ${nameOf(owner)}`, d: screenDistance(point, cursor),
+        kind: 'fixture', point, owner, label: `${name}, ${nameOf(owner)}`, d: screenDistance(point, cursor),
       });
     });
   } else {
@@ -326,6 +402,8 @@ function snapAt(event) {
         point: end.point.clone(),
         normal: end.normal,
         dir: end.dir,
+        // Snapped to an end that follows an item, so this one follows it too.
+        owner: end.anchor ? end.anchor.item : null,
         label: `${of}, ${end.label}`,
         // Stored as the point it was, so a chain of snaps does not grow the name.
         keepLabel: end.label,
@@ -335,24 +413,27 @@ function snapAt(event) {
   }
 
   const from = state.mode === MEASURE_MODES.THROW ? null : state.pending[state.pending.length - 1];
+  // An end placed along an axis from the last point moves with that point's item.
+  const fromItem = from && from.anchor ? from.anchor.item : null;
   if (from && !free) {
+    // A perpendicular foot lies on a face or edge, and moves with its item.
     if (surface) {
       const foot = footOnPlane(from.point, surface.point, surface.normal, new THREE.Vector3());
       candidates.push({
-        kind: 'perpendicular', point: foot, normal: surface.normal, label: `perpendicular to ${surface.label}`, d: screenDistance(foot, cursor),
+        kind: 'perpendicular', point: foot, normal: surface.normal, owner: surface.owner, label: `perpendicular to ${surface.label}`, d: screenDistance(foot, cursor),
       });
     }
     candidates.filter((c) => c.kind === 'edge' && c.d <= SNAP_PX.edge * 2).forEach((edge) => {
       const foot = closestOnLine(from.point, edge.edgeA, edge.dir, new THREE.Vector3());
       candidates.push({
-        kind: 'perpendicular', point: foot, dir: edge.dir, label: `perpendicular to ${edge.label}`, d: screenDistance(foot, cursor),
+        kind: 'perpendicular', point: foot, dir: edge.dir, owner: edge.owner, label: `perpendicular to ${edge.label}`, d: screenDistance(foot, cursor),
       });
     });
     if (!state.axisLock) {
       Object.entries(AXES).forEach(([key, axis]) => {
         const point = closestOnLineToRay(raycaster.ray, from.point, axis.dir, new THREE.Vector3());
         candidates.push({
-          kind: 'axis', axis: key, point, label: `on ${key} axis`, d: screenDistance(point, cursor),
+          kind: 'axis', axis: key, point, owner: fromItem, label: `on ${key} axis`, d: screenDistance(point, cursor),
         });
       });
     }
@@ -378,8 +459,10 @@ function snapAt(event) {
       : closestOnLineToRay(raycaster.ray, from.point, axis.dir, new THREE.Vector3());
     const source = best && best.kind !== 'floor' ? best : null;
     const label = source ? `on ${state.axisLock} axis, level with ${source.label}` : `on ${state.axisLock} axis`;
+    // With the last point on nothing, the item it was levelled with.
+    const follows = fromItem || (source && source.owner) || null;
     best = {
-      kind: 'axis', axis: state.axisLock, locked: true, source, point, label, d: 0,
+      kind: 'axis', axis: state.axisLock, locked: true, source, point, owner: follows, label, d: 0,
     };
   }
   if (best) best.cursor = cursor;
@@ -394,12 +477,57 @@ function snapAt(event) {
  */
 function headline(measurement) {
   const v = measurement.values;
-  if (measurement.kind === MEASURE_MODES.ANGLE) return formatAngle(v.angle);
-  if (measurement.kind === MEASURE_MODES.THROW) return `throw ${formatLength(v.distance)}`;
-  if (v.gap !== undefined) return `gap ${formatLength(v.gap)}`;
-  const angle = v.faceAngle !== undefined ? v.faceAngle : v.edgeAngle;
-  if (angle !== undefined) return `${formatLength(v.distance)} · ${formatAngle(angle)}`;
-  return formatLength(v.distance);
+  const { showLength, showAngle } = measurement;
+  const parts = [];
+  const angle = labelAngle(measurement); // eslint-disable-line no-use-before-define
+  if (measurement.kind === MEASURE_MODES.ANGLE) {
+    if (showAngle && angle) parts.push(formatAngle(angle.shown));
+    if (showLength) parts.push(`${formatLength(v.armA)} / ${formatLength(v.armC)}`);
+    return parts.join(' · ');
+  }
+  if (showLength) {
+    if (measurement.kind === MEASURE_MODES.THROW) parts.push(`throw ${formatLength(v.distance)}`);
+    else parts.push(v.gap !== undefined ? `gap ${formatLength(v.gap)}` : formatLength(v.distance));
+  }
+  if (showAngle && angle) parts.push(formatAngle(angle.shown));
+  return parts.join(' · ');
+}
+
+/**
+ * The angle a measurement's label shows: a three-point angle's own, a face or
+ * edge angle, or else the angle from +X to the line from the first point to
+ * the second. Flipped, the first and last turn to 360 less, a face or edge
+ * angle to 180 less.
+ *
+ * @param {Object} measurement
+ * @returns {Object|null} `{ key, measured, shown }`, or null when it has none
+ */
+function labelAngle(measurement) {
+  const v = measurement.values;
+  let key = 'xAngle';
+  if (measurement.kind === MEASURE_MODES.ANGLE) key = 'angle';
+  else if (v.gap === undefined && v.faceAngle !== undefined) key = 'faceAngle';
+  else if (v.edgeAngle !== undefined) key = 'edgeAngle';
+  const measured = v[key];
+  if (!Number.isFinite(measured)) return null;
+  const turn = key === 'faceAngle' || key === 'edgeAngle' ? 180 : 360;
+  return { key, measured, shown: measurement.flipAngle ? turn - measured : measured };
+}
+
+/**
+ * What a new measurement's label shows: as it always has, so the angle to +X
+ * and an angle's arm lengths start off.
+ *
+ * @param {String} kind
+ * @param {Object} values
+ * @returns {Object} `{ showLength, showAngle }`
+ */
+function labelDefaults(kind, values) {
+  if (kind === MEASURE_MODES.ANGLE) return { showLength: false, showAngle: true };
+  if (kind === MEASURE_MODES.THROW) return { showLength: true, showAngle: false };
+  const own = (values.gap === undefined && values.faceAngle !== undefined)
+    || values.edgeAngle !== undefined;
+  return { showLength: true, showAngle: own };
 }
 
 /**
@@ -413,8 +541,11 @@ export function detailsOf(measurement) {
   const v = measurement.values;
   const rows = [];
   const add = (label, text) => rows.push([label, text]);
+  // The angle the label uses reads as the label does, flipped or not.
+  const shown = labelAngle(measurement);
+  const angleOf = (key) => formatAngle(shown && shown.key === key ? shown.shown : v[key]);
   if (measurement.kind === MEASURE_MODES.ANGLE) {
-    add('angle', formatAngle(v.angle));
+    add('angle', angleOf('angle'));
     add('arms', `${formatLength(v.armA)}, ${formatLength(v.armC)}`);
     return rows;
   }
@@ -423,11 +554,13 @@ export function detailsOf(measurement) {
     add('lens height', formatLength(v.lensHeight));
     add('horizontal', formatLength(v.horizontal));
     if (v.incidence !== undefined) add('incidence', formatAngle(v.incidence));
+    if (v.xAngle !== undefined) add('angle to +x', angleOf('xAngle'));
     return rows;
   }
   if (v.gap !== undefined) add('gap', formatLength(v.gap));
-  if (v.faceAngle !== undefined) add('face angle', formatAngle(v.faceAngle));
-  if (v.edgeAngle !== undefined) add('edge angle', formatAngle(v.edgeAngle));
+  if (v.faceAngle !== undefined) add('face angle', angleOf('faceAngle'));
+  if (v.edgeAngle !== undefined) add('edge angle', angleOf('edgeAngle'));
+  if (v.xAngle !== undefined) add('angle to +x', angleOf('xAngle'));
   add('distance', formatLength(v.distance));
   add('horizontal', formatLength(v.horizontal));
   add('vertical', formatLength(v.vertical));
@@ -455,6 +588,9 @@ function addMeasurement(kind, ends, values) {
     number: (state.measurements.length
       ? state.measurements[state.measurements.length - 1].number : 0) + 1,
     kind,
+    hidden: false,
+    ...labelDefaults(kind, values),
+    flipAngle: false,
     ends: markRaw(ends),
     values,
   };
@@ -483,10 +619,26 @@ function measureThrow(event) {
   const hit = raycaster.intersectObjects(context.pickTargets(), false)
     .find((h) => context.shown(context.ownerOfHit(h)));
   const fixture = hit ? context.ownerOfHit(hit) : null;
-  const model = fixture && toRaw(fixture._3DModel);
-  if (!model || !model.lensWorldPosition || hit.object.userData.sceneObjectModel) {
+  if (!fixture || hit.object.userData.sceneObjectModel) {
     state.message = 'Click a fixture with a lens to measure its throw.';
     return;
+  }
+  const measured = throwFrom(fixture); // eslint-disable-line no-use-before-define
+  state.message = measured.message || '';
+  if (measured.ends) addMeasurement(MEASURE_MODES.THROW, measured.ends, measured.values);
+}
+
+/**
+ * A fixture's throw as it stands: from its lens along the beam to the first
+ * surface, or the floor.
+ *
+ * @param {Object} fixture
+ * @returns {Object} `{ ends, values }`, or `{ message }` when there is none
+ */
+function throwFrom(fixture) {
+  const model = fixture && toRaw(fixture._3DModel);
+  if (!model || !model.lensWorldPosition) {
+    return { message: 'Click a fixture with a lens to measure its throw.' };
   }
   const lens = model.lensWorldPosition(new THREE.Vector3());
   const dir = model._beamDummy.getWorldDirection(new THREE.Vector3());
@@ -498,8 +650,9 @@ function measureThrow(event) {
   if (landing) {
     normalMatrix.getNormalMatrix(hitMatrix(landing));
     const normal = landing.face.normal.clone().applyMatrix3(normalMatrix).normalize();
+    const surface = context.ownerOfHit(landing);
     end = {
-      point: landing.point, normal, kind: 'face', label: `face, ${nameOf(context.ownerOfHit(landing))}`,
+      point: landing.point, normal, owner: surface, kind: 'face', label: `face, ${nameOf(surface)}`,
     };
   }
   const floor = beam.ray.intersectPlane(FLOOR, new THREE.Vector3());
@@ -508,23 +661,23 @@ function measureThrow(event) {
       point: floor, normal: UP.clone(), kind: 'floor', label: 'floor',
     };
   }
-  if (!end) {
-    state.message = `The beam of ${nameOf(fixture)} meets nothing.`;
-    return;
-  }
+  if (!end) return { message: `The beam of ${nameOf(fixture)} meets nothing.` };
   const values = {
     distance: end.point.distanceTo(lens),
     lensHeight: lens.z,
     horizontal: Math.hypot(end.point.x - lens.x, end.point.y - lens.y),
     incidence: lineAngle(dir.clone().negate(), end.normal),
+    xAngle: angleToX(end.point.clone().sub(lens)),
   };
-  state.message = '';
-  addMeasurement(MEASURE_MODES.THROW, [
-    makeEnd({
-      point: lens, dir, kind: 'fixture', label: `lens, ${nameOf(fixture)}`,
-    }),
-    makeEnd(end),
-  ], values);
+  return {
+    ends: [
+      makeEnd({
+        point: lens, dir, owner: fixture, kind: 'fixture', label: `lens, ${nameOf(fixture)}`,
+      }),
+      makeEnd(end),
+    ],
+    values,
+  };
 }
 
 /**
@@ -624,7 +777,7 @@ function ensureOverlay() {
   labels.addEventListener('pointerdown', (e) => {
     const id = Number(e.target.closest('[data-id]') && e.target.closest('[data-id]').dataset.id);
     if (id) {
-      state.selectedId = id;
+      select(id); // eslint-disable-line no-use-before-define
       e.stopPropagation();
     }
   });
@@ -694,14 +847,23 @@ function spreadLabels(placed) {
   });
 }
 
-/** One frame of the overlay. */
-function draw() {
-  if (!context) return;
-  const { element } = context.view;
-  const rect = element.getBoundingClientRect();
+/**
+ * Takes the camera and canvas size as they are now, for projecting points.
+ *
+ * @returns {DOMRect} the canvas's rectangle
+ */
+function updateView() {
+  const rect = context.view.element.getBoundingClientRect();
   context.view.camera = context.camera();
   context.view.width = rect.width;
   context.view.height = rect.height;
+  return rect;
+}
+
+/** One frame of the overlay. */
+function draw() {
+  if (!context) return;
+  const rect = updateView();
   const o = ensureOverlay();
   Object.assign(o.root.style, {
     left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
@@ -715,7 +877,7 @@ function draw() {
 
   let svg = '';
   const labels = [];
-  state.measurements.forEach((m) => {
+  state.measurements.filter(isDrawn).forEach((m) => { // eslint-disable-line no-use-before-define
     const lit = m.id === state.selectedId || m.id === state.hoverId;
     const colour = lit ? HIGHLIGHT_COLOUR : LINE_COLOUR;
     const width = lit ? 2.5 : 1.5;
@@ -728,6 +890,8 @@ function draw() {
     const at = m.kind === MEASURE_MODES.ANGLE
       ? screens[1]
       : { x: (screens[0].x + screens[1].x) / 2, y: (screens[0].y + screens[1].y) / 2 };
+    // Everything the label could say switched off: the line is drawn alone.
+    if (!m.headline) return;
     labels.push({
       p: { x: at.x, y: at.y - (m.kind === MEASURE_MODES.ANGLE ? 14 : 0) },
       text: m.headline,
@@ -777,22 +941,144 @@ function draw() {
   o.labels.innerHTML = labels.map((l) => labelHtml(l.text, l.p, l.id, l.lit)).join('');
 }
 
+/**
+ * Moves an anchored end to where its item now puts it.
+ *
+ * @param {Object} end
+ * @returns {Boolean} whether it moved
+ */
+function followAnchor(end) {
+  const { anchor } = end;
+  const placed = anchor && frameOf(anchor.item, frameMatrix);
+  if (!placed) return false;
+  const point = anchor.local.clone().applyMatrix4(placed);
+  if (point.distanceTo(end.point) < MOVED_M) return false;
+  end.point.copy(point);
+  if (anchor.normal && end.normal) {
+    end.normal.copy(anchor.normal).applyMatrix3(normalMatrix.getNormalMatrix(placed)).normalize();
+  }
+  if (anchor.dir && end.dir) {
+    end.dir.copy(anchor.dir).applyMatrix3(new THREE.Matrix3().setFromMatrix4(placed)).normalize();
+  }
+  return true;
+}
+
+/**
+ * Brings every measurement up to date with the items its ends are tied to.
+ * A throw whose fixture or landing surface moved is measured again.
+ *
+ * @public
+ */
+function refresh() {
+  state.measurements.forEach((m) => {
+    let moved = false;
+    m.ends.forEach((end) => { if (followAnchor(end)) moved = true; });
+    if (!moved) return;
+    if (m.kind === MEASURE_MODES.THROW) {
+      const fixture = m.ends[0].anchor && m.ends[0].anchor.item;
+      const measured = context && fixture ? throwFrom(fixture) : {};
+      if (!measured.ends) return;
+      m.ends = markRaw(measured.ends);
+      m.values = measured.values;
+    } else if (m.kind === MEASURE_MODES.ANGLE) {
+      const [a, vertex, c] = m.ends;
+      m.values = {
+        angle: angleAt(a.point, vertex.point, c.point),
+        armA: a.point.distanceTo(vertex.point),
+        armC: c.point.distanceTo(vertex.point),
+      };
+    } else {
+      m.values = distanceBetween(m.ends[0], m.ends[1]);
+    }
+    m.headline = headline(m);
+  });
+  state.pending.forEach(followAnchor);
+}
+
+/**
+ * Deletes every measurement with an end tied to an item that is being
+ * deleted.
+ *
+ * @public
+ * @param {Object} item a fixture or an object
+ */
+function forgetItem(item) {
+  const raw = toRaw(item);
+  const tied = (end) => end.anchor && toRaw(end.anchor.item) === raw;
+  if (state.pending.some(tied)) state.pending.splice(0);
+  const doomed = state.measurements.filter((m) => m.ends.some(tied)).map((m) => m.id);
+  doomed.forEach((id) => remove(id)); // eslint-disable-line no-use-before-define
+}
+
+/** Whether any measurement has an end that follows an item. */
+function anyAnchored() {
+  return state.measurements.some((m) => m.ends.some((end) => end.anchor));
+}
+
+/**
+ * Whether an end's item, or the structure or group holding it, is selected.
+ *
+ * @param {Object} end
+ * @returns {Boolean}
+ */
+function onSelection(end) {
+  const item = end.anchor && end.anchor.item;
+  if (!item) return false;
+  return Selection.has(item)
+    || (!!item.structure && Selection.has(item.structure))
+    || (!!item.group && Selection.has(item.group));
+}
+
+/**
+ * Whether a measurement is drawn: never when hidden by its own toggle, always
+ * while the tool is on, and otherwise as the view filter says.
+ *
+ * @param {Object} measurement
+ * @returns {Boolean}
+ */
+function isDrawn(measurement) {
+  // Selected is always drawn, whatever its own toggle and the filter say.
+  if (measurement.id === state.selectedId) return true;
+  if (measurement.hidden) return false;
+  if (state.active) return true;
+  switch (ViewFilter.state.measurements) {
+    case MEASURE_FILTERS.NONE: return false;
+    case MEASURE_FILTERS.SELECTION: return measurement.ends.some(onSelection);
+    default: return true;
+  }
+}
+
+/**
+ * Keeps anchored measurements current every frame, so the widget and the
+ * patch sheet read where things are, and draws them while the tool is on or
+ * the view filter shows them.
+ */
 function loop() {
   frame = 0;
-  if (!state.active) {
-    if (overlay) {
-      overlay.svg.innerHTML = '';
-      overlay.labels.innerHTML = '';
-    }
-    return;
+  refresh();
+  const drawing = state.active || state.selectedId !== null
+    || (ViewFilter.state.measurements !== MEASURE_FILTERS.NONE
+      && state.measurements.some((m) => !m.hidden));
+  if (drawing) {
+    draw();
+  } else if (overlay && overlay.svg.innerHTML) {
+    overlay.svg.innerHTML = '';
+    overlay.labels.innerHTML = '';
   }
-  draw();
-  frame = requestAnimationFrame(loop);
+  if (drawing || anyAnchored()) frame = requestAnimationFrame(loop);
 }
 
 function ensureLoop() {
   if (!frame) frame = requestAnimationFrame(loop);
 }
+
+ViewFilter.onChange(ensureLoop);
+
+// Items selected from anywhere -- the scene, the item list -- take the place of
+// a selected measurement.
+watch(() => Selection.items.length, (count) => {
+  if (count) state.selectedId = null;
+});
 
 /* -------------------------------------------------------------- controls */
 
@@ -880,11 +1166,95 @@ function remove(id) {
 }
 
 /**
+ * Sets what one measurement's label says.
+ *
+ * @public
+ * @param {Number} id
+ * @param {Object} settings any of `{ showLength, showAngle, flipAngle }`
+ */
+function setLabel(id, settings) {
+  const measurement = state.measurements.find((m) => m.id === id);
+  if (!measurement) return;
+  ['showLength', 'showAngle', 'flipAngle'].forEach((key) => {
+    if (key in settings) measurement[key] = !!settings[key];
+  });
+  measurement.headline = headline(measurement);
+  notifyChanged();
+}
+
+/**
+ * Hides or shows one measurement, whatever the view filter says.
+ *
+ * @public
+ * @param {Number} id
+ * @param {Boolean} hidden
+ */
+function setHidden(id, hidden) {
+  const measurement = state.measurements.find((m) => m.id === id);
+  if (!measurement || !!measurement.hidden === !!hidden) return;
+  measurement.hidden = !!hidden;
+  notifyChanged();
+  ensureLoop();
+}
+
+/**
+ * Selects a measurement in place of any selected items, or selects none.
+ *
  * @public
  * @param {Number|null} id the measurement to select, or null for none
  */
 function select(id) {
   state.selectedId = id;
+  if (id !== null && context && context.deselectItems) context.deselectItems();
+  ensureLoop();
+}
+
+/**
+ * The measurement whose line passes under the pointer, among those drawn.
+ *
+ * @public
+ * @param {Object} event pointer event in the 3D view
+ * @returns {Number|null} its id, or null
+ */
+function pickAt(event) {
+  if (!context) return null;
+  updateView(); // eslint-disable-line no-use-before-define
+  const rect = context.view.element.getBoundingClientRect();
+  const cursor = new THREE.Vector2(event.clientX - rect.left, event.clientY - rect.top);
+  const a = new THREE.Vector2();
+  const b = new THREE.Vector2();
+  let best = null;
+  let bestDistance = PICK_LINE_PX;
+  state.measurements.filter(isDrawn).forEach((m) => { // eslint-disable-line no-use-before-define
+    const screens = m.ends.map((end) => toScreen(end.point));
+    if (screens.some((s) => !s)) return;
+    for (let i = 1; i < screens.length; i += 1) {
+      a.set(screens[i - 1].x, screens[i - 1].y);
+      b.set(screens[i].x, screens[i].y);
+      const ab = b.clone().sub(a);
+      const along = ab.lengthSq() ? cursor.clone().sub(a).dot(ab) / ab.lengthSq() : 0;
+      const t = THREE.MathUtils.clamp(along, 0, 1);
+      const distance = a.clone().addScaledVector(ab, t).distanceTo(cursor);
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = m.id;
+      }
+    }
+  });
+  return best;
+}
+
+/**
+ * Puts the selected measurement on the clipboard as its line of text.
+ *
+ * @public
+ * @returns {Boolean} whether a measurement was selected to copy
+ */
+function copySelected() {
+  const measurement = state.measurements.find((m) => m.id === state.selectedId);
+  if (!measurement) return false;
+  if (navigator.clipboard) navigator.clipboard.writeText(textOf(measurement));
+  return true;
 }
 
 /**
@@ -903,10 +1273,28 @@ function hoverRow(id) {
  */
 function toJSON() {
   if (!state.measurements.length) return undefined;
+  refresh();
   const vector = (v) => (v ? [v.x, v.y, v.z] : undefined);
+  // The item an end follows, by kind and the id the project saves it under.
+  const on = ({ anchor }) => (anchor && anchor.item.id !== undefined ? {
+    kind: anchor.item.kind,
+    id: anchor.item.id,
+    local: vector(anchor.local),
+    normal: vector(anchor.normal),
+    dir: vector(anchor.dir),
+  } : undefined);
+  // The label settings, only where they differ from the defaults.
+  const unlessDefault = (m, key) => {
+    const fallback = labelDefaults(m.kind, m.values)[key];
+    return m[key] === fallback ? undefined : m[key];
+  };
   return state.measurements.map((m) => ({
     number: m.number,
     kind: m.kind,
+    hidden: m.hidden || undefined,
+    showLength: unlessDefault(m, 'showLength'),
+    showAngle: unlessDefault(m, 'showAngle'),
+    flipAngle: m.flipAngle || undefined,
     values: { ...m.values },
     ends: m.ends.map((end) => ({
       point: vector(end.point),
@@ -915,18 +1303,21 @@ function toJSON() {
       kind: end.kind,
       label: end.label,
       axis: end.axis || undefined,
+      on: on(end),
     })),
   }));
 }
 
 /**
  * Replaces the measurements with a project's. Entries that do not read as a
- * measurement are skipped.
+ * measurement are skipped. An end whose item cannot be found stays where it
+ * was saved.
  *
  * @public
  * @param {Array} [list] as `toJSON` writes it
+ * @param {Function} [resolve] `({ kind, id }) => item` for the loaded show
  */
-function load(list) {
+function load(list, resolve = () => null) {
   state.measurements.splice(0);
   state.pending.splice(0);
   state.selectedId = null;
@@ -936,24 +1327,48 @@ function load(list) {
     ? new THREE.Vector3(a[0], a[1], a[2]) : null);
   (Array.isArray(list) ? list : []).forEach((stored) => {
     if (!stored || !Object.values(MEASURE_MODES).includes(stored.kind)) return;
-    const ends = (stored.ends || []).map((end) => end && vector(end.point) && makeEnd({
-      point: vector(end.point),
-      normal: vector(end.normal),
-      dir: vector(end.dir),
-      kind: String(end.kind || ''),
-      label: String(end.label || ''),
-      axis: end.axis,
-    }));
+    const ends = (stored.ends || []).map((end) => {
+      if (!end || !vector(end.point)) return null;
+      const made = makeEnd({
+        point: vector(end.point),
+        normal: vector(end.normal),
+        dir: vector(end.dir),
+        kind: String(end.kind || ''),
+        label: String(end.label || ''),
+        axis: end.axis,
+      });
+      const item = end.on && vector(end.on.local) ? resolve(end.on) : null;
+      if (item) {
+        made.anchor = {
+          item,
+          local: vector(end.on.local),
+          normal: vector(end.on.normal),
+          dir: vector(end.on.dir),
+        };
+      }
+      return made;
+    });
     const needed = stored.kind === MEASURE_MODES.ANGLE ? 3 : 2;
     if (ends.length !== needed || ends.some((end) => !end)) return;
     const values = {};
     Object.entries(stored.values || {}).forEach(([key, value]) => {
       if (Number.isFinite(value)) values[key] = value;
     });
+    // Saved before the angle to +X was kept.
+    if (stored.kind !== MEASURE_MODES.ANGLE && values.xAngle === undefined) {
+      const xAngle = angleToX(ends[1].point.clone().sub(ends[0].point));
+      if (xAngle !== undefined) values.xAngle = xAngle;
+    }
+    const defaults = labelDefaults(stored.kind, values);
+    const setting = (key) => (typeof stored[key] === 'boolean' ? stored[key] : defaults[key]);
     const measurement = {
       id: nextId,
       number: Number.isFinite(stored.number) ? stored.number : state.measurements.length + 1,
       kind: stored.kind,
+      hidden: stored.hidden === true,
+      showLength: setting('showLength'),
+      showAngle: setting('showAngle'),
+      flipAngle: stored.flipAngle === true,
       ends: markRaw(ends),
       values,
     };
@@ -1027,6 +1442,12 @@ export default {
   select,
   hoverRow,
   toJSON,
+  refresh,
+  forgetItem,
+  setHidden,
+  setLabel,
+  pickAt,
+  copySelected,
   load,
   onChange,
   click,

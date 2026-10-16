@@ -1,0 +1,7 @@
+<!--
+  Angle, drawn for Beam: two arms from a corner and the arc between them.
+
+  The fill attribute is deliberately absent: these icons take their colour from
+  CSS, and a fill on the path would win over it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" height="24"><path d="M4 24h24v2H4zM4 24.6L21.3 7.3l1.4 1.4L5.4 26zM16 25a12 12 0 0 0-3.5-8.5l-1.4 1.4A10 10 0 0 1 14 25z"/></svg>

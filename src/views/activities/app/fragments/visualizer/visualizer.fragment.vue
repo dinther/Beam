@@ -13,42 +13,55 @@
       class="header"
       gap="4"
     >
+      <!-- Move, rotate, scale and measure: one tool at a time. -->
       <uk-button
-        :key="`translate-${gizmoMode}-${modeTick}`"
+        :key="`translate-${gizmoMode}-${measure.active}-${modeTick}`"
         square
         icon-only
         label="Move (T)"
         :value="false"
         toggleable
-        :model-value="gizmoMode === 'translate'"
+        :model-value="!measure.active && gizmoMode === 'translate'"
         icon="move"
         color="var(--accent-blue)"
         @click="setGizmoMode('translate')"
       />
       <uk-button
-        :key="`rotate-${gizmoMode}-${modeTick}`"
+        :key="`rotate-${gizmoMode}-${measure.active}-${modeTick}`"
         square
         icon-only
         label="Rotate (R)"
         :value="false"
         toggleable
-        :model-value="gizmoMode === 'rotate'"
+        :model-value="!measure.active && gizmoMode === 'rotate'"
         icon="rotate"
         color="var(--accent-blue)"
         @click="setGizmoMode('rotate')"
       />
       <uk-button
-        :key="`scale-${gizmoMode}-${modeTick}`"
+        :key="`scale-${gizmoMode}-${measure.active}-${modeTick}`"
         square
         icon-only
         label="Scale (S)"
         :value="false"
         toggleable
         :disabled="!canScale"
-        :model-value="gizmoMode === 'scale'"
+        :model-value="!measure.active && gizmoMode === 'scale'"
         icon="scale"
         color="var(--accent-blue)"
         @click="setGizmoMode('scale')"
+      />
+      <uk-button
+        :key="`measure-${measure.active}-${modeTick}`"
+        square
+        icon-only
+        label="Measure (M)"
+        icon="ruler"
+        :model-value="measure.active"
+        toggleable
+        :value="false"
+        color="var(--accent-blue)"
+        @click="toggleMeasure"
       />
       <div
         class="tool_divider"
@@ -64,17 +77,7 @@
         color="var(--accent-blue)"
         @click="toggleSnap"
       />
-      <uk-button
-        square
-        icon-only
-        label="Measure (M)"
-        icon="ruler"
-        :model-value="measure.active"
-        toggleable
-        :value="false"
-        color="var(--accent-blue)"
-        @click="toggleMeasure"
-      />
+      <view-filter />
       <uk-button
         square
         icon-only
@@ -175,6 +178,7 @@ import Selection from '@/models/DMX/selection';
 import Studio from '@/models/DMX/studio';
 import ViewMode from '@/plugins/view_mode';
 import MeasureTool from '@/plugins/visualizer/measure_tool';
+import ViewFilter from './view.filter.vue';
 
 /**
  * How often the live camera's stored viewpoint is refreshed while orbiting.
@@ -186,6 +190,7 @@ const CAMERA_SYNC_MS = 100;
 
 export default {
   name: 'VisualizerFragment',
+  components: { ViewFilter },
   compatConfig: {
     // or, for full vue 3 compat in this component:
     MODE: 3,
@@ -455,6 +460,8 @@ export default {
      */
     setGizmoMode(mode) {
       this.modeTick += 1;
+      // A transform tool ends measuring: the four are one set.
+      MeasureTool.toggle(false);
       this.$show.visualizerHandle.gizmoMode = mode;
       this.gizmoMode = this.$show.visualizerHandle.gizmoMode;
     },
@@ -464,6 +471,7 @@ export default {
      * @public
      */
     toggleMeasure() {
+      this.modeTick += 1;
       MeasureTool.toggle();
     },
     /**

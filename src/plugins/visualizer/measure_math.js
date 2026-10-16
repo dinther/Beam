@@ -132,6 +132,18 @@ export function angleAt(a, vertex, c) {
 }
 
 /**
+ * The angle from +X to a direction, 0 to 180.
+ *
+ * @param {THREE.Vector3} d from the first point to the second
+ * @returns {Number|undefined} degrees, or undefined for no length
+ */
+export function angleToX(d) {
+  const length = d.length();
+  if (length < 1e-12) return undefined;
+  return THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(d.x / length, -1, 1)));
+}
+
+/**
  * What two picked ends say. Each end is `{ point, normal?, dir? }`: a face
  * brings its normal, an edge its direction, both unit length.
  *
@@ -159,6 +171,8 @@ export function distanceBetween(a, b) {
     else values.faceAngle = angle;
   }
   if (a.dir && b.dir) values.edgeAngle = lineAngle(a.dir, b.dir);
+  const xAngle = angleToX(d);
+  if (xAngle !== undefined) values.xAngle = xAngle;
   return values;
 }
 

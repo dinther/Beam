@@ -1,6 +1,6 @@
 <template>
   <uk-flex class="fixture_modifier">
-    <!-- Shown while measuring. -->
+    <!-- Shown while measuring, and for a selected measurement. -->
     <measure-widget v-if="showsMeasure" />
     <structure-widget
       v-if="selectedStructure"
@@ -278,12 +278,13 @@ export default {
       return !this.selectedGroup && this.selectedItems.length > 1;
     },
     /**
-     * Whether the Measure widget shows: while measuring.
+     * Whether the Measure widget shows: while measuring, and while a
+     * measurement is selected.
      *
      * @returns {Boolean}
      */
     showsMeasure() {
-      return this.measure.active;
+      return this.measure.active || this.measure.selectedId !== null;
     },
   },
   watch: {

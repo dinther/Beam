@@ -7,6 +7,7 @@ import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
 import { sceneChanged } from './scene_changes';
+import ViewFilter from './view_filter';
 
 /**
  * @file One scene item built out of several, placed and moved as a unit.
@@ -357,9 +358,9 @@ class Structure extends withTransform(Proxify) {
     return !!this._hidden;
   }
 
-  /** @readonly @type {Boolean} */
+  /** Hidden by its own flag or by the view filter. @readonly @type {Boolean} */
   get isHidden() {
-    return !!this._hidden;
+    return !!this._hidden || ViewFilter.hides(this);
   }
 
   /**

@@ -580,6 +580,8 @@ class Controls {
    */
   renderGizmo(renderer) {
     if (!this.handle || !this.handle.object || !this.cameraHandle) return;
+    // Measuring is a tool of its own: the selection stays, its gizmo does not.
+    if (MeasureTool.state.active) return;
     const { autoClear } = renderer;
     renderer.autoClear = false;
     renderer.clearDepth();
@@ -622,6 +624,8 @@ class Controls {
         .flatMap((renderer) => renderer.pickObjects()).filter(Boolean),
       ownerOfHit,
       shown,
+      // A measurement and the items are never selected together.
+      deselectItems: () => this.deselectAll(),
       onActive: (on) => {
         this.handle.enabled = !on;
         el.style.cursor = on ? 'crosshair' : '';
@@ -759,12 +763,13 @@ class Controls {
       // stays where it is, so a crowded scene with no empty space to click
       // can still be cleared without losing the framing.
       this.deselectAll();
-    } else if (e.key.toLowerCase() === 't') {
-      this.gizmoMode = GIZMO_MODES.TRANSLATE;
-    } else if (e.key.toLowerCase() === 'r') {
-      this.gizmoMode = GIZMO_MODES.ROTATE;
-    } else if (e.key.toLowerCase() === 's') {
-      this.gizmoMode = GIZMO_MODES.SCALE;
+    } else if (['t', 'r', 's'].includes(e.key.toLowerCase())) {
+      // Move, rotate, scale and measure are one set of tools: picking a
+      // transform tool ends measuring.
+      MeasureTool.toggle(false);
+      this.gizmoMode = {
+        t: GIZMO_MODES.TRANSLATE, r: GIZMO_MODES.ROTATE, s: GIZMO_MODES.SCALE,
+      }[e.key.toLowerCase()];
     } else if (e.key === 'Delete') {
       // Asked for rather than done here: what a fixture or a structure means
       // when it is deleted -- addresses released, members taken with it -- is
@@ -808,6 +813,11 @@ class Controls {
   handleClipboardKey(e) {
     const key = e.key.toLowerCase();
     if (key !== 'c' && key !== 'v' && key !== 'd') return;
+    // A selected measurement copies as its line of text.
+    if (key === 'c' && MeasureTool.copySelected()) {
+      e.preventDefault();
+      return;
+    }
     // Copied rather than passed by reference: pasting changes the selection
     // these entries came from.
     const selection = Selection.items.map((entry) => ({ ...entry }));
@@ -1040,12 +1050,19 @@ class Controls {
       return;
     }
     if (this.handle && (this.handle.dragging || this.handle.axis)) return;
+    const travelled = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    // A click on a measurement's line selects the measurement, in place of
+    // whatever items were selected.
+    const measured = travelled <= CLICK_SLOP_PX ? MeasureTool.pickAt(e) : null;
+    if (measured !== null) {
+      MeasureTool.select(measured);
+      return;
+    }
     // A click in the scene moves the selection there, away from a measurement.
     MeasureTool.select(null);
     // Ctrl/Shift/Cmd extend the selection, matching the fixture list.
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
 
-    const travelled = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     if (travelled > CLICK_SLOP_PX) {
       this.selectFixturesInBand(e, down, additive);
       return;

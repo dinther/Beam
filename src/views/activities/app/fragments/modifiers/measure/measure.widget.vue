@@ -36,7 +36,8 @@
           v-for="m in measure.measurements"
           :key="m.id"
           class="measure_row"
-          :class="{ lit: m.id === measure.selectedId }"
+          :class="{ lit: m.id === measure.selectedId, hidden: m.hidden }"
+          :data-measure-id="m.id"
           @mouseenter="hover(m.id)"
           @mouseleave="hover(null)"
           @click="select(m.id)"
@@ -44,6 +45,49 @@
           <div class="measure_row_head">
             <span class="measure_number">{{ m.number }}</span>
             <span class="measure_headline">{{ m.headline }}</span>
+            <!-- What the label in the view says: one cluster, teal when on. -->
+            <div class="label_cluster">
+              <button
+                type="button"
+                class="label_toggle"
+                :class="{ on: m.showLength }"
+                :title="`${m.showLength ? 'Hide' : 'Show'} the length in the label`"
+                @click.stop="setLabel(m, { showLength: !m.showLength })"
+              >
+                <uk-icon name="ruler" />
+              </button>
+              <button
+                type="button"
+                class="label_toggle"
+                :class="{ on: m.showAngle }"
+                :title="`${m.showAngle ? 'Hide' : 'Show'} the angle in the label`"
+                @click.stop="setLabel(m, { showAngle: !m.showAngle })"
+              >
+                <uk-icon name="angle" />
+              </button>
+              <button
+                type="button"
+                class="label_toggle"
+                :class="{ on: m.flipAngle }"
+                title="Flip the angle to the other side"
+                @click.stop="setLabel(m, { flipAngle: !m.flipAngle })"
+              >
+                <uk-icon name="flip_x" />
+              </button>
+            </div>
+            <span class="measure_tool_gap" />
+            <uk-button
+              :key="`hide-${m.id}-${m.hidden}`"
+              icon="hide"
+              icon-only
+              flat
+              toggleable
+              :value="false"
+              :model-value="m.hidden"
+              color="var(--accent-blue)"
+              :title="m.hidden ? 'Show' : 'Hide'"
+              @click="setHidden(m)"
+            />
             <uk-button
               icon="copy"
               icon-only
@@ -91,7 +135,9 @@
 </template>
 
 <script>
-import MeasureTool, { MEASURE_MODES, detailsOf, textOf } from '@/plugins/visualizer/measure_tool';
+import MeasureTool, {
+  MEASURE_MODES, detailsOf, textOf,
+} from '@/plugins/visualizer/measure_tool';
 
 export default {
   name: 'MeasureWidget',
@@ -129,6 +175,20 @@ export default {
         : 'Click the first point. Hold Ctrl to place it without snapping.';
     },
   },
+  watch: {
+    /** The selected measurement's row is brought into view. */
+    'measure.selectedId': {
+      immediate: true,
+      handler(id) {
+        if (id === null) return;
+        this.$nextTick(() => {
+          const row = this.$el && this.$el.querySelector
+            && this.$el.querySelector(`[data-measure-id="${id}"]`);
+          if (row) row.scrollIntoView({ block: 'nearest' });
+        });
+      },
+    },
+  },
   methods: {
     details(measurement) {
       return detailsOf(measurement);
@@ -148,6 +208,12 @@ export default {
     },
     remove(id) {
       MeasureTool.remove(id);
+    },
+    setHidden(measurement) {
+      MeasureTool.setHidden(measurement.id, !measurement.hidden);
+    },
+    setLabel(measurement, settings) {
+      MeasureTool.setLabel(measurement.id, settings);
     },
     clear() {
       MeasureTool.clear();
@@ -211,6 +277,9 @@ export default {
 .measure_row.lit {
   border-left-color: #1ca6bd;
 }
+.measure_row.hidden {
+  opacity: 0.5;
+}
 .measure_row_head {
   display: flex;
   align-items: center;
@@ -224,6 +293,39 @@ export default {
   flex: 1;
   font-family: Roboto-medium;
   color: #fff;
+}
+/* Separates the label toggles from the row's own actions. */
+.measure_tool_gap {
+  width: 6px;
+}
+.label_cluster {
+  display: flex;
+  gap: 1px;
+}
+.label_toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: var(--primary-light, #2a2a2e);
+  cursor: pointer;
+}
+.label_toggle:hover {
+  background: var(--primary-lighter);
+}
+.label_toggle.on {
+  background: var(--accent-blue);
+}
+.label_toggle :deep(svg) {
+  width: 14px;
+  height: 14px;
+  fill: var(--secondary-light-alt);
+}
+.label_toggle.on :deep(svg) {
+  fill: #fff;
 }
 .measure_value {
   display: flex;

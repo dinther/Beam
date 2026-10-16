@@ -21,6 +21,7 @@ import Controls from '../../plugins/visualizer/controls';
 import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
+import ViewFilter from './view_filter';
 import { formatAddress } from './address_format';
 import translateOfl from './gdtf/ofl_to_gdtf';
 import DmxEngine from './gdtf/dmx_engine';
@@ -1839,15 +1840,17 @@ class Fixture extends withTransform(Proxify) {
   }
 
   /**
-   * Hidden by its own flag or by the structure or group holding it.
+   * Hidden by its own flag, by the structure or group holding it, or by the
+   * view filter.
    *
    * @readonly
    * @type {Boolean}
    */
   get isHidden() {
     return !!(this._hidden
-      || (this.structure && this.structure.hidden)
-      || (this.group && this.group.hidden));
+      || (this.structure && this.structure.isHidden)
+      || (this.group && this.group.hidden)
+      || ViewFilter.hides(this));
   }
 
   /**

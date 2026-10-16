@@ -49,6 +49,7 @@ import confirm from '@/plugins/confirm';
 import importGdtfFiles from '@/plugins/gdtf_import';
 import ViewMode from '@/plugins/view_mode';
 import Screenshot from '@/plugins/visualizer/screenshot';
+import MeasureTool from '@/plugins/visualizer/measure_tool';
 import PreferencesPopup from './_popups/popup.preferences.vue';
 import LicensePopup from './_popups/popup.license.vue';
 import CreditsPopup from './_popups/popup.credits.vue';
@@ -216,6 +217,8 @@ export default {
               hint: 'Ctrl+C',
               icon: 'copy',
               callback: () => {
+                // A selected measurement copies as its line of text.
+                if (MeasureTool.copySelected()) return;
                 if (!Selection.items.length) return;
                 EventBus.emit('copy_requested', Selection.items.map((entry) => ({ ...entry })));
               },

@@ -7,6 +7,7 @@ import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS, rowId } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
 import { sceneChanged } from './scene_changes';
+import ViewFilter from './view_filter';
 
 /** The smallest scale an axis may take: zero would collapse the model. */
 const MIN_SCALE = 0.001;
@@ -795,8 +796,9 @@ class SceneObject extends withTransform(Object) {
    */
   get isHidden() {
     return !!(this._hidden
-      || (this.structure && this.structure.hidden)
-      || (this.group && this.group.hidden));
+      || (this.structure && this.structure.isHidden)
+      || (this.group && this.group.hidden)
+      || ViewFilter.hides(this));
   }
 
   /**

@@ -37,6 +37,7 @@ import buildBody, { laserBody } from '../../plugins/visualizer/gdtf_body';
 import { laserGeometry } from './gdtf/laser_parts';
 import { headInputs, isLaserType } from './gdtf/fixture_parts';
 import MeasureTool from '../../plugins/visualizer/measure_tool';
+import ViewFilter from './view_filter';
 import { CLIP_KINDS, BUILT_IN_CLIPS } from './laser_clips';
 import { loadCards } from '../../plugins/visualizer/laser_cards';
 import UserGobos from '../../plugins/visualizer/user_gobos';
@@ -275,6 +276,11 @@ class Show extends EventEmitter {
     MeasureTool.onChange(() => this.touch());
     // Objects, structures and groups are not proxied; their setters report here.
     onSceneChange(() => { if (this.isSaved) this.touch(); });
+    // The filter is saved with the project, so changing it is an edit.
+    ViewFilter.onChange(() => {
+      this.applyViewFilter();
+      this.touch();
+    });
     this.preloadManufacturers();
     this.preloadFixtureList();
   }
@@ -409,7 +415,18 @@ class Show extends EventEmitter {
       studio: Studio.showSettings,
       details: Object.values(this.details).some(Boolean) ? { ...this.details } : undefined,
       measurements: MeasureTool.toJSON(),
+      viewFilter: ViewFilter.toJSON(),
     };
+  }
+
+  /**
+   * Pushes the view filter to everything drawn.
+   *
+   * @private
+   */
+  applyViewFilter() {
+    this.fixturePool.fixtures.forEach((fixture) => fixture.applyHidden());
+    this.objects.forEach((object) => object.applyHidden());
   }
 
   /**
@@ -600,6 +617,7 @@ class Show extends EventEmitter {
     // see the falsy value it exists to catch.
     const fixtureHandle = this.fixturePool.findFromId(fixture.id);
     if (fixtureHandle) {
+      MeasureTool.forgetItem(fixtureHandle);
       PatchSingleton.unpatchFixture(fixtureHandle);
       this.fixturePool.delete(fixtureHandle, true);
       // The last instance takes its definition with it.
@@ -633,6 +651,7 @@ class Show extends EventEmitter {
     this.videoInputs = withTestCard([]);
     this.definitions = new DefinitionStore();
     MeasureTool.load([]);
+    ViewFilter.load(null);
     this.isSaved = true;
   }
 
@@ -957,6 +976,8 @@ class Show extends EventEmitter {
     this.loading.message = 'Clearing Show Data';
     this.loading.percentage = 20;
     this.clearShowData();
+    // Before anything is placed, so each item is drawn filtered from the start.
+    ViewFilter.load(showData.viewFilter);
 
     // Mounted inside the load rather than before it, because loads queue: two
     // documents opened in quick succession must each load against their own
@@ -1007,7 +1028,11 @@ class Show extends EventEmitter {
     const storedView = Studio.loadCameras(showData.cameras);
     Studio.loadSettings(showData.studio);
     this.details = Show.detailsFrom(showData);
-    MeasureTool.load(showData.measurements);
+    MeasureTool.load(showData.measurements, ({ kind, id }) => {
+      if (kind === SCENE_ITEM_KINDS.OBJECT) return (this.loadedObjectsById || new Map()).get(id);
+      if (kind === SCENE_ITEM_KINDS.FIXTURE) return this.loadedFixturesById.get(id) || null;
+      return null;
+    });
 
     this.loading.message = 'Patching fixtures';
     this.loading.percentage = 80;
@@ -1954,6 +1979,7 @@ class Show extends EventEmitter {
   removeObject(object) {
     const index = this.objects.indexOf(object);
     if (index === -1) return false;
+    MeasureTool.forgetItem(object);
     object.dispose();
     this.objects.splice(index, 1);
     return true;
@@ -2050,6 +2076,7 @@ class Show extends EventEmitter {
       }
       const handle = this.fixturePool.findFromId(member.id);
       if (!handle) return;
+      MeasureTool.forgetItem(handle);
       PatchSingleton.unpatchFixture(handle);
       this.fixturePool.delete(handle, true);
     });
@@ -2091,6 +2118,7 @@ class Show extends EventEmitter {
       group.remove(member);
       const handle = this.fixturePool.findFromId(member.id);
       if (!handle) return;
+      MeasureTool.forgetItem(handle);
       PatchSingleton.unpatchFixture(handle);
       this.fixturePool.delete(handle, true);
     });

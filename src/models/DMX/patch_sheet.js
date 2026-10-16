@@ -330,7 +330,7 @@ export function tiltRises(fixture) {
  * @param {Object} fixture
  * @returns {String}
  */
-function typeName(fixture) {
+export function typeName(fixture) {
   const name = (fixture.OFLData && fixture.OFLData.name) || fixture.model || '';
   const manufacturer = (fixture.fixtureType && fixture.fixtureType.manufacturer)
     || fixture.manufacturer;
@@ -431,6 +431,8 @@ export function collectPatchSheet(show, scope = null) {
     .map((object) => ({ corners: objectCorners(object) }))
     .filter((object) => object.corners);
 
+  // Measurements tied to items read where those items are now.
+  MeasureTool.refresh();
   return {
     title: show.documentTitle,
     author: show.details.author.trim(),
