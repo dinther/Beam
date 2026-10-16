@@ -973,26 +973,35 @@ function refresh() {
   state.measurements.forEach((m) => {
     let moved = false;
     m.ends.forEach((end) => { if (followAnchor(end)) moved = true; });
-    if (!moved) return;
-    if (m.kind === MEASURE_MODES.THROW) {
-      const fixture = m.ends[0].anchor && m.ends[0].anchor.item;
-      const measured = context && fixture ? throwFrom(fixture) : {};
-      if (!measured.ends) return;
-      m.ends = markRaw(measured.ends);
-      m.values = measured.values;
-    } else if (m.kind === MEASURE_MODES.ANGLE) {
-      const [a, vertex, c] = m.ends;
-      m.values = {
-        angle: angleAt(a.point, vertex.point, c.point),
-        armA: a.point.distanceTo(vertex.point),
-        armC: c.point.distanceTo(vertex.point),
-      };
-    } else {
-      m.values = distanceBetween(m.ends[0], m.ends[1]);
-    }
-    m.headline = headline(m);
+    if (moved) recompute(m); // eslint-disable-line no-use-before-define
   });
   state.pending.forEach(followAnchor);
+}
+
+/**
+ * Works a measurement's values out again from where its ends are. A throw is
+ * measured again from its fixture.
+ *
+ * @param {Object} m
+ */
+function recompute(m) {
+  if (m.kind === MEASURE_MODES.THROW) {
+    const fixture = m.ends[0].anchor && m.ends[0].anchor.item;
+    const measured = context && fixture ? throwFrom(fixture) : {};
+    if (!measured.ends) return;
+    m.ends = markRaw(measured.ends);
+    m.values = measured.values;
+  } else if (m.kind === MEASURE_MODES.ANGLE) {
+    const [a, vertex, c] = m.ends;
+    m.values = {
+      angle: angleAt(a.point, vertex.point, c.point),
+      armA: a.point.distanceTo(vertex.point),
+      armC: c.point.distanceTo(vertex.point),
+    };
+  } else {
+    m.values = distanceBetween(m.ends[0], m.ends[1]);
+  }
+  m.headline = headline(m);
 }
 
 /**
@@ -1271,29 +1280,38 @@ function hoverRow(id) {
  * @public
  * @returns {Array|undefined} undefined when there are none
  */
-function toJSON() {
-  if (!state.measurements.length) return undefined;
-  refresh();
+/** The item an end follows, as a project names it: its kind and id. */
+const byId = (item) => (item.id !== undefined ? { kind: item.kind, id: item.id } : null);
+
+/**
+ * One measurement as stored.
+ *
+ * @param {Object} m
+ * @param {Function} refOf `item => reference`, or null where it has none
+ * @returns {Object}
+ */
+function serialize(m, refOf) {
   const vector = (v) => (v ? [v.x, v.y, v.z] : undefined);
-  // The item an end follows, by kind and the id the project saves it under.
-  const on = ({ anchor }) => (anchor && anchor.item.id !== undefined ? {
-    kind: anchor.item.kind,
-    id: anchor.item.id,
-    local: vector(anchor.local),
-    normal: vector(anchor.normal),
-    dir: vector(anchor.dir),
-  } : undefined);
+  const on = ({ anchor }) => {
+    const ref = anchor ? refOf(anchor.item) : null;
+    return ref ? {
+      ...ref,
+      local: vector(anchor.local),
+      normal: vector(anchor.normal),
+      dir: vector(anchor.dir),
+    } : undefined;
+  };
   // The label settings, only where they differ from the defaults.
-  const unlessDefault = (m, key) => {
+  const unlessDefault = (key) => {
     const fallback = labelDefaults(m.kind, m.values)[key];
     return m[key] === fallback ? undefined : m[key];
   };
-  return state.measurements.map((m) => ({
+  return {
     number: m.number,
     kind: m.kind,
     hidden: m.hidden || undefined,
-    showLength: unlessDefault(m, 'showLength'),
-    showAngle: unlessDefault(m, 'showAngle'),
+    showLength: unlessDefault('showLength'),
+    showAngle: unlessDefault('showAngle'),
     flipAngle: m.flipAngle || undefined,
     values: { ...m.values },
     ends: m.ends.map((end) => ({
@@ -1305,7 +1323,99 @@ function toJSON() {
       axis: end.axis || undefined,
       on: on(end),
     })),
-  }));
+  };
+}
+
+/**
+ * Measurements as a project file holds them: numbers only.
+ *
+ * @public
+ * @returns {Array|undefined} undefined when there are none
+ */
+function toJSON() {
+  if (!state.measurements.length) return undefined;
+  refresh();
+  return state.measurements.map((m) => serialize(m, byId));
+}
+
+/**
+ * The measurements that depend on nothing but some items: every end tied to
+ * one of them. They travel with those items when they are copied or saved as
+ * a structure.
+ *
+ * @public
+ * @param {Array} items scene items
+ * @param {Function} [refOf] `item => reference` naming an item among them;
+ *   by kind and id unless given
+ * @returns {Array|undefined} as `toJSON` writes them, or undefined for none
+ */
+function exportFor(items, refOf = byId) {
+  const among = new Set((items || []).map((item) => toRaw(item)));
+  refresh();
+  const kept = state.measurements.filter((m) => m.ends
+    .every((end) => end.anchor && among.has(toRaw(end.anchor.item))));
+  return kept.length ? kept.map((m) => serialize(m, refOf)) : undefined;
+}
+
+/**
+ * A stored measurement made live, or null when it does not read as one.
+ *
+ * @param {Object} stored as `serialize` writes it
+ * @param {Function} resolve `reference => item`
+ * @returns {Object|null}
+ */
+function parse(stored, resolve) {
+  const vector = (a) => (Array.isArray(a) && a.length === 3 && a.every(Number.isFinite)
+    ? new THREE.Vector3(a[0], a[1], a[2]) : null);
+  if (!stored || !Object.values(MEASURE_MODES).includes(stored.kind)) return null;
+  const ends = (stored.ends || []).map((end) => {
+    if (!end || !vector(end.point)) return null;
+    const made = makeEnd({
+      point: vector(end.point),
+      normal: vector(end.normal),
+      dir: vector(end.dir),
+      kind: String(end.kind || ''),
+      label: String(end.label || ''),
+      axis: end.axis,
+    });
+    const item = end.on && vector(end.on.local) ? resolve(end.on) : null;
+    if (item) {
+      made.anchor = {
+        item,
+        local: vector(end.on.local),
+        normal: vector(end.on.normal),
+        dir: vector(end.on.dir),
+      };
+    }
+    return made;
+  });
+  const needed = stored.kind === MEASURE_MODES.ANGLE ? 3 : 2;
+  if (ends.length !== needed || ends.some((end) => !end)) return null;
+  const values = {};
+  Object.entries(stored.values || {}).forEach(([key, value]) => {
+    if (Number.isFinite(value)) values[key] = value;
+  });
+  // Saved before the angle to +X was kept.
+  if (stored.kind !== MEASURE_MODES.ANGLE && values.xAngle === undefined) {
+    const xAngle = angleToX(ends[1].point.clone().sub(ends[0].point));
+    if (xAngle !== undefined) values.xAngle = xAngle;
+  }
+  const defaults = labelDefaults(stored.kind, values);
+  const setting = (key) => (typeof stored[key] === 'boolean' ? stored[key] : defaults[key]);
+  const measurement = {
+    id: nextId,
+    number: Number.isFinite(stored.number) ? stored.number : state.measurements.length + 1,
+    kind: stored.kind,
+    hidden: stored.hidden === true,
+    showLength: setting('showLength'),
+    showAngle: setting('showAngle'),
+    flipAngle: stored.flipAngle === true,
+    ends: markRaw(ends),
+    values,
+  };
+  nextId += 1;
+  measurement.headline = headline(measurement);
+  return measurement;
 }
 
 /**
@@ -1323,60 +1433,41 @@ function load(list, resolve = () => null) {
   state.selectedId = null;
   state.hoverId = null;
   state.message = '';
-  const vector = (a) => (Array.isArray(a) && a.length === 3 && a.every(Number.isFinite)
-    ? new THREE.Vector3(a[0], a[1], a[2]) : null);
   (Array.isArray(list) ? list : []).forEach((stored) => {
-    if (!stored || !Object.values(MEASURE_MODES).includes(stored.kind)) return;
-    const ends = (stored.ends || []).map((end) => {
-      if (!end || !vector(end.point)) return null;
-      const made = makeEnd({
-        point: vector(end.point),
-        normal: vector(end.normal),
-        dir: vector(end.dir),
-        kind: String(end.kind || ''),
-        label: String(end.label || ''),
-        axis: end.axis,
-      });
-      const item = end.on && vector(end.on.local) ? resolve(end.on) : null;
-      if (item) {
-        made.anchor = {
-          item,
-          local: vector(end.on.local),
-          normal: vector(end.on.normal),
-          dir: vector(end.on.dir),
-        };
-      }
-      return made;
-    });
-    const needed = stored.kind === MEASURE_MODES.ANGLE ? 3 : 2;
-    if (ends.length !== needed || ends.some((end) => !end)) return;
-    const values = {};
-    Object.entries(stored.values || {}).forEach(([key, value]) => {
-      if (Number.isFinite(value)) values[key] = value;
-    });
-    // Saved before the angle to +X was kept.
-    if (stored.kind !== MEASURE_MODES.ANGLE && values.xAngle === undefined) {
-      const xAngle = angleToX(ends[1].point.clone().sub(ends[0].point));
-      if (xAngle !== undefined) values.xAngle = xAngle;
-    }
-    const defaults = labelDefaults(stored.kind, values);
-    const setting = (key) => (typeof stored[key] === 'boolean' ? stored[key] : defaults[key]);
-    const measurement = {
-      id: nextId,
-      number: Number.isFinite(stored.number) ? stored.number : state.measurements.length + 1,
-      kind: stored.kind,
-      hidden: stored.hidden === true,
-      showLength: setting('showLength'),
-      showAngle: setting('showAngle'),
-      flipAngle: stored.flipAngle === true,
-      ends: markRaw(ends),
-      values,
-    };
-    nextId += 1;
-    measurement.headline = headline(measurement);
-    state.measurements.push(measurement);
+    const measurement = parse(stored, resolve);
+    if (measurement) state.measurements.push(measurement);
   });
   ensureLoop(); // eslint-disable-line no-use-before-define
+}
+
+/**
+ * Adds measurements that came with copied or placed items, tied to the new
+ * items and numbered after the ones already made. One whose ends do not all
+ * resolve is left out: it would hang off nothing.
+ *
+ * @public
+ * @param {Array} [list] as `exportFor` writes it
+ * @param {Function} resolve `reference => item` for the new items
+ * @returns {Number} how many were added
+ */
+function append(list, resolve) {
+  let added = 0;
+  (Array.isArray(list) ? list : []).forEach((stored) => {
+    const measurement = parse(stored, resolve);
+    if (!measurement || !measurement.ends.every((end) => end.anchor)) return;
+    measurement.number = (state.measurements.length
+      ? state.measurements[state.measurements.length - 1].number : 0) + 1;
+    state.measurements.push(measurement);
+    added += 1;
+  });
+  if (!added) return 0;
+  // The ends were stored where the originals stand; this puts them on the new
+  // items, and the values are worked out again there whether or not they moved.
+  refresh();
+  state.measurements.slice(-added).forEach(recompute);
+  notifyChanged();
+  ensureLoop(); // eslint-disable-line no-use-before-define
+  return added;
 }
 
 /**
@@ -1442,6 +1533,8 @@ export default {
   select,
   hoverRow,
   toJSON,
+  exportFor,
+  append,
   refresh,
   forgetItem,
   setHidden,

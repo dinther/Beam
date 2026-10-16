@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import fetchJson from '@/plugins/fetch_json';
 import { choose } from '@/plugins/confirm';
-import { markRaw } from 'vue';
+import { markRaw, toRaw } from 'vue';
 import {
   EventEmitter,
 } from 'events';
@@ -1346,6 +1346,14 @@ class Show extends EventEmitter {
         };
       }),
     };
+    // Measurements tied only to the members, naming each by its place in the
+    // list, so a placement can tie them to the members it builds.
+    const raw = group.members.map((member) => toRaw(member));
+    const measurements = MeasureTool.exportFor(
+      group.members,
+      (item) => ({ index: raw.indexOf(toRaw(item)) }),
+    );
+    if (measurements) structure.measurements = measurements;
     this.structureLibrary[group.name] = structure;
     if (typeof window !== 'undefined' && window.library) {
       // Only this structure is written, so a bad write cannot take the rest of
@@ -1393,6 +1401,9 @@ class Show extends EventEmitter {
     const scale = new THREE.Vector3();
     const euler = new THREE.Euler();
     const members = [];
+    // By the definition's own order, which its measurements name members by;
+    // a fixture whose profile cannot be found leaves its place empty.
+    const byIndex = [];
 
     // Every distinct profile the definition needs, warmed before the loop and
     // all at once. With the cache above this is what makes the loop's awaits
@@ -1434,6 +1445,7 @@ class Show extends EventEmitter {
           : (this.objectLibrary[foldModelKey(member.model)] || null));
         Show.joinNumbered(this.objects, [object]);
         members.push(object);
+        byIndex[i] = object;
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1472,6 +1484,7 @@ class Show extends EventEmitter {
           PatchSingleton.patchFixture(fixture);
         }
         members.push(fixture);
+        byIndex[i] = fixture;
       }
     }
 
@@ -1483,6 +1496,8 @@ class Show extends EventEmitter {
       rotation: placement.rotation,
     });
     this.seatStructure(structure, placement.position || {});
+    // After seating, so they are tied to the members where they now stand.
+    MeasureTool.append(definition.measurements, ({ index }) => byIndex[index] || null);
     return structure;
   }
 
@@ -1961,6 +1976,14 @@ class Show extends EventEmitter {
     });
 
     const structures = this.prepareStructures({ structures: fresh(data.structures) });
+
+    // Measurements tied only to the copied items, onto the copies: the source
+    // ids they name are what the two load indexes map to the new instances.
+    MeasureTool.append(data.measurements, ({ kind, id }) => {
+      if (kind === SCENE_ITEM_KINDS.OBJECT) return this.loadedObjectsById.get(id);
+      if (kind === SCENE_ITEM_KINDS.FIXTURE) return this.loadedFixturesById.get(id);
+      return null;
+    });
 
     // A fixture inside a pasted structure or group is not a loose item, and
     // handing it back would put the gizmo on the members as well as on the

@@ -86,6 +86,7 @@ import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
 import ViewFilter from '@/models/DMX/view_filter';
+import MeasureTool from '@/plugins/visualizer/measure_tool';
 import { displayNameOf } from '@/models/DMX/item_naming';
 import { formatAddress } from '@/models/DMX/address_format';
 import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
@@ -744,6 +745,11 @@ export default {
       const entries = selection || Selection.items;
       const items = entries.map((entry) => this.itemOfKind(entry.kind, entry)).filter(Boolean);
       const chunk = Clipboard.copy(items);
+      // Measurements tied only to what is copied come with it. A structure or
+      // group is copied with its members, so theirs count too.
+      const copied = items.flatMap((item) => [item, ...(item.members || [])]);
+      // Nothing copied leaves the previous chunk as it was.
+      if (items.length && chunk) chunk.measurements = MeasureTool.exportFor(copied);
       return chunkSummary(chunk).total;
     },
     /**
