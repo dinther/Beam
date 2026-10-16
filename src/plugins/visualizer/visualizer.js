@@ -9,7 +9,7 @@ import ModelInstancer from './model_instancer';
 import SceneManager from './scene_manager';
 import AnimationManager from './animation_manager';
 import Controls, { ORTHO_STANDOFF, ORTHO_REFERENCE_FOV, setOrthoHalfHeight } from './controls';
-import ViewCube from './view_cube';
+import NavGizmo from './nav_gizmo';
 import Light from './light';
 import { flushGoboCells } from './gobo_library';
 import Animation from './animation_wheel';
@@ -444,7 +444,7 @@ class Visualizer {
     this.prepareControls();
     this.resize();
     Controls.init(this.camera, this.domElement, this.controls);
-    this.prepareViewCube();
+    this.prepareNavGizmo();
     this.startRender();
     this.main();
     this.resize();
@@ -1590,23 +1590,16 @@ class Visualizer {
   }
 
   /**
-   * Builds the corner navigation cube and wires it to the canvas.
-   *
-   * Its listeners run before the scene's own picking and stop the event when
-   * the pointer is over the gizmo, so clicking a face never also selects
-   * whatever fixture happens to be behind it.
+   * Builds the corner navigation gizmo. It has a canvas of its own, so its
+   * clicks never reach the scene's picking.
    *
    * @public
    */
-  prepareViewCube() {
+  prepareNavGizmo() {
     // Never proxied: the visualizer handle hangs off the reactive show, so
-    // anything assigned to it is wrapped, and three reads Object3D internals
-    // that a proxy cannot hand back unchanged.
-    this.viewCube = markRaw(new ViewCube(this.camera, this.domElement, {
-      pick: (hit) => {
-        if (hit.view) Controls.setView(hit.view);
-        else Controls.setViewDirection(hit.direction);
-      },
+    // anything assigned to it is wrapped.
+    this.navGizmo = markRaw(new NavGizmo(this.camera, this.domElement, {
+      pick: (hit) => Controls.setView(hit.view),
       orbit: (dx, dy) => this.orbitBy(dx, dy),
     }));
   }
@@ -1857,7 +1850,7 @@ class Visualizer {
    * Each step covers a share of the distance left, so the camera can get as
    * close as wanted and never passes through. Pointing at the sky, it aims at
    * the orbit target's depth. The target is then put at the depth of the
-   * point aimed at, on the view's axis, so the view cube's drag and the
+   * point aimed at, on the view's axis, so the navigation gizmo's drag and the
    * controls' own sums have something sensible to turn about.
    *
    * @public
@@ -2009,7 +2002,7 @@ class Visualizer {
     if (Controls.handle) Controls.handle.camera = camera;
     this.controls.object = camera;
     Light.setCamera(camera);
-    if (this.viewCube) this.viewCube.camera = camera;
+    if (this.navGizmo) this.navGizmo.camera = camera;
     [renderPass, laserPass, reflectionsPass, mainPass].forEach((pass) => {
       if (pass) pass.mainCamera = camera;
     });
@@ -2491,7 +2484,7 @@ class Visualizer {
   /**
    * Clears the scene of everything that is not the show.
    *
-   * Grid, axes, view cube, the selection gizmo and its bounding box are aids
+   * Grid, axes, navigation gizmo, the selection gizmo and its bounding box are aids
    * for working, and every one of them would be burned into the footage. The
    * selection goes with them because the gizmo is drawn from it.
    *
@@ -2580,9 +2573,9 @@ class Visualizer {
     // Over the finished image, and after Perf.end() so their own cost is not
     // counted against the scene it is reporting on. The move gizmo is not
     // drawn while recording: it is an aid, and would sit in the footage. The
-    // view cube has its own canvas, so it is never in the footage.
+    // navigation gizmo has its own canvas, so it is never in the footage.
     if (!helpers.recording) Controls.renderGizmo(this.renderer);
-    if (this.viewCube) this.viewCube.render(this.renderer);
+    if (this.navGizmo) this.navGizmo.render();
   }
 }
 

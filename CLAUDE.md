@@ -39,7 +39,7 @@ in branding, "Beam" in prose. One branch, master.
 - Screen passes: `ambient_haze.js`, `projector_pass.js`, `laser_pass.js`,
   `strobe_wash.js`, `selection_outline.js`.
 - Others: `led_field.js` (strips), `led_panel.js` (grids), `scene_objects.js`
-  (instanced 3D models), `view_cube.js`, `grid.js`, `contact_shadows.js`,
+  (instanced 3D models), `nav_gizmo.js`, `grid.js`, `contact_shadows.js`,
   `recorder.js`, `perf_overlay.js`, `preferences.js`.
 
 **Views** -- `src/views/activities/app/fragments/`: `visualizer/` (viewport and

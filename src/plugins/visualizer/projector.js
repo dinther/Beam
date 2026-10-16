@@ -28,8 +28,8 @@ import { setOutlined } from './selection_outline';
  * its frustum, which is sixteen vertices.
  *
  * **Local axes: +Z is up and the throw runs along -Y.** So a projector at zero
- * rotation stands on its feet and faces the scene's Front, which the view cube
- * defines as `normal: [0,-1,0]` -- you see its lens rather than its back, and a
+ * rotation stands on its feet and faces the scene's Front, the view from
+ * `[0,-1,0]` -- you see its lens rather than its back, and a
  * new one is aimed the way an audience sits rather than at the ceiling.
  *
  * The bar's +Z is *up*, not "wherever the light goes": it lies flat and emits

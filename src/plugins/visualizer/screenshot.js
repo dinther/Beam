@@ -3,7 +3,7 @@
  *
  * The drawing buffer is not preserved between frames, so the picture is taken
  * in the render loop itself: after the frame is drawn and before the move
- * gizmo is drawn over it. The view cube and the perf readout are not part of
+ * gizmo is drawn over it. The navigation gizmo and the perf readout are not part of
  * the 3D canvas, so they are not in it either.
  */
 

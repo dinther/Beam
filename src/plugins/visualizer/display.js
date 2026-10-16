@@ -22,7 +22,7 @@ import { setOutlined } from './selection_outline';
  * wrong here the fault is in the connector or the feed.
  *
  * **Local axes follow the projector's**: +Z is up and the screen faces -Y,
- * which the view cube calls Front -- so a display at zero rotation stands
+ * which is the Front view -- so a display at zero rotation stands
  * upright facing the way an audience sits, rather than lying on its back.
  *
  * A display shows the whole of its input, turned and mirrored by its own

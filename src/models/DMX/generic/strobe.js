@@ -451,7 +451,7 @@ export function illuminanceAt(distance, params) {
  *
  * The origin is the centre of the body, because that is what gets placed. The
  * axes are the scene's own, exactly as a projector's: +Z up, the flood along
- * -Y (the view cube's Front), so a strobe at zero rotation stands on its feet
+ * -Y (the Front view), so a strobe at zero rotation stands on its feet
  * and fires horizontally. Centred on the front panel: a strobe's face is the
  * whole front of the box.
  *

@@ -183,7 +183,7 @@ export const DEFAULT_PROJECTOR_PARAMS = {
  *
  * **The axes are the scene's own, so that a projector at zero rotation stands
  * on its feet and throws horizontally.** +Z is up, matching the Z-up world; the
- * throw runs along **-Y**, which the view cube calls Front (`normal: [0,-1,0]`),
+ * throw runs along **-Y**, which is the Front view,
  * so a new projector faces the way an audience would sit and shows you its lens
  * rather than its back. Pointing along +Z would be right for a bar -- a bar lies
  * flat and emits from its upper face -- and absurd for a projector, which would

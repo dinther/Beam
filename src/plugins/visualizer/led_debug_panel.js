@@ -19,7 +19,7 @@ import Tuning from './tuning';
  * the top does the same for every control at once. Clearing every preference
  * is Edit > Reset preferences.
  *
- * The panel floats in the viewport's top-right corner, over the view cube,
+ * The panel floats in the viewport's top-right corner, over the navigation gizmo,
  * and grows downwards as folders open; past the viewport's bottom it
  * scrolls. Only the top-level folders collapse; the groups inside them are
  * fixed headings. Which folders are open is stored with the tuning values.

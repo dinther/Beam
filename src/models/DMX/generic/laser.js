@@ -378,7 +378,7 @@ export function apertureSize(params) {
  * The origin is the centre of the body -- that is what gets placed -- and the
  * beam leaves from the front face wherever the maker put the aperture. The
  * axes are the scene's own, exactly as a projector's: +Z up, the beam along
- * -Y (the view cube's Front), so a laser at zero rotation stands on its feet
+ * -Y (the Front view), so a laser at zero rotation stands on its feet
  * and fires horizontally rather than at the ceiling.
  *
  * @public
