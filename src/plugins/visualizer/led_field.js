@@ -380,6 +380,7 @@ const GLOW_FRAGMENT = `${hazeShaderPrelude()}
 /** Module-owned meshes, shared by every bar. */
 const field = {
   profiles: null,
+  faces: null,
   emitters: null,
   glow: null,
   barCount: 0,
@@ -504,6 +505,93 @@ function buildProfiles(maxBars) {
   return mesh;
 }
 
+/** How far the die face sits proud of the body: under LED_STANDOFF. */
+const FACE_STANDOFF = 0.0005;
+
+/** Unlit dies: off-white packages, lit by the room like the body. */
+const DIE_COLOUR = new THREE.Color(0xe8e4d8);
+
+/** The ring painted round pixel 1, so the start of a run shows. */
+const START_RING_COLOUR = new THREE.Color(0xe02020);
+
+/**
+ * The emitter face of every bar, one instance per body: the bar's colour with
+ * its dies drawn on it, so the LED side reads when nothing is lit.
+ *
+ * Each instance carries `faceGrid` -- columns, rows, and the die's share of a
+ * cell across and along -- and the shader draws the dies from it. Where a
+ * cell is under a pixel the die is drawn as its average over the cell, so a
+ * 256 x 256 tile across the room is a flat tone rather than moire.
+ *
+ * @param {Number} maxBars capacity, in bars
+ * @returns {Object} THREE.InstancedMesh
+ */
+function buildFaces(maxBars) {
+  const geometry = new THREE.PlaneGeometry(1, 1);
+  const grids = new Float32Array(maxBars * 4);
+  geometry.setAttribute('faceGrid', new THREE.InstancedBufferAttribute(grids, 4));
+  // Pixel 1's cell centre in grid units from the face's bottom-left corner,
+  // and the cell size in metres, so the ring is round on an oblong cell.
+  const starts = new Float32Array(maxBars * 4);
+  geometry.setAttribute('faceStart', new THREE.InstancedBufferAttribute(starts, 4));
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    metalness: 0,
+    roughness: 0.6,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.dieColour = { value: DIE_COLOUR };
+    shader.uniforms.ringColour = { value: START_RING_COLOUR };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+      attribute vec4 faceGrid;
+      attribute vec4 faceStart;
+      varying vec4 vFaceGrid;
+      varying vec4 vFaceStart;
+      varying vec2 vFaceUv;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vFaceGrid = faceGrid;
+      vFaceStart = faceStart;
+      vFaceUv = uv;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+      uniform vec3 dieColour;
+      uniform vec3 ringColour;
+      varying vec4 vFaceGrid;
+      varying vec4 vFaceStart;
+      varying vec2 vFaceUv;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      {
+        vec2 g = vFaceUv * vFaceGrid.xy;
+        vec2 f = abs(fract(g) - 0.5);
+        vec2 halfDie = vFaceGrid.zw * 0.5;
+        vec2 w = max(fwidth(g), vec2(1e-4));
+        vec2 inside = 1.0 - smoothstep(halfDie - w, halfDie + w, f);
+        float die = inside.x * inside.y;
+        float coverage = vFaceGrid.z * vFaceGrid.w;
+        die = mix(die, coverage, smoothstep(0.35, 1.0, max(w.x, w.y)));
+        diffuseColor.rgb = mix(diffuseColor.rgb, dieColour, die);
+
+        // A ring round pixel 1, in metres: its outer edge just inside the
+        // cell, 7 % of the smaller cell side wide.
+        vec2 cell = vFaceStart.zw;
+        float d = length((g - vFaceStart.xy) * cell);
+        float side = min(cell.x, cell.y);
+        float radius = side * 0.44;
+        float halfWidth = side * 0.035;
+        float aa = max(fwidth(d), 1e-5);
+        float ring = 1.0 - smoothstep(halfWidth - aa, halfWidth + aa, abs(d - radius));
+        diffuseColor.rgb = mix(diffuseColor.rgb, ringColour, ring);
+      }`);
+  };
+  const mesh = new THREE.InstancedMesh(geometry, material, maxBars);
+  mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxBars * 3), 3);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 /** The billboard emitters' uniforms. */
 const EMITTER_UNIFORMS = {
   dmxTexture: { value: DMXStore.texture },
@@ -591,6 +679,8 @@ function init({ scene, maxBars, maxLeds }) {
   field.baseLeds = 0;
 
   field.profiles = buildProfiles(maxBars);
+  field.faces = buildFaces(maxBars);
+  scene.add(field.faces);
   field.emitters = null;
   field.glow = null;
   field.texelAttribute = null;
@@ -802,6 +892,7 @@ function reset() {
   field.barCount = field.baseBars;
   field.ledCount = field.baseLeds;
   if (field.profiles) field.profiles.count = field.baseBars;
+  if (field.faces) field.faces.count = field.baseBars;
   if (field.emitters) field.emitters.count = field.baseLeds;
   if (field.glow) field.glow.count = field.baseLeds;
 }
@@ -832,20 +923,57 @@ function mark() {
  * @param {Number} options.width along local Y
  * @param {Number} options.height along local Z, the emitters' normal
  * @param {String} [options.color] `#rrggbb`; the default bar's when absent
+ * @param {Object} [options.face] the dies to draw on the emitter face:
+ *   `{ columns, rows, spanX, spanY, dieX, dieY }`, spans in metres and the die
+ *   as a share of a cell; no face is drawn without it
  * @returns {Boolean} whether it fitted
  */
 function addBody({
-  position, quaternion, length, width, height, color = null,
+  position, quaternion, length, width, height, color = null, face = null,
 }) {
   if (field.barCount >= field.maxBars) return false;
+  const index = field.barCount;
+  scratch.colour.set(BODY.colourOf(color));
   scratch.scale.set(length, width, height);
   scratch.matrix.compose(position, quaternion, scratch.scale);
-  field.profiles.setMatrixAt(field.barCount, scratch.matrix);
-  field.profiles.setColorAt(field.barCount, scratch.colour.set(BODY.colourOf(color)));
+  field.profiles.setMatrixAt(index, scratch.matrix);
+  field.profiles.setColorAt(index, scratch.colour);
+
+  // Just proud of the body's face, and under the emitters, which stand
+  // further off it and add their light over the dies.
+  const { faces } = field;
+  if (face) {
+    scratch.offset.set(0, 0, height / 2 + FACE_STANDOFF)
+      .applyQuaternion(quaternion)
+      .add(position);
+    scratch.scale.set(face.spanX, face.spanY, 1);
+    scratch.matrix.compose(scratch.offset, quaternion, scratch.scale);
+    const { faceGrid, faceStart } = faces.geometry.attributes;
+    faceGrid.setXYZW(index, face.columns, face.rows, face.dieX, face.dieY);
+    // Grid rows count down from the top; the face's v counts up from the bottom.
+    const first = face.first || { column: 0, row: 0 };
+    faceStart.setXYZW(
+      index,
+      first.column + 0.5,
+      face.rows - first.row - 0.5,
+      face.stepX,
+      face.stepY,
+    );
+    faceStart.needsUpdate = true;
+  } else {
+    scratch.matrix.makeScale(0, 0, 0);
+  }
+  faces.setMatrixAt(index, scratch.matrix);
+  faces.setColorAt(index, scratch.colour);
+
   field.barCount += 1;
   field.profiles.count = field.barCount;
+  faces.count = field.barCount;
   field.profiles.instanceMatrix.needsUpdate = true;
   field.profiles.instanceColor.needsUpdate = true;
+  faces.instanceMatrix.needsUpdate = true;
+  faces.instanceColor.needsUpdate = true;
+  faces.geometry.attributes.faceGrid.needsUpdate = true;
   return true;
 }
 

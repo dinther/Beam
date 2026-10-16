@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import LEDField, { STANDOFF } from './led_field';
 import LEDPanel from './led_panel';
 import SceneManager from './scene_manager';
-import { gridPositions, gridPitch, gridSteps } from '../../models/DMX/generic/led_bar';
+import {
+  gridPositions, gridPitch, gridSteps, scanOrder,
+} from '../../models/DMX/generic/led_bar';
 import { setOutlined } from './selection_outline';
 
 /**
@@ -264,6 +266,12 @@ class LedBar {
     scratch.euler.set(this._rotation.x, this._rotation.y, this._rotation.z);
     scratch.quaternion.setFromEuler(scratch.euler);
 
+    const steps = gridSteps(params);
+    const share = (step) => THREE.MathUtils.clamp(
+      params.emitterSize / Math.max(step, 1e-6),
+      0.05,
+      0.95,
+    );
     LEDField.addBody({
       position: this._position,
       quaternion: scratch.quaternion,
@@ -271,6 +279,18 @@ class LedBar {
       width: params.width,
       height: params.height,
       color: params.bodyColor,
+      face: {
+        columns: params.columns,
+        rows: params.rows,
+        spanX: steps.stepX * params.columns,
+        spanY: steps.stepY * params.rows,
+        dieX: share(steps.stepX),
+        dieY: share(steps.stepY),
+        stepX: steps.stepX,
+        stepY: steps.stepY,
+        // Pixel 1 of the chain, which the face rings so a run's start shows.
+        first: scanOrder(params)[0],
+      },
     });
 
     // A grid is a surface. Handing the panel a dozen numbers costs the same
