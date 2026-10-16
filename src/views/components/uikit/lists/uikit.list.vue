@@ -39,6 +39,7 @@
         :class="{
           drop_before: dropIndex === index,
           drop_after: dropIndex === rows.length && index === rows.length - 1,
+          separated: !!(row.value && row.value.separatorBefore),
         }"
         :style="{
           flex: isOpen(row) && accordion ? 1 : 'unset',
@@ -902,6 +903,12 @@ export default {
 }
 .drop_before::before {
   top: -1px;
+}
+/* A rule above a row that starts a new group, as menus divide their items. */
+.uikit_list_item.separated {
+  margin-top: 4px;
+  border-top: 1px solid var(--primary-dark);
+  padding-top: 4px;
 }
 .drop_after::after {
   bottom: -1px;

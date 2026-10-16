@@ -31,6 +31,7 @@ import jsonstore from './jsonstore';
 import library from './library';
 import objectstore from './objectstore';
 import documentstore from './documentstore';
+import recentprojects from './recentprojects';
 import projectexport from './projectexport';
 import videorecorder from './videorecorder';
 import environmentstore from './environmentstore';
@@ -673,14 +674,25 @@ function setupVideoRecorder() {
  * Show documents at paths the user chose.
  */
 function setupDocumentStore() {
-  ipcMain.handle('document:read', (_event, target) => documentstore.read(target));
+  // A project read or saved goes to the top of File > Open Recent; an export
+  // is a copy and does not.
+  ipcMain.handle('document:read', (_event, target) => {
+    const data = documentstore.read(target);
+    if (data) recentprojects.remember(target);
+    return data;
+  });
   // An export left unpacked by a crash is nobody's document now.
   documentstore.clearCache();
   // Opening a document mounts it: what it carries is unpacked and consulted
   // ahead of the library until another document, or none, takes its place.
   ipcMain.handle('document:mount', (_event, target) => documentstore.mount(target));
   ipcMain.handle('document:unmount', () => documentstore.unmount());
-  ipcMain.handle('document:write', (_event, target, json, wanted) => projectexport.saveTo(target, json, wanted));
+  ipcMain.handle('document:write', async (_event, target, json, wanted) => {
+    const written = await projectexport.saveTo(target, json, wanted);
+    if (written && written.ok) recentprojects.remember(target);
+    return written;
+  });
+  ipcMain.handle('document:recent', () => recentprojects.list(documentstore.EXTENSION));
   // The renderer names what the show references; the files are found here,
   // where the library and the shipped assets are, so no model crosses IPC.
   ipcMain.handle('document:export', (_event, target, json, wanted) => projectexport.exportTo(target, json, wanted));

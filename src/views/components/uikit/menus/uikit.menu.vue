@@ -20,6 +20,7 @@
       <div
         v-show="menu.selected"
         class="menu_list"
+        @mouseover="(e) => hoverItem(e, menu)"
       >
         <uk-list
           tall
@@ -28,7 +29,23 @@
           no-select
           :items="menu.items"
           @select="selectSubItem"
-          @selected="unselectAll()"
+          @selected="afterSelect"
+        />
+      </div>
+      <!-- An item's submenu, beside the row it belongs to. -->
+      <div
+        v-if="flyout && flyout.menu === menu && menu.selected"
+        class="menu_list menu_flyout"
+        :style="{ top: `${flyout.top}px`, left: `${flyout.left}px` }"
+        @click.stop
+      >
+        <uk-list
+          tall
+          class="list"
+          no-highlight
+          no-select
+          :items="flyoutItems"
+          @select="selectFlyoutItem"
         />
       </div>
     </div>
@@ -66,7 +83,19 @@ export default {
        */
       displayState: false,
       mens: [],
+      /** The open submenu: `{ menu, item, top, left }`, or null. */
+      flyout: null,
+      /** Set when a click opened a submenu, so the menu stays open. */
+      keepOpen: false,
     };
+  },
+  computed: {
+    /** The open submenu's items, or a line saying it is empty. */
+    flyoutItems() {
+      if (!this.flyout) return [];
+      const items = this.flyout.item.submenu || [];
+      return items.length ? items : [{ name: this.flyout.item.empty || 'Nothing here', inert: true }];
+    },
   },
   mounted() {
     this.initializeMenus();
@@ -90,7 +119,8 @@ export default {
           // `hint` shows a shortcut that something else already handles, such
           // as Ctrl+C, without the menu listening for it too.
           const keys = item.shortcut || item.hint;
-          item.more = keys ? `(${keys})` : '';
+          if (keys) item.more = `(${keys})`;
+          else if (item.more === undefined) item.more = '';
           return item;
         });
         return menu;
@@ -125,9 +155,50 @@ export default {
      *
        */
     unselectAll() {
+      this.flyout = null;
       this.mens.forEach((menu) => {
         menu.selected = false;
       });
+    },
+    /**
+     * Opens the submenu of the item under the pointer, beside its row, or
+     * closes the one open when the pointer is on another item.
+     *
+     * @param {Event} e mouseover in a menu's list
+     * @param {Object} menu the menu
+     */
+    hoverItem(e, menu) {
+      const row = e.target.closest && e.target.closest('.uikit_list_item.parent');
+      if (!row) return;
+      const rows = [...row.parentElement.children].filter((el) => el.classList.contains('parent'));
+      const item = menu.items[rows.indexOf(row)];
+      if (!item || !item.submenu) {
+        this.flyout = null;
+        return;
+      }
+      if (this.flyout && this.flyout.item === item) return;
+      const rect = row.getBoundingClientRect();
+      this.flyout = {
+        menu, item, top: rect.top, left: rect.right,
+      };
+    },
+    /**
+     * After an item is chosen: the menu closes, unless the item only opened
+     * its submenu.
+     */
+    afterSelect() {
+      if (this.keepOpen) return;
+      this.unselectAll();
+    },
+    /**
+     * Runs a submenu item and closes the menu.
+     *
+     * @param {Object} item
+     */
+    selectFlyoutItem(item) {
+      this.unselectAll();
+      this.displayState = false;
+      if (!item.inert && item.callback) item.callback();
     },
     /**
      * Selects a single menu item. Unselects every other
@@ -135,6 +206,11 @@ export default {
        * @param {Object} menu Handle to the menu to be selected
      */
     select(menu) {
+      // The click that opened a submenu bubbles here; the menu stays as it is.
+      if (this.keepOpen) {
+        this.keepOpen = false;
+        return;
+      }
       this.displayState = !this.displayState;
       const state = !menu.selected;
       this.mens.forEach((item) => {
@@ -148,6 +224,11 @@ export default {
        * @param {Object} subItem Handle to the menu's subitem to be selected
      */
     selectSubItem(subItem) {
+      // An item with a submenu only opens it; hovering already has.
+      if (subItem.submenu) {
+        this.keepOpen = true;
+        return;
+      }
       subItem.callback();
     },
     /**
@@ -216,6 +297,13 @@ export default {
   border-top: none;
   border-bottom: none;
   overflow: hidden;
+}
+/* Fixed, at the row it opens from: the menu list clips what overflows it. */
+.menu_flyout {
+  position: fixed;
+  margin-left: 0;
+  border-top: 1px solid var(--primary-dark);
+  border-bottom: 1px solid var(--primary-dark);
 }
 .list {
   background: #22251f;

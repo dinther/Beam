@@ -509,6 +509,8 @@ contextBridge.exposeInMainWorld('documentStore', {
   projectName: (target) => ipcRenderer.invoke('document:projectName', target),
   /** @returns {Promise<String>} where the save dialog starts */
   root: () => ipcRenderer.invoke('document:root'),
+  /** @returns {Promise<Array>} `{ path, name, folder }`, newest first */
+  recent: () => ipcRenderer.invoke('document:recent'),
   /**
    * A project the application was launched with, claimed once.
    *

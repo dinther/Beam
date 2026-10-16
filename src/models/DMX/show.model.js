@@ -696,8 +696,8 @@ class Show extends EventEmitter {
    * Opens a document the user picks.
    *
    * The whole of it: ask which file, read that file, become it. Nothing is
-   * remembered between runs and nothing is opened unasked -- a document appears
-   * because the user said so.
+   * opened unasked -- a document appears because the user said so. The main
+   * process keeps the paths opened and saved, for File > Open Recent.
    *
    * @public
    * @async

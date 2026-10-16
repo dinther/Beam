@@ -1,0 +1,8 @@
+<!--
+  Beam project (.beam), drawn for Beam: a document with a folded corner, and a
+  spotlight with its beam inside.
+
+  The fill attribute is deliberately absent: these icons take their colour from
+  CSS, and a fill on the path would win over it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" height="24"><path fill-rule="evenodd" d="M6 2h14l7 7v21H6zM8 4v24h17V11h-7V4zM14 11.6h5v2.8h-5zM15.2 15.2h2.6l5.2 10.6h-13z"/></svg>

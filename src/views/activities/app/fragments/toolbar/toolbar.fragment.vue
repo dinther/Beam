@@ -146,6 +146,15 @@ export default {
               },
             },
             {
+              // Filled by `refreshRecent`.
+              id: 'openRecent',
+              name: 'Open Recent',
+              icon: 'project',
+              more: '▸',
+              empty: 'No recent projects',
+              submenu: [],
+            },
+            {
               name: 'Save Project',
               shortcut: 'Ctrl+S',
               icon: 'save',
@@ -158,13 +167,6 @@ export default {
               icon: 'save',
               callback: () => {
                 this.saveShowAs();
-              },
-            },
-            {
-              name: 'Import GDTF...',
-              icon: 'folder',
-              callback: () => {
-                this.importGdtf();
               },
             },
             {
@@ -187,6 +189,15 @@ export default {
               icon: 'folder',
               callback: () => {
                 this.refreshFromLibrary();
+              },
+            },
+            {
+              id: 'importGdtf',
+              name: 'Import GDTF...',
+              icon: 'folder',
+              separatorBefore: true,
+              callback: () => {
+                this.importGdtf();
               },
             },
           ],
@@ -344,7 +355,10 @@ export default {
     // has never been saved is `untitled` whatever the template called itself.
     this.$show.on('document', ({ title }) => {
       this.project = title;
+      // Opening or saving puts a project at the top of the recent list.
+      this.refreshRecent();
     });
+    this.refreshRecent();
     // A file that will not open has to say so. Silence would read as the app
     // ignoring the click, and the show that is loaded stays untouched.
     this.$show.on('documentError', (target) => {
@@ -470,10 +484,38 @@ export default {
       await importGdtfFiles(gdtf.map((file) => window.library.pathForFile(file)), this.$show);
     },
     /**
-     * Saves the show to the application's show file.
+     * Fills File > Open Recent. The open project is left out: it is already
+     * open.
      *
      * @public
+     * @async
      */
+    async refreshRecent() {
+      if (!window.documentStore || !window.documentStore.recent) return;
+      const recent = await window.documentStore.recent();
+      const current = this.$show.documentPath;
+      const item = this.menus[0].items.find((entry) => entry.id === 'openRecent');
+      if (!item) return;
+      item.submenu = recent
+        .filter((entry) => !current || entry.path.toLowerCase() !== current.toLowerCase())
+        .map((entry) => ({
+          name: entry.name,
+          more: entry.folder.split(/[\\/]/).pop(),
+          icon: 'project',
+          callback: () => this.openRecent(entry.path),
+        }));
+    },
+    /**
+     * Opens a project from the recent list, asking first about unsaved changes.
+     *
+     * @public
+     * @async
+     * @param {String} target absolute path
+     */
+    async openRecent(target) {
+      if (!await this.$show.releaseDocument('Open Project')) return;
+      await this.$show.openDocumentAt(target);
+    },
     /**
      * Opens a project the user picks.
      *
