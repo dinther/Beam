@@ -188,8 +188,13 @@ void main() {
 
 const HEIGHT_FRAGMENT = /* glsl */ `
 uniform float uReach;
+uniform float uFlat;
 varying float vHeight;
 void main() {
+  // Seen from below, a surface facing up shows its back. One that low is a
+  // floor inside a model, not something standing on the floor: it would stain
+  // the whole of it. An underside resting on the floor faces down and casts.
+  if (!gl_FrontFacing && vHeight < uFlat) discard;
   float rise = clamp(vHeight / uReach, 0.0, 1.0);
   float nearness = 1.0 - rise;
   // Squared, so the stain stays tight at the base and falls away quickly
@@ -404,7 +409,7 @@ class ContactShadows {
     this._camera.layers.set(CONTACT_LAYER);
 
     this._heightMaterial = new THREE.ShaderMaterial({
-      uniforms: { uReach: { value: this._reach } },
+      uniforms: { uReach: { value: this._reach }, uFlat: { value: FLAT_HEIGHT } },
       vertexShader: HEIGHT_VERTEX,
       fragmentShader: HEIGHT_FRAGMENT,
       // Both sides. A mesh that is open underneath, or whose normals face the
