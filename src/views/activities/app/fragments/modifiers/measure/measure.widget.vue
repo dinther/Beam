@@ -231,6 +231,12 @@ export default {
 </script>
 
 <style scoped>
+/* One width whatever is listed: sized by its rows, the widget changed width
+   every time a measurement was added or deleted. */
+.measure_widget {
+  max-width: 420px;
+  min-width: 420px;
+}
 .measure_body {
   height: 100%;
   width: 100%;
@@ -261,6 +267,10 @@ export default {
   flex: 1 1 0;
   min-height: 60px;
   overflow-y: auto;
+  /* Room for the scrollbar whether it shows or not: without it the rows
+     widened by its width, and everything right-aligned moved, whenever a
+     delete left the list short enough not to scroll. */
+  scrollbar-gutter: stable;
 }
 .measure_row {
   padding: 4px 6px;
