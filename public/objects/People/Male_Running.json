@@ -1,0 +1,9 @@
+{
+  "parts": {
+    "top": "Shirt",
+    "trousers": "Pants",
+    "shoes": "Shoes",
+    "skin": "Skin",
+    "hair": "Hair"
+  }
+}

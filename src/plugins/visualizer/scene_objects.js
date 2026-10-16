@@ -232,6 +232,8 @@ const scratch = {
   euler: new THREE.Euler(),
   scale: new THREE.Vector3(),
   size: new THREE.Vector3(),
+  color: new THREE.Color(),
+  tint: new THREE.Color(),
 };
 
 /**
@@ -341,6 +343,49 @@ function flatten(gltf, fix) {
   return primitives;
 }
 
+/** A model with at most this many materials offers each as a part on its own. */
+const MAX_AUTO_PARTS = 8;
+
+/**
+ * Gives a model's primitives their colour per placement.
+ *
+ * Every material is turned white and its own colour kept as the default; the
+ * colour each placement shows is then its instance colour, which three
+ * multiplies with the material's (and with its texture, if it has one). So
+ * every placement can be coloured differently and still draw as one batch per
+ * material.
+ *
+ * Parts are what can be recoloured one by one. The sidecar's `parts` maps a
+ * part to a material name, `{ top: 'Shirt' }`; a model without one offers its
+ * materials by their own names, when it has few enough to list.
+ *
+ * @param {Array} primitives from `flatten`, changed in place
+ * @param {Object} [parts] `{ part: materialName }`
+ * @returns {Object} `{ part: materialName }` as used
+ */
+function partColours(primitives, parts) {
+  const names = [...new Set(primitives.map(({ material }) => material.name).filter(Boolean))];
+  let used = parts || null;
+  if (!used && names.length && names.length <= MAX_AUTO_PARTS) {
+    used = Object.fromEntries(names.map((name) => [name, name]));
+  }
+  const partOf = new Map(Object.entries(used || {}).map(([part, name]) => [name, part]));
+  // Materials are shared between primitives, so each is read before any is
+  // turned white.
+  const bases = new Map();
+  primitives.forEach(({ material }) => {
+    if (!bases.has(material)) bases.set(material, material.color.clone());
+  });
+  primitives.forEach((primitive) => {
+    Object.assign(primitive, {
+      part: partOf.get(primitive.material.name) || null,
+      base: bases.get(primitive.material),
+    });
+  });
+  bases.forEach((base, material) => material.color.setRGB(1, 1, 1));
+  return used || {};
+}
+
 /**
  * Builds the instanced meshes for one model and adds them to the scene.
  *
@@ -351,11 +396,13 @@ function flatten(gltf, fix) {
  * @returns {Array} THREE.InstancedMesh, one per primitive
  */
 function buildMeshes(primitives, capacity, key, highlight) {
-  return primitives.map(({ geometry, material }) => {
+  return primitives.map(({ geometry, material, base }) => {
     // The geometry belongs to this model alone, so the attribute does too.
     geometry.setAttribute('highlight', highlight);
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.count = 0;
+    // Colour per placement, for parts and tint; see `partColours`.
+    if (base) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     // So a raycast hit can be traced back: the hit gives a mesh and an
     // instance index, and the index means nothing without knowing whose
     // buffer it indexes.
@@ -498,6 +545,8 @@ async function load(descriptor) {
     const primitives = gltf
       ? flatten(gltf, correction(descriptor))
       : buildPrimitive(descriptor);
+    // Created shapes keep their own colour: it is one of their parameters.
+    const parts = descriptor.kind === 'primitive' ? null : partColours(primitives, descriptor.parts);
     const bounds = new THREE.Box3();
     primitives.forEach(({ geometry }) => {
       if (geometry.boundingBox) bounds.union(geometry.boundingBox);
@@ -506,6 +555,8 @@ async function load(descriptor) {
     const model = {
       key,
       descriptor,
+      /** `{ part: materialName }`, or null for a created shape. */
+      parts,
       primitives,
       /** Local-space extent, for whatever wants to draw a box round one. */
       bounds,
@@ -563,7 +614,18 @@ function writeInstance(model, index, placement) {
   scratch.matrix.compose(scratch.position, scratch.quaternion, scratch.scale);
   model.highlight.setX(index, placement.highlighted ? 1 : 0);
   model.highlight.needsUpdate = true;
-  model.meshes.forEach((mesh) => {
+  const colors = placement.colors || {};
+  model.meshes.forEach((mesh, i) => {
+    const { part, base } = model.primitives[i];
+    if (base) {
+      // The part's own colour or the model's, times the placement's tint.
+      const own = part && colors[part];
+      scratch.color.copy(base);
+      if (own) scratch.color.set(own);
+      if (colors.tint) scratch.color.multiply(scratch.tint.set(colors.tint));
+      mesh.setColorAt(index, scratch.color);
+      mesh.instanceColor.needsUpdate = true;
+    }
     mesh.setMatrixAt(index, scratch.matrix);
     mesh.count = Math.max(mesh.count, index + 1);
     mesh.instanceMatrix.needsUpdate = true;
@@ -632,6 +694,7 @@ async function place(descriptor, transform = {}) {
     position: { x: 0, y: 0, z: 0, ...(transform.position || {}) },
     rotation: { x: 0, y: 0, z: 0, ...(transform.rotation || {}) },
     scale: scaleVector(transform.scale),
+    colors: { ...(transform.colors || {}) },
   };
   if (placement.index >= model.capacity) grow(model);
   model.placements.push(placement);
@@ -653,6 +716,39 @@ function move(placement, transform = {}) {
   Object.assign(placement.rotation, transform.rotation || {});
   if (transform.scale !== undefined) placement.scale = scaleVector(transform.scale);
   writeInstance(model, placement.index, placement);
+}
+
+/**
+ * Sets the colour a placement shows for each recolourable part.
+ *
+ * @public
+ * @param {Object} placement returned by `place`
+ * @param {Object} colors `{ part: '#rrggbb' }`; a part left out shows its default
+ */
+function setColors(placement, colors) {
+  const model = placement && models.get(placement.model);
+  if (!model || placement.index < 0) return;
+  placement.colors = { ...(colors || {}) };
+  writeInstance(model, placement.index, placement);
+}
+
+/**
+ * The recolourable parts of a loaded model and the colour each shows by
+ * default, in the order the sidecar lists them.
+ *
+ * @public
+ * @param {String} key the model's key
+ * @returns {Array} `{ part, color }` with `color` as `#rrggbb`; empty for a
+ *   model with none, or one not loaded
+ */
+function partsOf(key) {
+  const model = models.get(key);
+  const parts = model && model.parts;
+  if (!parts) return [];
+  return Object.keys(parts).map((part) => {
+    const primitive = model.primitives.find((p) => p.part === part);
+    return primitive ? { part, color: `#${primitive.base.getHexString()}` } : null;
+  }).filter(Boolean);
 }
 
 /**
@@ -912,6 +1008,8 @@ export default {
   load,
   place,
   move,
+  setColors,
+  partsOf,
   remove,
   pickObjects,
   ownerAt,

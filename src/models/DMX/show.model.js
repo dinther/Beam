@@ -1334,6 +1334,7 @@ class Show extends EventEmitter {
             model: data.model,
             primitive: data.primitive,
             scale: data.scale,
+            colors: data.colors,
             transform: local.elements.slice(),
           };
         }
@@ -1438,6 +1439,7 @@ class Show extends EventEmitter {
           position: { x: position.x, y: position.y, z: position.z },
           rotation: { x: euler.x, y: euler.y, z: euler.z },
           scale: member.scale,
+          colors: member.colors,
         });
         // eslint-disable-next-line no-await-in-loop
         await object.attach(member.primitive

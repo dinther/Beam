@@ -18,3 +18,15 @@ lets somebody replace a supplied truss without deleting anything.
 
 Nothing here is writable at runtime -- it lives inside the install. "Save to
 library" always writes to the user's library.
+
+## Sources
+
+- `People/Female_*.glb`, `People/Male_*.glb`: Background Posed Humans by
+  Quaternius (https://quaternius.com/packs/backgroundposedhumans.html), CC0 1.0.
+  Licence file as shipped in the pack's download folder:
+  `People/Quaternius_License.txt` (its header names another pack; the licence
+  and credit line are this pack's). Each pose was joined with one of the
+  pack's hairstyles, scaled to 1.78 m (men) and 1.66 m (women) and stood on
+  z = 0, in Blender. `People/*_Crowd_*.glb` are new poses of the standing
+  figures: the pack's meshes carry their skin weights but no skeleton, so a
+  skeleton was rebuilt from the weights, posed, and baked to static meshes.

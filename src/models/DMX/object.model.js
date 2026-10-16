@@ -114,6 +114,11 @@ class SceneObject extends withTransform(Object) {
       z: (data.rotation || {}).z || 0,
     };
     this._scale = scaleOf(data.scale);
+    /**
+     * Colours for the model's recolourable parts, `{ part: '#rrggbb' }`. A
+     * part left out shows the model's own colour.
+     */
+    this._colors = { ...(data.colors || {}) };
 
     /**
      * Owning structure, or null. Same rule as a fixture: a member still holds
@@ -298,6 +303,7 @@ class SceneObject extends withTransform(Object) {
       position: { ...this._position },
       rotation: { ...this._rotation },
       scale: { ...this._scale },
+      colors: Object.keys(this._colors).length ? { ...this._colors } : undefined,
     };
     // An inline object's geometry is these numbers, so the show has to keep
     // them: there is no library entry to resolve it against on reload.
@@ -540,6 +546,52 @@ class SceneObject extends withTransform(Object) {
   }
 
   /**
+   * The model's recolourable parts with the colour each shows here: this
+   * placement's own, or the model's. Empty for a model with none, or before
+   * it has loaded.
+   *
+   * @readonly
+   * @type {Array} `{ part, color, own }`
+   */
+  get parts() {
+    return SceneObjects.partsOf(this.renderKey).map(({ part, color }) => ({
+      part,
+      color: this._colors[part] || color,
+      own: !!this._colors[part],
+    }));
+  }
+
+  /**
+   * The tint over the whole placement, `#rrggbb`, or null for none. Stored
+   * with the part colours under `tint`.
+   *
+   * @readonly
+   * @type {String|null}
+   */
+  get tint() {
+    return this._colors.tint || null;
+  }
+
+  /**
+   * Colours this placement's parts, and `tint` the whole of it. A part given
+   * null goes back to the model's own colour; a part not mentioned is left as
+   * it is.
+   *
+   * @public
+   * @param {Object} colors `{ part: '#rrggbb' | null }`
+   */
+  setColors(colors) {
+    const next = { ...this._colors };
+    Object.entries(colors || {}).forEach(([part, color]) => {
+      if (color) next[part] = color;
+      else delete next[part];
+    });
+    this._colors = next;
+    if (this._placement) SceneObjects.setColors(this._placement, this._colors);
+    sceneChanged();
+  }
+
+  /**
    * Draws the model at a scale without keeping it, for a gizmo drag in
    * progress. The drag's end sets `scale`.
    *
@@ -588,6 +640,7 @@ class SceneObject extends withTransform(Object) {
         position: this._position,
         rotation: this._rotation,
         scale: this._scale,
+        colors: this._colors,
       });
       // So a raycast that lands on the instance can find its way back here.
       this._placement.owner = this;
@@ -663,6 +716,32 @@ class SceneObject extends withTransform(Object) {
     }
     SceneObjects.forget(was);
     this.primitive = null;
+    this.model = key;
+    sceneChanged();
+    const attached = await this.attach(descriptor);
+    Controls.refreshHelpers();
+    return attached;
+  }
+
+  /**
+   * Swaps the library model this object places, keeping where it stands, its
+   * scale and its colours -- Vary pose, one figure for another of its kind. A
+   * name that was the old model's own becomes the new one's.
+   *
+   * @public
+   * @async
+   * @param {String} key the library key of the new model
+   * @param {Object} descriptor the library entry for that key
+   * @returns {Promise<Boolean>} whether the geometry is drawn
+   */
+  async setModel(key, descriptor) {
+    if (this.primitive || !key || !descriptor) return false;
+    const base = (k) => String(k || '').split('/').pop();
+    if (this._name === base(this.model)) this._name = base(key);
+    if (this._placement) {
+      SceneObjects.remove(this._placement);
+      this._placement = null;
+    }
     this.model = key;
     sceneChanged();
     const attached = await this.attach(descriptor);

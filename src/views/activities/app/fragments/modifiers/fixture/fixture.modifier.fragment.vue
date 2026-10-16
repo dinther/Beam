@@ -13,6 +13,11 @@
       v-if="selectedObject"
       :object="selectedObject"
     />
+    <!-- For one object or several: the parts their models let be recoloured. -->
+    <object-colours-widget
+      v-if="colourObjects.length"
+      :objects="colourObjects"
+    />
     <!-- High level to detail: what the fixture *is* (its definition), then
          what this one is set to, then where it stands. -->
     <!-- Several fixtures of one definition share these: the Model widget
@@ -80,6 +85,7 @@ import ArrangeWidget from './_widgets/fixture.modifier.widget.arrange.vue';
 import GroupWidget from '../group/group.modifier.widget.vue';
 import StructureWidget from '../structure/structure.modifier.widget.vue';
 import ObjectWidget from '../object/object.modifier.widget.vue';
+import ObjectColoursWidget from '../object/object.colours.widget.vue';
 import MeasureWidget from '../measure/measure.widget.vue';
 
 export default {
@@ -96,6 +102,7 @@ export default {
     GroupWidget,
     StructureWidget,
     ObjectWidget,
+    ObjectColoursWidget,
     MeasureWidget,
   },
   data() {
@@ -261,6 +268,21 @@ export default {
      */
     selectedObject() {
       return this.oneOfKind(SCENE_ITEM_KINDS.OBJECT);
+    },
+    /**
+     * The selected objects that take colours: every library model, by tint and
+     * by part. A created shape has its own colour parameter instead. Asked of
+     * the library entry, not the loaded model, so the widget stays open while
+     * Vary pose swaps a model.
+     *
+     * @returns {Array}
+     */
+    colourObjects() {
+      return this.selectedItems.filter((item) => {
+        if (kindOf(item) !== SCENE_ITEM_KINDS.OBJECT) return false;
+        const entry = this.$show.objectLibraryEntry(item);
+        return !!(entry && !entry.primitive);
+      });
     },
     /**
      * Whether a selection of two or more items is live.

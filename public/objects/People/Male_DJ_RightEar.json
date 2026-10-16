@@ -1,0 +1,13 @@
+{
+  "parts": {
+    "top": "Shirt",
+    "trousers": "Pants",
+    "shoes": "Shoes",
+    "skin": "Skin",
+    "hair": "Hair"
+  },
+  "figure": {
+    "type": "dj",
+    "gender": "male"
+  }
+}
