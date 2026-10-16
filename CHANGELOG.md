@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.1.0-alpha.24
+
+### People and colours
+
+- 82 posed people ship in the object library: standing crowd poses, sitting poses and DJs, men and women, from Quaternius' Background Posed Humans (CC0).
+- The **Colours** widget sets a tint and the colour of each part of a library model (top, trousers, shoes, skin, hair on a figure). **Vary** picks new colours; **vary pose** swaps a figure for another of the same type and gender. Colours are saved with the project and with structures.
+
+### Placement and measuring
+
+- Placement widget: **drop to ground** beside Position Z stands an item on the surface below it, or lifts it onto one it sits in. Each rotation field has a **turn 180°** button. The fields are laid out on a grid by axis.
+- Measurements snapped to an item follow it when it is moved, turned or scaled, and are deleted with it. Copy, paste, duplicate and Save to Library carry measurements whose ends are all on the copied items.
+- Every measurement has an angle. The Measure widget has an eye per measurement and toggles for length, angle and flipped angle labels.
+- Move, rotate, scale and measure are one set of tools.
+- **View filter** on the viewport toolbar: show or leave out objects, structures and each fixture type, and choose which measurements are drawn with the ruler off. Saved with the project.
+
+### Viewport
+
+- A navigation gizmo with X, Y and Z balls replaces the view cube. Click a ball to look along that axis, click again to look from the other side, drag to orbit.
+- Contact shadows no longer stain the whole floor under a venue model that carries its own floor.
+- A fixture deleted while selected no longer leaves its orange outline behind.
+
+### LED bars
+
+- The LED face shows its off-white dies when the bar is dark, and a red ring round pixel 1, so the start of each run is visible.
+- LED faces seen from outside their beam angle dim gradually instead of going black.
+
+### Projects and export
+
+- Open Project and New Project ask to save unsaved changes first. Edits to objects, structures and groups now mark the project unsaved.
+- **File → Open Recent** lists the last 8 projects opened or saved.
+- MadMapper layout: **Squares** chooses **One per mapping**, where everything using a mapping shares one square at its place in the room, or **One per group or structure**, each fitted to its own square as before.
+
 ## 0.1.0-alpha.23
 
 ### Gobos and animation wheels
