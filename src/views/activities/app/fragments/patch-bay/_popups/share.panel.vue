@@ -66,44 +66,6 @@
       </uk-flex>
     </template>
 
-    <template v-else-if="!share.user">
-      <p class="share_heading">
-        Log in to GDTF Share
-      </p>
-      <p class="share_text">
-        Your account at gdtf-share.com. It is checked with the Share and kept on
-        this computer, encrypted by Windows; Beam logs in with it when it lists
-        or downloads fixtures.
-      </p>
-      <p
-        v-if="!share.available"
-        class="share_error"
-      >
-        This system cannot store the account encrypted, so it cannot be kept.
-      </p>
-      <uk-flex :gap="8">
-        <uk-txt-input
-          v-model="user"
-          label="User"
-          style="flex: 1"
-          auto-update
-        />
-        <uk-txt-input
-          v-model="password"
-          label="Password"
-          style="flex: 1"
-          password
-          auto-update
-        />
-        <uk-button
-          label="log in"
-          style="align-self: flex-end"
-          :disabled="busy || !user || !password || !share.available"
-          @click="logIn"
-        />
-      </uk-flex>
-    </template>
-
     <template v-else-if="mode === 'fixture' && fixture">
       <uk-flex
         :gap="8"
@@ -151,34 +113,6 @@
         Downloaded into your library when it is added.
       </p>
     </template>
-
-    <uk-flex
-      v-if="share.user && mode !== 'library'"
-      :gap="8"
-      center-h
-    >
-      <p class="share_text share_grow">
-        GDTF Share: {{ share.user }} · {{ listText }}
-      </p>
-      <div class="share_buttons">
-        <uk-button
-          label="refresh list"
-          :disabled="busy"
-          @click="$emit('refresh')"
-        />
-        <uk-button
-          label="log out"
-          :disabled="busy"
-          @click="$emit('log-out')"
-        />
-      </div>
-    </uk-flex>
-    <p
-      v-if="share.error"
-      class="share_error"
-    >
-      {{ share.error }}
-    </p>
   </uk-flex>
 </template>
 
@@ -190,9 +124,8 @@ import {
 /**
  * The library side of Add to Show: a fixture in the library, to mark
  * favourite or bad, and if it is a GDTF file its newer revision on the Share
- * and the means to remove it; a fixture picked from the Share;
- * and the login while no account is stored, or the account and list once one
- * is.
+ * and the means to remove it; or a fixture picked from the Share. The account
+ * and the login are in `share.account.vue`.
  */
 export default {
   name: 'SharePanel',
@@ -200,10 +133,10 @@ export default {
     MODE: 3,
   },
   props: {
-    /** 'library', 'fixture' or 'account': what was picked in the list. */
+    /** 'library' or 'fixture': what was picked in the list. */
     mode: {
       type: String,
-      default: 'account',
+      default: 'library',
     },
     /** `{ available, user, fetched, count, error }` */
     share: {
@@ -229,10 +162,7 @@ export default {
     favourite: Boolean,
     busy: Boolean,
   },
-  emits: ['log-in', 'log-out', 'refresh', 'update', 'mark-bad', 'favourite', 'remove'],
-  data() {
-    return { user: '', password: '' };
-  },
+  emits: ['update', 'mark-bad', 'favourite', 'remove'],
   computed: {
     /** Whether the mark buttons show, stacked in the top right corner. */
     marked() {
@@ -263,16 +193,6 @@ export default {
     entryText() {
       const file = String(this.entry.fixture || '').split('/').pop();
       return [this.entry.revision, file].filter(Boolean).join(' · ');
-    },
-    listText() {
-      if (!this.share.fetched) return 'no list yet';
-      return `${this.share.count} fixtures, list from ${new Date(this.share.fetched).toLocaleDateString()}`;
-    },
-  },
-  methods: {
-    logIn() {
-      this.$emit('log-in', this.user.trim(), this.password);
-      this.password = '';
     },
   },
 };
@@ -336,10 +256,5 @@ export default {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.share_error {
-  font-family: Roboto-Regular;
-  font-size: 12px;
-  color: var(--accent-red);
 }
 </style>

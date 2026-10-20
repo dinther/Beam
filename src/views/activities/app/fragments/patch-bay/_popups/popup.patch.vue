@@ -86,6 +86,16 @@
         >
           {{ emptyMessage }}
         </h4>
+        <share-account
+          v-if="activeKind === 'fixtures' && hasShare"
+          ref="shareAccount"
+          :share="shareInfo"
+          :searching="searching"
+          :busy="loading"
+          @log-in="shareLogIn"
+          @log-out="shareLogOut"
+          @refresh="loadShare(true)"
+        />
         <uk-flex
           v-if="activeKind !== 'structures'"
           :gap="8"
@@ -137,9 +147,6 @@
             :bad="selectedBad"
             :favourite="selectedFavourite"
             :busy="loading"
-            @log-in="shareLogIn"
-            @log-out="shareLogOut"
-            @refresh="loadShare(true)"
             @update="updateFromShare"
             @mark-bad="markBad"
             @favourite="markFavourite"
@@ -416,6 +423,7 @@ import CreateObjectPopup from './popup.create.object.vue';
 import ImportObjectPopup from './popup.import.object.vue';
 import ObjectBrowser from './object.browser.vue';
 import SharePanel from './share.panel.vue';
+import ShareAccount from './share.account.vue';
 import FilterMenu from './filter.menu.vue';
 import { generateMissing } from '@/plugins/visualizer/thumbnailer';
 
@@ -504,6 +512,7 @@ export default {
     ImportObjectPopup,
     ObjectBrowser,
     SharePanel,
+    ShareAccount,
     FilterMenu,
   },
   mixins: [PopupMixin],
@@ -684,6 +693,14 @@ export default {
       const item = this.selectedItem;
       return !!(item && item.fixture && favourite.files[this.rowKey(item)]);
     },
+    /** Whether this build talks to GDTF Share: the preload exposes it. */
+    hasShare() {
+      return !!window.gdtfShare;
+    },
+    /** Whether the search has words, which is when the Share is searched too. */
+    searching() {
+      return searchWords(this.search).length > 0;
+    },
     shareInfo() {
       return {
         available: this.share.available,
@@ -749,7 +766,7 @@ export default {
       if (this.activeKind !== 'fixtures') return null;
       if (this.fixture.share) return 'fixture';
       const item = this.selectedItem;
-      if (item && item.shareAccount) return 'account';
+      if (item && item.shareAccount) return null;
       if (item && item.fixture && item.manufacturer) return 'library';
       return null;
     },
@@ -1852,6 +1869,7 @@ export default {
         }
         if (item && item.shareAccount) {
           this.clearFixture();
+          if (item.id === 'share/login' && this.$refs.shareAccount) this.$refs.shareAccount.openLogIn();
           return;
         }
         await this.loadFixture(item);
