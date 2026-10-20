@@ -439,6 +439,8 @@ const DEFAULT_FIXTURE_DATA = {
 
 /** How many GDTF Share matches the list shows; a longer search narrows the rest. */
 const SHARE_SHOWN = 50;
+/** Age at which the open popup asks for the list again; main refetches it at the same age. */
+const SHARE_LIST_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 /** The funnel's types, by the icon that stands for each, in menu order. */
 const TYPE_LABELS = {
@@ -1210,7 +1212,9 @@ export default {
       this.update();
     },
     /**
-     * The account and, once, the revision list; again when `refresh`.
+     * The account and the revision list; the list again when `refresh` or
+     * when the copy held is `SHARE_LIST_MAX_AGE_MS` old. The saved list is
+     * shown first, so a slow Share holds up nothing.
      *
      * @public
      * @async
@@ -1222,22 +1226,28 @@ export default {
       this.share.available = status.available;
       this.share.user = status.user;
       if (!status.user) return;
-      if (this.share.fetched && !refresh) return;
+      this.share.imported = (await window.gdtfShare.imported()) || {};
+      if (!this.share.fetched) {
+        const saved = await window.gdtfShare.saved();
+        if (saved.ok) this.showShareList(saved);
+      }
+      const held = this.share.fetched && Date.now() - this.share.fetched < SHARE_LIST_MAX_AGE_MS;
+      if (held && !refresh) return;
       this.loading = refresh;
-      const [result, imported] = await Promise.all([
-        window.gdtfShare.list(refresh),
-        window.gdtfShare.imported(),
-      ]);
+      const result = await window.gdtfShare.list(refresh);
       this.loading = false;
-      this.share.imported = imported || {};
       if (!result.ok) {
         this.share.error = result.error;
         return;
       }
-      this.share.list = markRaw(result.list);
-      this.share.fetched = result.fetched;
       // A saved list shown because the Share could not be reached.
       this.share.error = result.error ? `Showing the saved list: ${result.error}` : '';
+      if (result.fetched !== this.share.fetched) this.showShareList(result);
+    },
+    /** Puts a revision list from `gdtfShare` in the popup. */
+    showShareList(result) {
+      this.share.list = markRaw(result.list);
+      this.share.fetched = result.fetched;
       // The library's rows say which of them the Share has newer.
       if (this.activeKind === 'fixtures') this.items = this.buildItems('fixtures');
     },

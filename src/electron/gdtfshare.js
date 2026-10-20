@@ -16,13 +16,27 @@ import { app, safeStorage, session } from 'electron';
  * The account is stored encrypted by the operating system (`safeStorage`) and
  * never handed to the renderer, which only learns whether one is stored and
  * whose it is. The list is cached on disk, so browsing opens at once and
- * works offline; it is fetched again when asked. A download is written to a
- * temporary file named as the Share names it and imported from there by the
+ * works offline; it is fetched again when asked or when two hours old. A
+ * download is written to a temporary file named as the Share names it and
+ * imported from there by the
  * same path a file picked from disk takes.
  */
 
 const API = 'https://gdtf-share.com/apis/public';
 const PARTITION = 'gdtf-share';
+/** The Share's API rules allow a cached copy at most 24 h old and ask for a refresh every 2 h. */
+const LIST_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+/**
+ * After a failed list fetch only Refresh asks again before this, so a busy
+ * Share is not asked on every open.
+ */
+const RETRY_AFTER_MS = 15 * 60 * 1000;
+/**
+ * Time allowed for a whole request, body included: the list is about 7 MB, a
+ * fixture file up to tens of MB.
+ */
+const TIMEOUT_MS = 30 * 1000;
+const DOWNLOAD_TIMEOUT_MS = 120 * 1000;
 
 /** Where the account and the cached list are kept. */
 const accountFile = () => path.join(app.getPath('userData'), 'gdtf-share-account.bin');
@@ -83,6 +97,7 @@ async function logIn({ user, password }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user, password }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const body = await response.json().catch(() => ({}));
     if (response.ok && body.result) {
@@ -97,25 +112,27 @@ async function logIn({ user, password }) {
 
 /**
  * A call that needs the session: logs in first if nothing is known to be
- * logged in, and once more if the call is refused.
+ * logged in, and once more if the call is refused. The signal also bounds
+ * reading the response's body.
  */
-async function authorised(url) {
+async function authorised(url, timeoutMs = TIMEOUT_MS) {
   const stored = account();
   if (!stored) return { ok: false, error: 'no GDTF Share account stored' };
   if (Date.now() - loggedInAt > SESSION_MARGIN_MS) {
     const login = await logIn(stored);
     if (!login.ok) return login;
   }
+  const signal = AbortSignal.timeout(timeoutMs);
   let response;
   try {
-    response = await shareSession().fetch(url);
+    response = await shareSession().fetch(url, { signal });
+    if (response.status === 401) {
+      const login = await logIn(stored);
+      if (!login.ok) return login;
+      response = await shareSession().fetch(url, { signal });
+    }
   } catch (err) {
     return { ok: false, error: `cannot reach GDTF Share: ${err.message}` };
-  }
-  if (response.status === 401) {
-    const login = await logIn(stored);
-    if (!login.ok) return login;
-    response = await shareSession().fetch(url);
   }
   return { ok: response.ok, response, error: response.ok ? null : `GDTF Share answered ${response.status}` };
 }
@@ -166,8 +183,38 @@ function cachedList() {
 }
 
 /**
- * Every revision on GDTF Share: the cached copy, or a fresh one when asked
- * or when there is none.
+ * The cached list as `list` answers, without asking the Share.
+ *
+ * @returns {Object} `{ ok, list, fetched }`, or `{ ok: false }` with none
+ */
+function saved() {
+  const cached = cachedList();
+  return cached ? { ok: true, list: cached.list, fetched: cached.fetched } : { ok: false };
+}
+
+/** The list fetch under way, which every caller shares, or null. */
+let fetching = null;
+/** When the last list fetch failed, ms, and why; 0 once one succeeds. */
+let failedAt = 0;
+let failure = '';
+
+/** Fetches the list and caches it; resolves to `{ ok, list, fetched, error }`. */
+async function fetchList() {
+  const result = await authorised(`${API}/getList.php`);
+  if (!result.ok) return result;
+  const body = await result.response.json().catch((err) => ({ error: `cannot read the list: ${err.message}` }));
+  if (!body.result || !Array.isArray(body.list)) {
+    return { ok: false, error: body.error || 'GDTF Share sent no list' };
+  }
+  const fresh = { fetched: Date.now(), list: body.list };
+  fs.writeFileSync(listFile(), JSON.stringify(fresh));
+  return { ok: true, list: fresh.list, fetched: fresh.fetched };
+}
+
+/**
+ * Every revision on GDTF Share: the cached copy, or a fresh one when asked,
+ * when there is none, or when the cached one is `LIST_MAX_AGE_MS` old. After
+ * a failure only `refresh` asks again within `RETRY_AFTER_MS`.
  *
  * @param {Boolean} [refresh]
  * @returns {Promise<Object>} `{ ok, list, fetched, error }`; `fetched` is
@@ -175,24 +222,25 @@ function cachedList() {
  */
 async function list(refresh = false) {
   const cached = cachedList();
-  if (cached && !refresh) return { ok: true, list: cached.list, fetched: cached.fetched };
-  const result = await authorised(`${API}/getList.php`);
-  if (!result.ok) {
-    // Offline or refused: what was there before is still worth showing.
-    if (cached) {
-      return {
-        ok: true, list: cached.list, fetched: cached.fetched, error: result.error,
-      };
-    }
-    return { ok: false, error: result.error };
+  const recent = cached && Date.now() - (cached.fetched || 0) < LIST_MAX_AGE_MS;
+  if (recent && !refresh) return { ok: true, list: cached.list, fetched: cached.fetched };
+  let result;
+  if (!refresh && !fetching && Date.now() - failedAt < RETRY_AFTER_MS) {
+    result = { ok: false, error: failure };
+  } else {
+    if (!fetching) fetching = fetchList().finally(() => { fetching = null; });
+    result = await fetching;
+    failedAt = result.ok ? 0 : Date.now();
+    failure = result.ok ? '' : result.error;
   }
-  const body = await result.response.json().catch(() => ({}));
-  if (!body.result || !Array.isArray(body.list)) {
-    return { ok: false, error: body.error || 'GDTF Share sent no list' };
+  if (result.ok) return result;
+  // Offline, refused or waiting to retry: what was there before is still worth showing.
+  if (cached) {
+    return {
+      ok: true, list: cached.list, fetched: cached.fetched, error: result.error,
+    };
   }
-  const fresh = { fetched: Date.now(), list: body.list };
-  fs.writeFileSync(listFile(), JSON.stringify(fresh));
-  return { ok: true, list: fresh.list, fetched: fresh.fetched };
+  return { ok: false, error: result.error };
 }
 
 /** A file name that is safe on Windows, from what the Share calls a file. */
@@ -214,7 +262,7 @@ function safeName(name) {
  * @returns {Promise<Object>} `{ ok, path, error }`
  */
 async function download(rid, hint = {}) {
-  const result = await authorised(`${API}/downloadFile.php?rid=${encodeURIComponent(rid)}`);
+  const result = await authorised(`${API}/downloadFile.php?rid=${encodeURIComponent(rid)}`, DOWNLOAD_TIMEOUT_MS);
   if (!result.ok) return { ok: false, error: result.error };
   const type = result.response.headers.get('content-type') || '';
   if (type.includes('json')) {
@@ -231,10 +279,16 @@ async function download(rid, hint = {}) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
-  fs.writeFileSync(file, Buffer.from(await result.response.arrayBuffer()));
+  let bytes;
+  try {
+    bytes = Buffer.from(await result.response.arrayBuffer());
+  } catch (err) {
+    return { ok: false, error: `cannot reach GDTF Share: ${err.message}` };
+  }
+  fs.writeFileSync(file, bytes);
   return { ok: true, path: file };
 }
 
 export default {
-  status, saveAccount, forgetAccount, list, download, imported, recordImport,
+  status, saveAccount, forgetAccount, saved, list, download, imported, recordImport,
 };

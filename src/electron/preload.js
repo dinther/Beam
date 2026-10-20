@@ -378,6 +378,12 @@ contextBridge.exposeInMainWorld('gdtfShare', {
   /** @returns {Promise<Object>} `{ ok }` */
   forgetAccount: () => ipcRenderer.invoke('gdtfShare:forgetAccount'),
   /**
+   * The cached list, without asking the Share.
+   *
+   * @returns {Promise<Object>} `{ ok, list, fetched }`
+   */
+  saved: () => ipcRenderer.invoke('gdtfShare:saved'),
+  /**
    * Every revision on the Share, cached unless `refresh`.
    *
    * @returns {Promise<Object>} `{ ok, list, fetched, error }`

@@ -649,6 +649,7 @@ function setupLibrary() {
   ipcMain.handle('gdtfShare:status', () => gdtfshare.status());
   ipcMain.handle('gdtfShare:saveAccount', (event, user, password) => gdtfshare.saveAccount(user, password));
   ipcMain.handle('gdtfShare:forgetAccount', () => gdtfshare.forgetAccount());
+  ipcMain.handle('gdtfShare:saved', () => gdtfshare.saved());
   ipcMain.handle('gdtfShare:list', (event, refresh) => gdtfshare.list(!!refresh));
   ipcMain.handle('gdtfShare:download', (event, rid, hint) => gdtfshare.download(rid, hint));
   ipcMain.handle('gdtfShare:imported', () => gdtfshare.imported());
