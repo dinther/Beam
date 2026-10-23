@@ -319,18 +319,26 @@ function islandGrid(profile, island) {
 }
 
 /**
+ * The `type` values MadMapper takes for a grid whose letters mean what Beam's
+ * do. Other combinations crash it on import (RGBWAM and RGBWYM, 6.1.7), and its
+ * RGBA, RGBL and LRGBW presets read A as alpha and L as luminance.
+ */
+const GRID_TYPES = new Set(['RGB', 'RBG', 'GRB', 'GBR', 'BRG', 'BGR', 'RGBW', 'CMY']);
+
+/**
  * Whether an island can be handed over as a grid of emitters.
  *
- * Only a light island can, and only while its components are eight bits wide:
- * MadMapper's `type` names components but says nothing about their width, so a
- * 16-bit emitter has to fall back to named channels rather than be declared as
- * something it is not.
+ * Only a light island can, only while its components are eight bits wide and
+ * only when they spell one of `GRID_TYPES`: `type` says nothing about width,
+ * and MadMapper crashes on a type it does not know. Anything else falls back
+ * to named channels.
  *
  * @param {Object} island from `fixtureIslands`
  * @returns {Boolean}
  */
 function islandIsGrid(island) {
-  return island.kind === ISLAND_KINDS.LIGHT && !island.widths.includes(16);
+  return island.kind === ISLAND_KINDS.LIGHT && !island.widths.includes(16)
+    && GRID_TYPES.has(island.components.join(''));
 }
 
 /**
