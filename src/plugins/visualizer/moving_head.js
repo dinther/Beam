@@ -357,4 +357,23 @@ class MovingHead extends Light {
   }
 }
 
+/**
+ * A light whose head is tilted by hand in its bracket: a moving head's
+ * joints, posed from the placement rather than DMX, standing on its file's
+ * origin as a light does.
+ */
+export class HandTiltedLight extends MovingHead {
+  /**
+   * The joints set from the file; the pivot stays at the file's origin.
+   *
+   * @protected
+   * @param {Object} body from `gdtf_body.js`
+   * @returns {THREE.Matrix4}
+   */
+  mountJoints(body) {
+    super.mountJoints(body);
+    return new THREE.Matrix4();
+  }
+}
+
 export default MovingHead;

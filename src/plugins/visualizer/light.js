@@ -924,6 +924,14 @@ class Light {
      * face lights and its light still lands; there is no beam in the air.
      */
     this._glow = !!data.glow;
+    /**
+     * Whether this is only a lens face: a lamp of a fixture whose lenses are
+     * all driven together, the light itself coming from its first light. Its
+     * face lights; it has no beam, pool or shadow.
+     */
+    this._faceOnly = !!data.faceOnly;
+    /** Whether the lens face is left undrawn: see `faceless`. */
+    this._faceless = false;
     /** The lamps hung from this light, which follow what is done to it. */
     this._lamps = [];
     /** What the shutter let through this frame, 0..1. */
@@ -1083,6 +1091,8 @@ class Light {
     this.colorTemp = data.colorTemp;
     this.intensity = data.intensity;
     this.strobeFrequency = 0.0;
+    // The file's edge from the start, not only after a frost or focus write.
+    this.applyLensEdge();
   }
 
   /**
@@ -2754,7 +2764,7 @@ class Light {
 
     scene_handle.add(this._dummy);
     instances.push(this);
-    LightField.register(this);
+    if (!this._faceOnly) LightField.register(this);
     // What was last uploaded for this light: body, yoke, head, beam, lens.
     // NaN so the first comparison always fails and the first frame uploads.
     this._writtenMatrices = Array.from({ length: 5 }, () => {
@@ -2826,6 +2836,23 @@ class Light {
 
   get glow() {
     return this._glow;
+  }
+
+  /**
+   * Whether the lens face is left undrawn: a light whose beam leaves the
+   * whole of a lens cluster, each lens drawn by a face-only lamp.
+   *
+   * @type {Boolean}
+   */
+  set faceless(faceless) {
+    this._faceless = !!faceless;
+    // Uploaded on the next frame even though no frame moved.
+    this._writtenMatrices.forEach((written) => written.elements.fill(NaN));
+    this._matrixNeedsUpdate = true;
+  }
+
+  get faceless() {
+    return this._faceless;
   }
 
   /**
@@ -3065,11 +3092,12 @@ class Light {
         headMesh.setMatrixAt(this._id, head);
         boundingBoxMesh.setMatrixAt(this._id, this._dummy.matrixWorld);
       }
-      beamMesh.setMatrixAt(this._id, rigidMatrix);
+      beamMesh.setMatrixAt(this._id, this._faceOnly ? COLLAPSED : rigidMatrix);
       // The lens is part of the body, so it takes the scaled frame, in
       // whichever of the two caps has its shape.
-      capMesh.setMatrixAt(this._id, this._rectLens ? COLLAPSED : this._targetDummy.matrixWorld);
-      rectCapMesh.setMatrixAt(this._id, this._rectLens ? this._targetDummy.matrixWorld : COLLAPSED);
+      const face = this._faceless ? null : this._targetDummy.matrixWorld;
+      capMesh.setMatrixAt(this._id, this._rectLens || !face ? COLLAPSED : face);
+      rectCapMesh.setMatrixAt(this._id, this._rectLens && face ? face : COLLAPSED);
       baseMesh.instanceMatrix.needsUpdate = true;
       yokeMesh.instanceMatrix.needsUpdate = true;
       headMesh.instanceMatrix.needsUpdate = true;
@@ -3382,7 +3410,7 @@ class Light {
     const lit = this._hidden ? 0
       : this._intensity * this._shutter * this.peakUnits();
     this._spotLight.intensity = SPOTLIGHT_PHYSICALLY_CORRECT_INTENSITY * lit;
-    intensity_buffer_attribute.setX(this._id, this._glow ? 0 : lit);
+    intensity_buffer_attribute.setX(this._id, this._glow || this._faceOnly ? 0 : lit);
     intensity_buffer_attribute.needsUpdate = true;
     this.updateLensColor();
   }

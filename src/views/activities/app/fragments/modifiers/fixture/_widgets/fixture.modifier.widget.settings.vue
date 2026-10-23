@@ -85,6 +85,17 @@
         :max="100"
         @update:model-value="writeFocus"
       />
+      <uk-num-input
+        v-if="handTiltRange"
+        :mixed="handTiltMixed"
+        :model-value="fixture.handTilt"
+        style="width: 92px"
+        label="Tilt (°)"
+        :precision="0"
+        :min="handTiltRange[0]"
+        :max="handTiltRange[1]"
+        @update:model-value="writeHandTilt"
+      />
       <uk-button
         v-if="hasSwappableWheels"
         label="Gobos and discs…"
@@ -903,6 +914,20 @@ export default {
       return this.targets.some((target) => target.focusDistance !== first);
     },
     /**
+     * The travel of a head tilted by hand, so the placement holds the tilt;
+     * null for anything else.
+     *
+     * @type {Array<Number>|null}
+     */
+    handTiltRange() {
+      return this.fixture ? this.fixture.handTiltRange : null;
+    },
+    handTiltMixed() {
+      if (!this.many) return false;
+      const first = this.fixture.handTilt;
+      return this.targets.some((target) => target.handTilt !== first);
+    },
+    /**
      * This projector's placement settings, or null for anything else.
      *
      * @type {Object|null}
@@ -1666,6 +1691,11 @@ export default {
      */
     writeFocus(value) {
       this.targets.forEach((target) => { target.focusDistance = value; });
+    },
+    writeHandTilt(value) {
+      this.targets.forEach((target) => {
+        if (target.handTiltRange) target.handTilt = value;
+      });
     },
     writeDevice(key, value) {
       if (!this.device) return;

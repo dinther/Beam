@@ -1,4 +1,5 @@
 import { markRaw } from 'vue';
+import * as THREE from 'three';
 import {
   Proxify,
 } from '../utils/proxify.utils';
@@ -6,7 +7,7 @@ import Channel from './channel.model';
 import BarChannels from './bar_channels';
 import PatchSingleton, { DMX_UNIVERSE_LENGTH, channelAddress } from './patch.model';
 import Light from '../../plugins/visualizer/light';
-import MovingHead from '../../plugins/visualizer/moving_head';
+import MovingHead, { HandTiltedLight } from '../../plugins/visualizer/moving_head';
 import LedBar from '../../plugins/visualizer/led_bar';
 import Projector from '../../plugins/visualizer/projector';
 import Display from '../../plugins/visualizer/display';
@@ -27,7 +28,7 @@ import translateOfl from './gdtf/ofl_to_gdtf';
 import DmxEngine from './gdtf/dmx_engine';
 import HeadDispatch from './gdtf/head_dispatch';
 import {
-  channelRows, fixtureCategory, headInputs, wheelsForHead,
+  channelRows, fixtureCategory, handTiltRange, headInputs, wheelsForHead,
 } from './gdtf/fixture_parts';
 import { normaliseOverwrites, applyOverwrites, resolveImage } from './wheel_overwrites';
 import GOBOS from '../../plugins/visualizer/gobo_manifest';
@@ -338,6 +339,8 @@ class Fixture extends withTransform(Proxify) {
       } else if (data.focus != null && Number.isFinite(Number(data.focus))) {
         this._focusDistance = focusDistanceFromPercent(data.focus);
       }
+      /** How far the head is tilted by hand: see `handTilt`. */
+      this._handTilt = Number.isFinite(Number(data.handTilt)) ? Number(data.handTilt) : 0;
       /** Hidden from the scene: see `hidden`. */
       this._hidden = !!data.hidden;
       /**
@@ -496,6 +499,7 @@ class Fixture extends withTransform(Proxify) {
       groupId: this.group ? this.group.id : undefined,
       structureId: this.structure ? this.structure.id : undefined,
       focusDistance: this.hasManualFocus ? this._focusDistance : undefined,
+      handTilt: this.handTiltRange ? this._handTilt : undefined,
       overwrites: this._overwrites && this._overwrites.length
         ? this._overwrites.map((o) => ({ ...o })) : undefined,
       hidden: this._hidden || undefined,
@@ -639,6 +643,7 @@ class Fixture extends withTransform(Proxify) {
     // by hand, then every channel told to the head, which the mode change
     // has put back to how a new head starts.
     if (this.hasManualFocus && this._3DModel) this._3DModel.focusDistance = this._focusDistance;
+    this.applyHandTilt();
     this.channels.forEach((channel) => {
       this.setChannel(channel.id - 1, 0);
     });
@@ -1268,7 +1273,7 @@ class Fixture extends withTransform(Proxify) {
         lensRadius: inputs.beam && inputs.beam.explicit.includes('BeamRadius')
           ? inputs.beam.beamRadius : null,
       };
-      this.createLight(spec, moving);
+      this.createLight(spec, moving, !moving && !!inputs.handTilt);
       this._lightSpec = moving ? null : spec;
       if (!moving) this.createLamps(spec, type.body);
       this._dispatch = this.dispatchFor();
@@ -1306,21 +1311,30 @@ class Fixture extends withTransform(Proxify) {
    * @param {Object} spec angles, output, wheels and body, and a moving
    *   head's travel and speeds
    * @param {Boolean} moving whether it pans and tilts
+   * @param {Boolean} [tilted] whether it stands still with a head tilted by hand
    */
-  createLight(spec, moving) {
+  createLight(spec, moving, tilted = false) {
     const data = {
       ...spec,
       colorWheel: spec.wheels && spec.wheels['Color Wheel'] ? spec.wheels['Color Wheel'].slots : [],
       intensity: 0.0,
     };
-    const light = moving
-      ? new MovingHead({
+    let light;
+    if (moving) {
+      light = new MovingHead({
         ...data,
         // At the centre of its travel, where the yoke and head are not turned.
         pan: (spec.maxPan || 0) / 2,
         tilt: (spec.maxTilt || 0) / 2,
-      })
-      : new Light(data);
+      });
+    } else if (tilted) {
+      // Turned only by hand: no travel for DMX, the head at the placement's tilt.
+      light = new HandTiltedLight({
+        ...data, maxPan: 0, maxTilt: 0, pan: 0, tilt: this.handTilt,
+      });
+    } else {
+      light = new Light(data);
+    }
     light.position = this._position;
     light.rotation = this._rotation;
     // Kept out of Vue's reactivity: three.js cannot be handed an Object3D
@@ -1350,6 +1364,7 @@ class Fixture extends withTransform(Proxify) {
     const lenses = sets[this.mode && this.mode.geometry] || (body && body.lenses) || [];
     // A beam the file types None or Glow draws no beam; its geometry glows.
     const glows = (lens) => ['None', 'Glow'].includes(lens.beam && lens.beam.beamType);
+    first.faceless = false;
     if (lenses.length) {
       first.placeLens(lenses[0]);
       first.glow = glows(lenses[0]);
@@ -1361,6 +1376,33 @@ class Fixture extends withTransform(Proxify) {
     const flux = lenses.map((lens) => Number(lens.beam && lens.beam.luminousFlux) || 0);
     const total = flux.reduce((sum, f) => sum + f, 0);
     const shareOf = (i) => (total > 0 ? flux[i] / total : 1 / lenses.length);
+    const cluster = this.lensCluster(lenses);
+    if (cluster) {
+      // Lenses no channel tells apart are one light from the whole cluster,
+      // each lens a face lit with its share: one pool, beam and shadow.
+      first.placeLens(cluster);
+      first.faceless = true;
+      first.share = 1;
+      this._lenses = [{ head: first, path: lenses[0].path }];
+      lenses.forEach((lens, i) => {
+        const face = new Light({
+          ...spec,
+          colorWheel: spec.wheels && spec.wheels['Color Wheel'] ? spec.wheels['Color Wheel'].slots : [],
+          intensity: 0.0,
+          body: null,
+          bodyHeight: null,
+          lamp: true,
+          faceOnly: true,
+          lens: { frame: lens.frame, radius: lens.radius, face: lens.face },
+          share: shareOf(i),
+          lumens: spec.lumens * shareOf(i),
+        });
+        face.fixtureHandle = this;
+        first.attachLamp(markRaw(face));
+        this._lenses.push({ head: face, path: lens.path });
+      });
+      return;
+    }
     first.share = shareOf(0);
     this._lenses = [{ head: first, path: lenses[0].path }];
     lenses.slice(1).forEach((lens, k) => {
@@ -1380,6 +1422,42 @@ class Fixture extends withTransform(Proxify) {
       first.attachLamp(markRaw(lamp));
       this._lenses.push({ head: lamp, path: lens.path });
     });
+  }
+
+  /**
+   * One lens covering a cluster the mode drives as one: every channel that
+   * reaches any of the lenses reaches all of them, and all face the same
+   * way. Centred on the lenses, as wide as their outer edges, facing as the
+   * first.
+   *
+   * @private
+   * @param {Array<Object>} lenses `{ frame, radius, face, path }`
+   * @returns {Object|null} `{ frame, radius, face }`, or null where the
+   *   lenses can differ
+   */
+  lensCluster(lenses) {
+    const channels = this._engine ? this._engine.channels : [];
+    const apart = channels.some((c) => {
+      const reached = lenses.filter((lens) => lens.path.includes(c.geometry)).length;
+      return reached > 0 && reached < lenses.length;
+    });
+    if (apart) return null;
+    const axisOf = (lens) => new THREE.Vector3().setFromMatrixColumn(lens.frame, 2).normalize();
+    const axis = axisOf(lenses[0]);
+    if (lenses.some((lens) => axisOf(lens).dot(axis) < 0.999)) return null;
+    const points = lenses.map((lens) => new THREE.Vector3().setFromMatrixPosition(lens.frame));
+    const centre = points.reduce((sum, p) => sum.add(p), new THREE.Vector3())
+      .divideScalar(points.length);
+    const radius = Math.max(...lenses.map((lens, i) => points[i].distanceTo(centre) + (lens.radius || 0)));
+    const frame = lenses[0].frame.clone().setPosition(centre);
+    const out = lenses[0].face ? lenses[0].face.out || 0 : 0;
+    return {
+      frame,
+      radius,
+      face: {
+        rect: false, halfX: radius, halfY: radius, radius, out,
+      },
+    };
   }
 
   /**
@@ -1700,6 +1778,49 @@ class Fixture extends withTransform(Proxify) {
     const channels = this._engine ? this._engine.mode.channels : [];
     return channels.some((c) => !c.offsets
       && c.logicalChannels.some((l) => /^Focus\d+$/.test(l.attribute)));
+  }
+
+  /**
+   * The travel of a head tilted by hand in this mode, in degrees, or null
+   * where the mode has no Tilt without a DMX address.
+   *
+   * @readonly
+   * @type {Array<Number>|null}
+   */
+  get handTiltRange() {
+    return this._engine ? handTiltRange(this._engine.mode) : null;
+  }
+
+  /**
+   * How far the head is tilted by hand, in degrees from where the file draws
+   * it, within `handTiltRange`. On the placement, because each unit is set on
+   * its own.
+   *
+   * @type {Number}
+   */
+  set handTilt(value) {
+    const degrees = Number(value);
+    if (!Number.isFinite(degrees)) return;
+    this._handTilt = degrees;
+    this.applyHandTilt();
+  }
+
+  get handTilt() {
+    const range = this.handTiltRange;
+    if (!range) return this._handTilt;
+    return Math.min(Math.max(this._handTilt, range[0]), range[1]);
+  }
+
+  /**
+   * Poses the head at the hand tilt, without a slew.
+   *
+   * @private
+   */
+  applyHandTilt() {
+    const model = this._3DModel;
+    if (!(model instanceof HandTiltedLight) || !this.handTiltRange) return;
+    model.tilt = this.handTilt;
+    model.snapOrientation();
   }
 
   /**

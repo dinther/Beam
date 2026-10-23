@@ -346,13 +346,14 @@ export default class HeadDispatch {
   applyAll() {
     // A light the mode controls without a dimmer runs at full, its colour
     // channels its only control: an RGB bar with red at full is lit. One no
-    // channel reaches at all is not driven in this mode and stays dark.
+    // channel reaches at all is not driven in this mode and stays dark. A
+    // dimmer with no address is the desk's, already in the colours it sends.
     const reached = new Set();
     const dimmed = new Set();
     this.engine.channels.forEach((c) => {
       const heads = this.targetsOf(c);
       heads.forEach((head) => reached.add(head));
-      if (c.functions.some((f) => f.attribute === 'Dimmer')) {
+      if (c.offsets && c.functions.some((f) => f.attribute === 'Dimmer')) {
         heads.forEach((head) => dimmed.add(head));
       }
     });
@@ -387,9 +388,10 @@ export default class HeadDispatch {
    * @param {Object} c a channel instance
    */
   applyChannel(c) {
-    // A focus with no DMX address is a lens wound by hand: the placement
-    // sets it, and the file's default for it is not a setting.
-    if (!c.offsets && c.functions.some((f) => /^Focus\d+$/.test(f.attribute))) return;
+    // A focus or tilt with no DMX address is set by hand: the placement sets
+    // it, and the file's default for it is not a setting. A dimmer with none
+    // is the desk's, which multiplies the colours before it sends them.
+    if (!c.offsets && c.functions.some((f) => /^(Focus\d+|Tilt|Dimmer)$/.test(f.attribute))) return;
     const heads = this.targetsOf(c);
     if (heads.length === 1) {
       this.applyTo(heads[0], c);

@@ -298,19 +298,46 @@ export function unfilledBeamFields(beam) {
 }
 
 /**
- * Whether a fixture type pans or tilts: a Pan or Tilt function in any of its
- * modes, or an Axis anywhere in its geometry. Not every file models the yoke
- * and head as axes -- Martin's are plain geometry -- so the channels count as
- * much as the geometry.
+ * Whether a fixture type pans or tilts: a Pan or Tilt function on an
+ * addressed channel in any of its modes, or an Axis anywhere in its geometry
+ * when no mode turns it by hand. Not every file models the yoke and head as
+ * axes -- Martin's are plain geometry -- so the channels count as much as the
+ * geometry.
  *
  * @param {Object} type a fixture type
  * @returns {Boolean}
  */
 export function moves(type) {
+  const pansOrTilts = (c) => c.logicalChannels
+    .some((l) => l.functions.some((f) => f.attribute === 'Pan' || f.attribute === 'Tilt'));
+  const turns = (addressed) => type.modes.some((mode) => mode.channels
+    .some((c) => !!c.offsets === addressed && pansOrTilts(c)));
+  if (turns(true)) return true;
+  // A Pan or Tilt with no DMX address is turned by hand: the light stands still.
+  if (turns(false)) return false;
   const axis = (g) => g.type === 'Axis' || g.children.some(axis);
-  if (type.geometries.some(axis)) return true;
-  return type.modes.some((mode) => mode.channels.some((c) => c.logicalChannels
-    .some((l) => l.functions.some((f) => f.attribute === 'Pan' || f.attribute === 'Tilt'))));
+  return type.geometries.some(axis);
+}
+
+/**
+ * The travel of a tilt set by hand in a mode: a Tilt channel with no DMX
+ * address, as a par in a U bracket is described.
+ *
+ * @param {Object} mode a fixture type's mode
+ * @returns {Array<Number>|null} `[lowest, highest]` in degrees, or null
+ */
+export function handTiltRange(mode) {
+  let low = Infinity;
+  let high = -Infinity;
+  (mode ? mode.channels : []).forEach((c) => {
+    if (c.offsets) return;
+    c.logicalChannels.forEach((l) => l.functions.forEach((f) => {
+      if (f.attribute !== 'Tilt') return;
+      low = Math.min(low, f.physicalFrom, f.physicalTo);
+      high = Math.max(high, f.physicalFrom, f.physicalTo);
+    }));
+  });
+  return Number.isFinite(low) ? [low, high] : null;
 }
 
 /** Whether a fixture type carries a Laser geometry anywhere. */
@@ -359,7 +386,7 @@ export function isLaserType(type) {
  * @param {Object} type a fixture type
  * @param {Object} mode the mode it is patched in
  * @returns {Object} `{ category, minAngle, maxAngle, lumens, colorTemp,
- *   panSpan, tiltSpan, panSpeed, tiltSpeed, bodyHeight, unmeasured }`; null fields
+ *   panSpan, tiltSpan, handTilt, panSpeed, tiltSpeed, bodyHeight, unmeasured }`; null fields
  *   where the file is silent
  */
 export function headInputs(type, mode) {
@@ -377,19 +404,20 @@ export function headInputs(type, mode) {
     }
   });
   if (root) visit(root);
-  const span = (attribute) => {
+  // Pan and tilt travel is what DMX moves; a tilt set by hand is `handTilt`.
+  const span = (attribute, addressed = false) => {
     let low = Infinity;
     let high = -Infinity;
     mode.channels.forEach((c) => c.logicalChannels.forEach((l) => l.functions.forEach((f) => {
-      if (f.attribute !== attribute) return;
+      if (f.attribute !== attribute || (addressed && !c.offsets)) return;
       low = Math.min(low, f.physicalFrom, f.physicalTo);
       high = Math.max(high, f.physicalFrom, f.physicalTo);
     })));
     return Number.isFinite(low) ? [low, high] : null;
   };
   const zoom = span('Zoom');
-  const pan = span('Pan');
-  const tilt = span('Tilt');
+  const pan = span('Pan', true);
+  const tilt = span('Tilt', true);
   // A function's RealFade is the time it takes across its whole range, so
   // the head's top speed is the span over that.
   const speed = (attribute, range) => {
@@ -465,6 +493,7 @@ export function headInputs(type, mode) {
     colorTemp: main ? main.colorTemperature : null,
     panSpan: pan ? pan[1] - pan[0] : null,
     tiltSpan: tilt ? tilt[1] - tilt[0] : null,
+    handTilt: handTiltRange(mode),
     panSpeed: speed('Pan', pan),
     tiltSpeed: speed('Tilt', tilt),
     bodyHeight: height > 0 ? height : null,
