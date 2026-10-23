@@ -78,6 +78,7 @@
       }]"
       :icon="entry.icon"
       :label="entry.label"
+      :title="entry.title"
       :flat="!entry.label"
       :icon-only="!entry.label"
       :disabled="entry.disabled"
@@ -390,7 +391,9 @@ export default {
 }
 
 .uikit_list_item_more {
-  /* width: 62px; */
+  /* Kept whole, an address range is read to patch the next fixture; the
+     name shortens instead. */
+  flex: none;
   color: var(--secondary-light-alt);
   font-family: roboto-regular!important;
 }

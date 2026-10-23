@@ -24,12 +24,14 @@
            from beside the rows. -->
       <uk-list
         band-select
+        draggable
         class="structure_members"
         :items="members"
         :highlight-ids="highlightedIds"
         :selected-id="highlightedIds.length === 1 ? highlightedIds[0] : null"
         @select="selectRow"
         @highlight="highlightRows"
+        @reorder="reorderMembers"
       />
 
       <p class="structure_summary">
@@ -88,6 +90,12 @@
 import { PROJECTION_LABELS, ISLAND_GROUPING } from '@/models/DMX/generic/madmapper_layout';
 import { isNamedByUser } from '@/models/DMX/show.model';
 import { displayNameOf } from '@/models/DMX/item_naming';
+import { continuingRun, refusalMessage } from '@/models/DMX/address_format';
+import ViewFilter from '@/models/DMX/view_filter';
+import EventBus from '@/plugins/eventbus';
+
+/** Whether the item list shows an item; the addressing order counts these. */
+const listed = (item) => !ViewFilter.hides(item);
 
 /** How long the save button confirms for, in ms. */
 const SAVE_FEEDBACK_MS = 1500;
@@ -125,6 +133,11 @@ export default {
        * to know what was highlighted before the clear.
        */
       beforeClear: null,
+      /**
+       * Bumped when the members are reordered or readdressed here: neither
+       * they nor their addresses are reactive, so the rows are told this way.
+       */
+      membersTick: 0,
     };
   },
   computed: {
@@ -156,8 +169,23 @@ export default {
      */
     members() {
       if (!this.structure) return [];
-      return this.structure.members
-        .map((member) => ({ ...member.listable, name: displayNameOf(member) }));
+      // eslint-disable-next-line no-unused-expressions
+      this.membersTick;
+      // A fixture with a patched fixture before it can continue from it.
+      const order = this.$show.addressingOrder(listed);
+      return this.structure.members.map((member) => {
+        const row = { ...member.listable, name: displayNameOf(member), uid: member.uid };
+        if (!this.$show.addressedBefore(member, order)) return row;
+        return {
+          ...row,
+          actions: [{
+            icon: 'continue',
+            small: true,
+            title: 'Continue addressing from the fixture above',
+            callback: () => this.continueAddressing(member),
+          }],
+        };
+      });
     },
     saveLabel() {
       return this.saved ? 'saved' : 'save to library';
@@ -255,6 +283,61 @@ export default {
       }
       this.beforeClear = null;
       this.$emit('highlight-members', rows.map((row) => row.id));
+    },
+    /**
+     * The member a list row stands for.
+     *
+     * @public
+     * @param {Object} row
+     * @returns {Object|null}
+     */
+    memberOf(row) {
+      if (!row || !this.structure) return null;
+      return this.structure.members.find((member) => member.uid === row.uid) || null;
+    },
+    /**
+     * Moves a dragged row to where it was dropped. Dragging a highlighted row
+     * takes every highlighted member, which lands together in its order.
+     *
+     * @public
+     * @param {Object} payload `{ item, target, position }` from the list
+     */
+    reorderMembers({ item, target, position }) {
+      const dragged = this.memberOf(item);
+      const anchor = this.memberOf(target);
+      if (!dragged || !anchor) return;
+      const highlighted = this.highlightedMembers();
+      const moving = highlighted.includes(dragged) ? highlighted : [dragged];
+      this.structure.reorder(moving, anchor, position);
+      this.$show.touch();
+      this.membersTick += 1;
+    },
+    /**
+     * The highlighted members, in the structure's order.
+     *
+     * @public
+     * @returns {Array<Object>}
+     */
+    highlightedMembers() {
+      return this.members
+        .filter((row) => this.highlightedIds.includes(row.id))
+        .map((row) => this.memberOf(row))
+        .filter(Boolean);
+    },
+    /**
+     * Starts a member on the channel after the fixture above it, and the
+     * highlighted members below it after that, each after the one before.
+     *
+     * @public
+     * @param {Object} member the fixture whose button was clicked
+     */
+    continueAddressing(member) {
+      const highlighted = this.highlightedMembers();
+      const others = highlighted.includes(member) ? highlighted : [];
+      const targets = continuingRun(member, others, this.$show.addressingOrder(listed));
+      const refused = this.$show.continueAddressing(targets, listed);
+      if (refused) EventBus.emit('app_error', new Error(refusalMessage(refused)));
+      this.membersTick += 1;
     },
     /**
      * Stores this arrangement in the library so it can be placed again.

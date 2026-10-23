@@ -788,6 +788,7 @@ export default PatchSingleton;
 export {
   PatchMap,
   DMX_UNIVERSE_LENGTH,
+  alignedStart,
   channelAddress,
   channelIndexAt,
 };

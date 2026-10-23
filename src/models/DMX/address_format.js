@@ -78,3 +78,54 @@ export function formatAddress(address) {
     default: return `${universe}.${channel}`;
   }
 }
+
+/**
+ * A fixture's first to last channel as the user has chosen to read it, the
+ * universe written once where both are in the same one: 13.123–132.
+ *
+ * @public
+ * @param {Number} first absolute and zero-based
+ * @param {Number} last absolute and zero-based, at or past `first`
+ * @returns {String}
+ */
+export function formatAddressRange(first, last) {
+  const start = formatAddress(first);
+  if (!(last > first)) return start;
+  const sameUniverse = Math.floor(first / DMX_UNIVERSE_LENGTH)
+    === Math.floor(last / DMX_UNIVERSE_LENGTH);
+  if (sameUniverse && state.format !== 'absolute') {
+    return `${start}–${(Math.floor(last) % DMX_UNIVERSE_LENGTH) + 1}`;
+  }
+  return `${start}–${formatAddress(last)}`;
+}
+
+/**
+ * The fixtures a "continue addressing" click acts on: the one clicked and the
+ * highlighted fixtures below it in the addressing order.
+ *
+ * @public
+ * @param {Object} clicked the fixture whose button was clicked
+ * @param {Array<Object>} highlighted the highlighted items, any kind
+ * @param {Array<Object>} order from `Show.addressingOrder`
+ * @returns {Array<Object>}
+ */
+export function continuingRun(clicked, highlighted, order) {
+  const from = order.indexOf(clicked);
+  const below = highlighted.filter((item) => order.indexOf(item) > from);
+  return [clicked, ...below];
+}
+
+/**
+ * Why continuing the addressing stopped at a fixture: a strict patch refused
+ * the channels it was sent to.
+ *
+ * @public
+ * @param {Object} refused `{ fixture, address, blocker }` from
+ *   `Show.continueAddressing`
+ * @returns {String}
+ */
+export function refusalMessage({ fixture, address, blocker }) {
+  const held = blocker ? `${blocker.label} uses those channels` : 'those channels are in use';
+  return `${fixture.label} stays where it is: it would start at ${formatAddress(address)}, `
+    + `but ${held}. Strict patch is on.`;
+}

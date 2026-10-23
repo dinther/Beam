@@ -10,7 +10,7 @@ import {
 } from '../utils/proxify.utils';
 import { onSceneChange } from './scene_changes';
 
-import PatchSingleton from './patch.model';
+import PatchSingleton, { alignedStart, channelAddress } from './patch.model';
 import migrateShowData, { SHOWFILE_VERSION } from './showfile.migrate';
 import VideoInput, { migrateVideo, withTestCard, INPUT_KINDS } from './video_input';
 import FixturePool from './fixture.pool.model';
@@ -2190,6 +2190,112 @@ class Show extends EventEmitter {
       item.listOrder = i;
     });
     this.touch();
+  }
+
+  /**
+   * The scene items as the item list shows them, in its order: structures,
+   * objects no structure holds, groups and the fixtures in neither, sorted by
+   * the order the user dragged them into. An item never placed has no
+   * listOrder and follows the placed ones in that order; the sort is stable.
+   *
+   * @public
+   * @param {Function} [listed] whether an item is shown; the view filter's
+   * @returns {Array<Object>}
+   */
+  listedItems(listed = () => true) {
+    // By uid, which is unique across kinds: a structure holding object 3
+    // must not hide fixture 3.
+    const spokenFor = new Set();
+    // A group whose every member is filtered out has nothing to show.
+    const groups = this.groups.filter((group) => {
+      group.members.forEach((member) => spokenFor.add(member.uid));
+      return !group.members.length || group.members.some(listed);
+    });
+    this.structures.forEach((structure) => {
+      structure.members.forEach((member) => spokenFor.add(member.uid));
+    });
+    const structures = this.structures.filter(listed);
+    const objects = (this.objects || [])
+      .filter((object) => !spokenFor.has(object.uid) && listed(object));
+    const loose = this.fixturePool.fixtures
+      .filter((fixture) => !spokenFor.has(fixture.uid) && listed(fixture));
+    const place = (item) => (Number.isFinite(item.listOrder) ? item.listOrder : Infinity);
+    return [...structures, ...objects, ...groups, ...loose]
+      .sort((a, b) => place(a) - place(b));
+  }
+
+  /**
+   * Every fixture in the item list's order, with a group's or a structure's
+   * fixtures where it stands, in their own order: the order addressing
+   * continues in.
+   *
+   * @public
+   * @param {Function} [listed] whether an item is shown; see `listedItems`
+   * @returns {Array<Fixture>}
+   */
+  addressingOrder(listed = () => true) {
+    const isFixture = (item) => kindOf(item) === SCENE_ITEM_KINDS.FIXTURE;
+    return this.listedItems(listed).flatMap((item) => {
+      if (isFixture(item)) return [item];
+      if (kindOf(item) === SCENE_ITEM_KINDS.GROUP) {
+        return item.members.filter((member) => isFixture(member) && listed(member));
+      }
+      if (kindOf(item) === SCENE_ITEM_KINDS.STRUCTURE) return item.members.filter(isFixture);
+      return [];
+    });
+  }
+
+  /**
+   * The nearest patched fixture before one in the addressing order.
+   *
+   * @public
+   * @param {Fixture} fixture
+   * @param {Array<Fixture>} order from `addressingOrder`
+   * @returns {Fixture|null}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  addressedBefore(fixture, order) {
+    const at = order.indexOf(fixture);
+    if (at < 1) return null;
+    return order.slice(0, at).reverse().find((f) => PatchSingleton.isPatched(f)) || null;
+  }
+
+  /**
+   * Starts each fixture on the channel after the last channel of the patched
+   * fixture before it in the addressing order, taking them in that order so
+   * a run is patched one after another. A fixture keeping its pixels whole
+   * skips a universe's tail too short for one. Under a strict patch a fixture
+   * whose new channels another holds stays where it is, and the run stops.
+   *
+   * @public
+   * @param {Array<Fixture>} fixtures
+   * @param {Function} [listed] whether an item is shown; see `listedItems`
+   * @returns {Object|null} null when every fixture moved, else `{ fixture,
+   *   address, blocker }`: the one that stayed, where it was sent, and the
+   *   fixture in the way, or null where none is found
+   */
+  continueAddressing(fixtures, listed = () => true) {
+    const order = this.addressingOrder(listed);
+    const run = fixtures.filter((fixture) => order.indexOf(fixture) > 0)
+      .sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    let refused = null;
+    run.some((fixture) => {
+      const before = this.addressedBefore(fixture, order);
+      if (!before) return false;
+      const address = alignedStart(before.addressStop, fixture.alignmentPixelSize);
+      // eslint-disable-next-line no-param-reassign
+      fixture.address = address;
+      if (fixture.address === address) return false;
+      const count = Math.max(fixture.channels.length - 1, 0);
+      const last = channelAddress(address, count, fixture.alignmentPixelSize);
+      const blocker = this.fixturePool.fixtures.find((other) => other !== fixture
+        && PatchSingleton.isPatched(other)
+        && other.address <= last && other.addressStop > address) || null;
+      refused = { fixture, address, blocker };
+      return true;
+    });
+    if (run.length) this.touch();
+    return refused;
   }
 
   /**

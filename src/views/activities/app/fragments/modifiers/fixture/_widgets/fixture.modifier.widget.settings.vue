@@ -49,11 +49,11 @@
           :max="512"
         />
         <uk-txt-input
-          v-show="spanHint"
-          :model-value="spanHint"
+          v-show="lastAddress"
+          :model-value="lastAddress"
           readonly
           style="flex: 1"
-          label="Spans"
+          label="Ends at"
         />
       </uk-flex>
       <uk-checkbox
@@ -1466,13 +1466,13 @@ export default {
       },
     },
     /**
-     * Names the universe a fixture runs on into, when it crosses a boundary.
-     * Empty for the ordinary case, so the field stays out of the way.
+     * The fixture's last channel, in the chosen address format, so the next
+     * fixture can be patched from the one after it. Its universe shows where
+     * a fixture runs on past a boundary.
      */
-    spanHint() {
+    lastAddress() {
       if (!this.fixture || !this.fixture.channels.length) return '';
-      const endUniverse = Math.floor((this.fixture.addressStop - 1) / DMX_UNIVERSE_LENGTH);
-      return endUniverse > this.fixture.universe ? `→ U${endUniverse}` : '';
+      return formatAddress(this.fixture.addressStop - 1);
     },
     /**
      * Whether the fixture skips the last two channels of each universe, so its

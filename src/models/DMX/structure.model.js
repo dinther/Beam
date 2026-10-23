@@ -386,6 +386,30 @@ class Structure extends withTransform(Proxify) {
   }
 
   /**
+   * Moves members to just before or after another, keeping their order among
+   * themselves: the order the structure's list shows, addressing continues
+   * in and the export lays out.
+   *
+   * @public
+   * @param {Array<Object>} moving members to move
+   * @param {Object} anchor the member they land beside
+   * @param {String} position 'before' or 'after' the anchor
+   */
+  reorder(moving, anchor, position) {
+    const order = this.members;
+    const taking = order.filter((member) => moving.includes(member));
+    if (!taking.length || order.indexOf(anchor) === -1) return;
+    // The gap is counted in the list as it stands, then shifted up by every
+    // moving member above it, since those leave before anything is inserted.
+    const gap = order.indexOf(anchor) + (position === 'after' ? 1 : 0);
+    const at = gap - order.slice(0, gap).filter((member) => taking.includes(member)).length;
+    const rest = order.filter((member) => !taking.includes(member));
+    rest.splice(at, 0, ...taking);
+    this.members = rest;
+    sceneChanged();
+  }
+
+  /**
    * Releases every member, leaving all of them where they stand.
    *
    * This is explode: the structure stops existing as one item and its contents

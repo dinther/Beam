@@ -86,9 +86,9 @@ import Clipboard, { chunkSummary } from '@/models/DMX/clipboard';
 import { SCENE_ITEM_KINDS, rowId, kindOf } from '@/models/DMX/scene_item';
 import Selection from '@/models/DMX/selection';
 import ViewFilter from '@/models/DMX/view_filter';
+import { continuingRun, refusalMessage } from '@/models/DMX/address_format';
 import MeasureTool from '@/plugins/visualizer/measure_tool';
 import { displayNameOf } from '@/models/DMX/item_naming';
-import { formatAddress } from '@/models/DMX/address_format';
 import { fixtureIcon } from '@/models/DMX/generic/fixture_kind';
 import PatchPopup from './_popups/popup.patch.vue';
 import ExportPopup from './_popups/popup.export.vue';
@@ -239,56 +239,44 @@ export default {
           const key = nameKey(item);
           counts.set(key, (counts.get(key) || 0) + 1);
         }));
-      // By uid, which is unique across kinds: a structure holding object 3
-      // must not hide fixture 3.
-      const spokenFor = new Set();
       // What the view filter leaves out is left out of the list as well.
       const listed = (item) => !ViewFilter.hides(item);
-      const groups = this.show.groups.map((group) => {
-        group.members.forEach((member) => spokenFor.add(member.uid));
-        const members = group.members.filter(listed);
-        // A group whose every member is filtered out has nothing to show.
-        if (group.members.length && !members.length) return null;
-        // Its own icon rather than the selector's folder: a group is a thing
-        // in the show, not a place to look in.
-        return [group, {
-          name: group.label,
-          icon: 'group',
-          id: rowId(SCENE_ITEM_KINDS.GROUP, group.id),
-          kind: group.kind,
-          uid: group.uid,
-          groupId: group.id,
-          unfold: members
-            .map((member) => this.withVisibility(member, this.describeFixture(member), counts)),
-        }];
-      }).filter(Boolean);
-      // Structures are flat rows with nothing to unfold. What they hold sits
-      // at coordinates relative to them, which makes those things not scene
-      // items -- they are reached through the structure's own widget, and
-      // putting them here would contradict what this list is.
-      const structures = this.show.structures.map((structure) => {
-        structure.members.forEach((member) => spokenFor.add(member.uid));
-        return [structure, structure.listable];
-      }).filter(([structure]) => listed(structure));
-      // Objects are scene items too, and flat rows for the same reason
-      // structures are, unless a structure holds them.
-      const objects = (this.show.objects || [])
-        .filter((object) => !spokenFor.has(object.uid) && listed(object))
-        .map((object) => [object, object.listable]);
-      const loose = this.pool.fixtures
-        .filter((fixture) => !spokenFor.has(fixture.uid) && listed(fixture))
-        .map((fixture) => [fixture, this.describeFixture(fixture)]);
-      // In the order the user dragged them into. An item never placed has no
-      // listOrder and follows the placed ones, in the order above; the sort is
-      // stable, so they keep it.
-      const place = ([item]) => (Number.isFinite(item.listOrder) ? item.listOrder : Infinity);
-      // Read so a hide toggled from this list redraws it: the items themselves
-      // are not reactive, so nothing else would tell the rows.
+      // Read so a hide toggled or an address continued from this list redraws
+      // it: the items themselves are not reactive, so nothing else would tell
+      // the rows.
       // eslint-disable-next-line no-unused-expressions
       this.visibilityTick;
-      return [...structures, ...objects, ...groups, ...loose]
-        .sort((a, b) => place(a) - place(b))
-        .map(([item, row]) => this.withVisibility(item, row, counts));
+      // A fixture with a patched fixture before it can continue from it.
+      const order = this.show.addressingOrder(listed);
+      const rowOf = (item, row) => {
+        const continuable = !!this.show.addressedBefore(item, order);
+        return this.withVisibility(item, row, counts, continuable);
+      };
+      return this.show.listedItems(listed).map((item) => {
+        const kind = kindOf(item);
+        if (kind === SCENE_ITEM_KINDS.GROUP) {
+          // Its own icon rather than the selector's folder: a group is a thing
+          // in the show, not a place to look in.
+          return this.withVisibility(item, {
+            name: item.label,
+            icon: 'group',
+            id: rowId(SCENE_ITEM_KINDS.GROUP, item.id),
+            kind: item.kind,
+            uid: item.uid,
+            groupId: item.id,
+            unfold: item.members.filter(listed)
+              .map((member) => rowOf(member, this.describeFixture(member))),
+          }, counts);
+        }
+        // Structures and objects are flat rows with nothing to unfold. What a
+        // structure holds sits at coordinates relative to it, which makes
+        // those things not scene items -- they are reached through the
+        // structure's own widget.
+        if (kind === SCENE_ITEM_KINDS.STRUCTURE || kind === SCENE_ITEM_KINDS.OBJECT) {
+          return this.withVisibility(item, item.listable, counts);
+        }
+        return rowOf(item, this.describeFixture(item));
+      });
     },
   },
   mounted() {
@@ -365,7 +353,8 @@ export default {
         uid: fixture.uid,
         universe: fixture.universe,
         address: fixture.address,
-        more: fixture.address > -1 ? formatAddress(fixture.address) : 'unpatched',
+        // The address as every list shows it; see `Fixture.listable`.
+        more: fixture.listable.more,
       };
     },
     /**
@@ -482,22 +471,53 @@ export default {
      * @param {Object} item the scene item the row stands for
      * @param {Object} row its list entry
      * @param {Map} counts items per kind and name; see `listable`
+     * @param {Boolean} [continuable] whether the row offers to continue the
+     *   addressing from the fixture above
      * @returns {Object} the entry, with `name`, `actions` and `dimmed`
      */
-    withVisibility(item, row, counts) {
+    withVisibility(item, row, counts, continuable = false) {
       if (!item || !('hidden' in item)) return row;
       const sharing = counts.get(nameKey(item));
+      const actions = [];
+      if (continuable) {
+        actions.push({
+          icon: 'continue',
+          small: true,
+          title: 'Continue addressing from the fixture above',
+          callback: () => this.continueAddressing(item, row),
+        });
+      }
+      actions.push({
+        icon: 'hide',
+        small: true,
+        active: !!item.hidden,
+        callback: () => this.toggleHidden(item, row),
+      });
       return {
         ...row,
         name: displayNameOf(item, sharing),
         dimmed: !!item.isHidden,
-        actions: [{
-          icon: 'hide',
-          small: true,
-          active: !!item.hidden,
-          callback: () => this.toggleHidden(item, row),
-        }],
+        actions,
       };
+    },
+    /**
+     * Starts a fixture on the channel after the fixture above it. On one of
+     * several highlighted rows it also addresses the highlighted fixtures
+     * below it, in list order, each after the one before.
+     *
+     * @public
+     * @param {Object} item the fixture whose button was clicked
+     * @param {Object} row its list entry
+     */
+    continueAddressing(item, row) {
+      const listed = (entry) => !ViewFilter.hides(entry);
+      const highlighted = Selection.has(row) && Selection.items.length > 1
+        ? Selection.items.map((entry) => this.itemOfKind(entry.kind, entry))
+        : [];
+      const targets = continuingRun(item, highlighted, this.show.addressingOrder(listed));
+      const refused = this.show.continueAddressing(targets, listed);
+      if (refused) EventBus.emit('app_error', new Error(refusalMessage(refused)));
+      this.visibilityTick += 1;
     },
     /**
      * Hides or shows an item from its row's toggle.

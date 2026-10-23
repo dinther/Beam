@@ -23,7 +23,7 @@ import withTransform from './scene_item.transform';
 import { SCENE_ITEM_KINDS } from './scene_item';
 import { itemLabel, splitSavedName } from './item_naming';
 import ViewFilter from './view_filter';
-import { formatAddress } from './address_format';
+import { formatAddressRange } from './address_format';
 import translateOfl from './gdtf/ofl_to_gdtf';
 import DmxEngine from './gdtf/dmx_engine';
 import HeadDispatch from './gdtf/head_dispatch';
@@ -469,7 +469,8 @@ class Fixture extends withTransform(Proxify) {
       icon: this.isBar ? 'ledbar' : 'movinghead',
       id: this.id,
       universe: this.universe,
-      more: this.address > -1 ? formatAddress(this.address) : 'unpatched',
+      // First to last channel, so the next fixture can be patched after it.
+      more: this.address > -1 ? formatAddressRange(this.address, this.addressStop - 1) : 'unpatched',
     };
   }
 
