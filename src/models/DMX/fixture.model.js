@@ -424,7 +424,10 @@ class Fixture extends withTransform(Proxify) {
       // head hears every channel once.
       if (this._dispatch) this._dispatch.applyAll();
     }
-    return this.proxify(['_3DModel']);
+    // Membership is left out of property undo: undo cannot bring back a
+    // structure or group, so restoring the link alone points the fixture at
+    // one that is no longer in the show.
+    return this.proxify(['_3DModel', 'group', 'structure', 'localTransform']);
   }
 
   /** *******************************************
