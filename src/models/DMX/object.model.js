@@ -115,10 +115,22 @@ class SceneObject extends withTransform(Object) {
     };
     this._scale = scaleOf(data.scale);
     /**
+     * The scale of the structure holding this, along this object's own axes;
+     * drawn on top of its own scale. Set by the structure, not saved.
+     */
+    this._structureScale = { x: 1, y: 1, z: 1 };
+    /**
      * Colours for the model's recolourable parts, `{ part: '#rrggbb' }`. A
      * part left out shows the model's own colour.
      */
     this._colors = { ...(data.colors || {}) };
+    /**
+     * Which faces this placement draws, `front` or `flipped`, or null
+     * for what it is built with: the file's own for a model, front for a shape.
+     */
+    this._faces = SceneObjects.FACES.includes(data.faces) ? data.faces : null;
+    /** The library entry last attached, so a change of sides can rebuild. */
+    this._descriptor = null;
 
     /**
      * Owning structure, or null. Same rule as a fixture: a member still holds
@@ -196,8 +208,9 @@ class SceneObject extends withTransform(Object) {
       return;
     }
     this.transformNode.updateMatrixWorld();
+    const drawn = this.drawnScale;
     box.union(local.clone()
-      .applyMatrix4(new THREE.Matrix4().makeScale(this._scale.x, this._scale.y, this._scale.z))
+      .applyMatrix4(new THREE.Matrix4().makeScale(drawn.x, drawn.y, drawn.z))
       .applyMatrix4(this.transformNode.matrixWorld));
   }
 
@@ -304,6 +317,7 @@ class SceneObject extends withTransform(Object) {
       rotation: { ...this._rotation },
       scale: { ...this._scale },
       colors: Object.keys(this._colors).length ? { ...this._colors } : undefined,
+      faces: this._faces || undefined,
     };
     // An inline object's geometry is these numbers, so the show has to keep
     // them: there is no library entry to resolve it against on reload.
@@ -353,7 +367,72 @@ class SceneObject extends withTransform(Object) {
    * @type {String}
    */
   get renderKey() {
-    return this.primitive ? `inline:${this.uid}` : this.model;
+    if (this.primitive) return `inline:${this.uid}`;
+    return this._faces ? SceneObjects.facesKey(this.model, this._faces) : this.model;
+  }
+
+  /**
+   * Whether this is a shape, created or from the library, rather than a model
+   * from a file.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  get isShape() {
+    return !!(this.primitive || (this._descriptor && this._descriptor.kind === 'primitive'));
+  }
+
+  /**
+   * The faces this is built with: a library entry's own, else front for a
+   * shape and the file's setting, `model`, for a model.
+   *
+   * @readonly
+   * @type {String}
+   */
+  get builtFaces() {
+    if (this._descriptor && this._descriptor.faces) return this._descriptor.faces;
+    return this.isShape ? 'front' : 'model';
+  }
+
+  /**
+   * Which faces are drawn: `model` (a file's own setting), `front`, or
+   * `flipped`, the inside only, which makes a closed shape a room.
+   * Setting what the object is built with stores nothing.
+   *
+   * @type {String}
+   */
+  get faces() {
+    return this._faces || this.builtFaces;
+  }
+
+  set faces(value) {
+    const next = SceneObjects.FACES.includes(value) && value !== this.builtFaces ? value : null;
+    if (next === this._faces) return;
+    this._faces = next;
+    sceneChanged();
+    if (this.primitive) {
+      // An inline build is this object's alone, so it is dropped and made again.
+      this._rebuilding = (this._rebuilding || Promise.resolve()).then(async () => {
+        if (this._placement) {
+          SceneObjects.remove(this._placement);
+          this._placement = null;
+        }
+        SceneObjects.forget(this.renderKey);
+        await this.attach(null);
+        Controls.refreshHelpers();
+      });
+      return;
+    }
+    if (!this._descriptor) return;
+    // Chained, so a second toggle waits for the first build instead of placing twice.
+    this._rebuilding = (this._rebuilding || Promise.resolve()).then(async () => {
+      if (this._placement) {
+        SceneObjects.remove(this._placement);
+        this._placement = null;
+      }
+      await this.attach(this._descriptor);
+      Controls.refreshHelpers();
+    });
   }
 
   /**
@@ -369,6 +448,7 @@ class SceneObject extends withTransform(Object) {
       key: this.renderKey,
       kind: 'primitive',
       primitive: { ...this.primitive },
+      faces: this._faces || undefined,
       // Built shapes are authored in metres, Z up, about their own origin --
       // there is no file whose convention could disagree.
       scale: 1,
@@ -424,6 +504,45 @@ class SceneObject extends withTransform(Object) {
 
   set scale(scale) {
     this._scale = scaleOf(scale);
+    this.sync();
+    sceneChanged();
+  }
+
+  /**
+   * The scale of the structure holding this, along this object's own axes.
+   * The structure sets it; the object is drawn at its own scale times this.
+   *
+   * @type {Object}
+   */
+  get structureScale() {
+    return { ...this._structureScale };
+  }
+
+  set structureScale(scale) {
+    this._structureScale = { x: scale.x, y: scale.y, z: scale.z };
+  }
+
+  /**
+   * The scale the object is drawn at: its own times its structure's.
+   *
+   * @readonly
+   * @type {Object}
+   */
+  get drawnScale() {
+    const own = this._scale;
+    const held = this._structureScale;
+    return { x: own.x * held.x, y: own.y * held.y, z: own.z * held.z };
+  }
+
+  /**
+   * Makes the structure's scale part of the object's own, for an object
+   * leaving its structure: it stays the size it was drawn at.
+   *
+   * @public
+   */
+  bakeStructureScale() {
+    this._scale = scaleOf(this.drawnScale);
+    this._structureScale = { x: 1, y: 1, z: 1 };
     this.sync();
     sceneChanged();
   }
@@ -630,16 +749,20 @@ class SceneObject extends withTransform(Object) {
   async attach(descriptor) {
     // An inline object needs nothing from the library: it describes itself,
     // so whatever the caller found (or did not find) there is beside the point.
-    const source = this.primitive ? this.inlineDescriptor : descriptor;
+    let source = this.primitive ? this.inlineDescriptor : descriptor;
     if (!source) {
       this.unresolved = true;
       return false;
+    }
+    if (!this.primitive) {
+      this._descriptor = descriptor;
+      if (this._faces) source = { ...descriptor, key: this.renderKey, faces: this._faces };
     }
     try {
       this._placement = await SceneObjects.place(source, {
         position: this._position,
         rotation: this._rotation,
-        scale: this._scale,
+        scale: this.drawnScale,
         colors: this._colors,
       });
       // So a raycast that lands on the instance can find its way back here.
@@ -717,6 +840,8 @@ class SceneObject extends withTransform(Object) {
     SceneObjects.forget(was);
     this.primitive = null;
     this.model = key;
+    // The entry was saved with this object's faces, so it carries them now.
+    if (descriptor && (descriptor.faces || null) === this._faces) this._faces = null;
     sceneChanged();
     const attached = await this.attach(descriptor);
     Controls.refreshHelpers();
@@ -799,6 +924,9 @@ class SceneObject extends withTransform(Object) {
       color: descriptor.primitive.color,
     };
     this.model = undefined;
+    // The entry's faces become this object's own, as its parameters do.
+    this._faces = this._faces || descriptor.faces || null;
+    this._descriptor = null;
     sceneChanged();
     const attached = await this.attach(null);
     Controls.refreshHelpers();
@@ -824,7 +952,7 @@ class SceneObject extends withTransform(Object) {
     SceneObjects.move(this._placement, {
       position: { x: node.position.x, y: node.position.y, z: node.position.z },
       rotation: { x: node.rotation.x, y: node.rotation.y, z: node.rotation.z },
-      scale: this._scale,
+      scale: this.drawnScale,
     });
   }
 
@@ -847,7 +975,7 @@ class SceneObject extends withTransform(Object) {
     SceneObjects.move(this._placement, {
       position: this._position,
       rotation: this._rotation,
-      scale: this._scale,
+      scale: this.drawnScale,
     });
   }
 

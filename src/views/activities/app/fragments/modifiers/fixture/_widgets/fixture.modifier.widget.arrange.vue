@@ -696,6 +696,9 @@ export default {
         )),
         previewScale.set(1, 1, 1),
       );
+      // Members are held unscaled; the structure's scale spaces them out.
+      const { x: sx, y: sy, z: sz } = structure.scale || { x: 1, y: 1, z: 1 };
+      previewMatrix.multiply(new THREE.Matrix4().makeScale(sx, sy, sz));
       structure.members.forEach((member) => {
         if (!member.localTransform || !member._3DModel) return;
         memberMatrix.multiplyMatrices(previewMatrix, member.localTransform);

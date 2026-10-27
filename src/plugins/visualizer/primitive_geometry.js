@@ -1,8 +1,12 @@
 import * as THREE from 'three';
+import trussGeometry from './truss_geometry';
+import drapeGeometry from './drape_geometry';
+import barrierGeometry from './barrier_geometry';
+import { projectUVs } from './geometry_kit';
 
 /**
  * @file The geometry of a shape the user built -- cube, cylinder, tube, sphere,
- * plane.
+ * plane, truss, drape, barrier.
  *
  * Its own module because it is a pure function of three and nothing else,
  * where `scene_objects.js` pulls in the scene and the glTF loaders. That is
@@ -19,7 +23,7 @@ import * as THREE from 'three';
  *
  * @constant {Array}
  */
-export const PRIMITIVE_TYPES = ['cube', 'cylinder', 'tube', 'sphere', 'plane'];
+export const PRIMITIVE_TYPES = ['cube', 'cylinder', 'tube', 'sphere', 'plane', 'truss', 'drape', 'barrier'];
 
 /**
  * Segments in a full turn of a cylinder or tube. A partial arc keeps the same
@@ -54,9 +58,9 @@ export function arcDegrees(value) {
  * evenly.
  *
  * Each face has its own vertices, so computed normals are smooth round the
- * walls and flat on the caps and ends. UVs run 0..1 on every face: round the
- * arc and up the height on the walls, a planar projection of the outer circle
- * on the caps, inner to outer and up the height on the ends.
+ * walls and flat on the caps and ends. UVs are in metres: round the arc and
+ * up the height on the walls, the plan position on the caps, out from the
+ * axis and up the height on the ends.
  *
  * @param {Number} outer radius in metres
  * @param {Number} inner radius in metres, 0 for a solid cylinder
@@ -88,8 +92,9 @@ function arcSolid(outer, inner, height, degrees) {
       const a = angleAt(i);
       const x = radius * Math.cos(a);
       const y = radius * Math.sin(a);
-      vertex(x, y, 0, i / segments, 0);
-      vertex(x, y, height, i / segments, 1);
+      const around = (radius * sweep * i) / segments;
+      vertex(x, y, 0, around, 0);
+      vertex(x, y, height, around, height);
     }
     for (let i = 0; i < segments; i += 1) {
       const b0 = first + i * 2;
@@ -104,7 +109,7 @@ function arcSolid(outer, inner, height, degrees) {
   // A cap across the ring at one height, facing up or down.
   const cap = (z, up) => {
     const first = positions.length / 3;
-    const planar = (x, y) => [x / (2 * outer) + 0.5, y / (2 * outer) + 0.5];
+    const planar = (x, y) => [x, y];
     for (let i = 0; i <= segments; i += 1) {
       const a = angleAt(i);
       const ix = inner * Math.cos(a);
@@ -134,10 +139,10 @@ function arcSolid(outer, inner, height, degrees) {
   const end = (a, atStart) => {
     const c = Math.cos(a);
     const s = Math.sin(a);
-    const ib = vertex(inner * c, inner * s, 0, 0, 0);
-    const ob = vertex(outer * c, outer * s, 0, 1, 0);
-    const ot = vertex(outer * c, outer * s, height, 1, 1);
-    const it = vertex(inner * c, inner * s, height, 0, 1);
+    const ib = vertex(inner * c, inner * s, 0, inner, 0);
+    const ob = vertex(outer * c, outer * s, 0, outer, 0);
+    const ot = vertex(outer * c, outer * s, height, outer, height);
+    const it = vertex(inner * c, inner * s, height, inner, height);
     if (atStart) indices.push(ib, ob, ot, ib, ot, it);
     else indices.push(ib, ot, ob, ib, it, ot);
   };
@@ -160,7 +165,8 @@ function arcSolid(outer, inner, height, degrees) {
 }
 
 /**
- * Geometry for a shape the user built, in metres and Z up.
+ * Geometry for a shape the user built, in metres and Z up, with UVs in metres
+ * so a material's textures tile at their real size on every shape.
  *
  * Built rather than loaded: a created object is stored as the numbers the user
  * chose, so there is no file to fetch and nothing to correct for.
@@ -196,6 +202,11 @@ export default function primitiveGeometry(primitive) {
     case 'sphere': {
       const radius = metre(size.radius, 0.5);
       const geometry = new THREE.SphereGeometry(radius, 32, 16);
+      // Metres round the equator and from pole to pole.
+      const { uv } = geometry.attributes;
+      for (let i = 0; i < uv.count; i += 1) {
+        uv.setXY(i, uv.getX(i) * 2 * Math.PI * radius, uv.getY(i) * Math.PI * radius);
+      }
       // Resting on the floor at its lowest point.
       geometry.translate(0, 0, radius);
       return geometry;
@@ -204,15 +215,21 @@ export default function primitiveGeometry(primitive) {
       // `PlaneGeometry` lies in XY with its normal along +Z, which in this
       // Z-up scene is already flat and already facing up -- so there is
       // nothing to rotate, and it is left at z = 0 as a floor.
-      return new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1));
+      return projectUVs(new THREE.PlaneGeometry(metre(size.x, 1), metre(size.y, 1)));
     }
+    case 'truss':
+      return trussGeometry(size);
+    case 'drape':
+      return drapeGeometry(size);
+    case 'barrier':
+      return barrierGeometry(size);
     case 'cube':
     default: {
       const height = metre(size.z, 1);
       const geometry = new THREE.BoxGeometry(metre(size.x, 1), metre(size.y, 1), height);
       // Standing on its base rather than centred -- see above.
       geometry.translate(0, 0, height / 2);
-      return geometry;
+      return projectUVs(geometry);
     }
   }
 }

@@ -1320,6 +1320,8 @@ class Show extends EventEmitter {
     const inverse = matrix.clone().invert();
     const structure = {
       name: group.name,
+      // Member transforms are held unscaled; the scale goes with them.
+      scale: group.isUnscaled ? undefined : group.scale,
       members: group.members.map((member) => {
         const local = member.localTransform
           ? member.localTransform.clone()
@@ -1335,6 +1337,7 @@ class Show extends EventEmitter {
             primitive: data.primitive,
             scale: data.scale,
             colors: data.colors,
+            faces: data.faces,
             transform: local.elements.slice(),
           };
         }
@@ -1393,7 +1396,13 @@ class Show extends EventEmitter {
         (placement.rotation || {}).y || 0,
         (placement.rotation || {}).z || 0,
       )),
-      new THREE.Vector3(1, 1, 1),
+      // The definition's scale, so members are built where the scaled
+      // structure will hold them.
+      new THREE.Vector3(
+        (definition.scale || {}).x || 1,
+        (definition.scale || {}).y || 1,
+        (definition.scale || {}).z || 1,
+      ),
     );
 
     const world = new THREE.Matrix4();
@@ -1440,6 +1449,7 @@ class Show extends EventEmitter {
           rotation: { x: euler.x, y: euler.y, z: euler.z },
           scale: member.scale,
           colors: member.colors,
+          faces: member.faces,
         });
         // eslint-disable-next-line no-await-in-loop
         await object.attach(member.primitive
@@ -1496,6 +1506,7 @@ class Show extends EventEmitter {
     const structure = this.createStructure(members, definition.name, {
       position: placement.position,
       rotation: placement.rotation,
+      scale: definition.scale,
     });
     this.seatStructure(structure, placement.position || {});
     // After seating, so they are tied to the members where they now stand.
@@ -2029,6 +2040,9 @@ class Show extends EventEmitter {
         const fixture = this.loadedFixturesById.get(ref);
         if (fixture) structure.add(fixture);
       });
+      // Members load where they were drawn; this gives objects the
+      // structure's scale back, which is not saved with them.
+      if (!structure.isUnscaled) structure.applyToMembers();
       return structure;
     });
     Show.joinNumbered(this.structures, made);
@@ -2054,8 +2068,10 @@ class Show extends EventEmitter {
       name: (name || '').trim() || 'untitled',
       position: (origin || {}).position,
       rotation: (origin || {}).rotation,
+      scale: (origin || {}).scale,
     });
     members.forEach((member) => structure.add(member));
+    if (!structure.isUnscaled) structure.applyToMembers();
     if (members.length && !origin) structure.centreOnMembers();
     Show.joinNumbered(this.structures, [structure]);
     return structure;

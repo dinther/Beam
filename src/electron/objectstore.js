@@ -189,7 +189,10 @@ const IMPORTABLE_EXTENSIONS = ['.glb', '.obj', '.fbx', '.stl'];
 const PRIMITIVE_KIND = 'primitive';
 
 /** Shapes the create dialog can write. Anything else is refused. */
-const PRIMITIVE_TYPES = ['cube', 'cylinder', 'tube', 'sphere', 'plane'];
+const PRIMITIVE_TYPES = ['cube', 'cylinder', 'tube', 'sphere', 'plane', 'truss', 'drape', 'barrier'];
+
+/** Which faces a shape can draw; the renderer's `FACES`. */
+const FACES = ['front', 'flipped'];
 
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_NAME = /[<>:"/\\|?*\u0000-\u001F]/g;
@@ -534,6 +537,8 @@ function entriesIn(root, folder, origin = 'library') {
         file: entry.name,
         kind: PRIMITIVE_KIND,
         primitive,
+        // Which faces placements of it draw; absent is the type's own.
+        ...(FACES.includes(primitive.faces) ? { faces: primitive.faces } : {}),
         shipped,
         collected,
         ...(thumbnailFor(path.basename(entry.name, '.json')) || {}),
@@ -706,6 +711,7 @@ function writePrimitive(name, primitive, folder = null, { overwrite = false } = 
     type: primitive.type,
     size: primitive.size,
     color: primitive.color,
+    ...(FACES.includes(primitive.faces) ? { faces: primitive.faces } : {}),
     // An overwrite keeps the entry's birth date and says when it changed.
     created: (previous && previous.created) || new Date().toISOString(),
     ...(previous ? { modified: new Date().toISOString() } : {}),

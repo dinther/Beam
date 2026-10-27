@@ -33,6 +33,14 @@
         A library model is a definition and is not edited here. Make it
         unique to change this one, or edit an imported model in its file.
       </span>
+      <!-- Per placement. Inside out draws only the inside, so a closed shape
+           becomes a room that can be seen into from outside. -->
+      <uk-select-input
+        v-model="facesIndex"
+        style="width: 160px"
+        label="Faces"
+        :options="facesLabels"
+      />
       <!-- The inverse of Save to library, the way un-structure is the inverse
            of making a structure: this placement takes the shape's parameters
            as its own and stops referencing the library. Only for a shape --
@@ -69,6 +77,12 @@
            adjust one are the same fields -- and defining them twice guarantees
            they drift the first time one gains a row. -->
       <object-params-form v-model="params" />
+      <uk-select-input
+        v-model="facesIndex"
+        style="width: 160px"
+        label="Faces"
+        :options="facesLabels"
+      />
 
       <uk-flex :gap="8">
         <uk-button
@@ -93,6 +107,10 @@
 <script>
 import confirm from '@/plugins/confirm';
 import ObjectParamsForm from './object.params.form.vue';
+
+/** Which faces an object draws; `model` is a file's own setting. */
+const FACES = ['model', 'front', 'flipped'];
+const FACES_LABELS = ['As model', 'Single sided', 'Inside out'];
 
 /**
  * @file Adjusts a created object, and optionally saves it as a template.
@@ -156,6 +174,21 @@ export default {
       set(value) {
         if (!this.object) return;
         this.$show.renameItem(this.object, String(value || '').trim() || this.object.model);
+      },
+    },
+    /** The face settings this object offers: a shape has no file setting. */
+    facesOptions() {
+      return this.object && this.object.isShape ? FACES.slice(1) : FACES;
+    },
+    facesLabels() {
+      return this.facesOptions.map((value) => FACES_LABELS[FACES.indexOf(value)]);
+    },
+    facesIndex: {
+      get() {
+        return this.object ? Math.max(this.facesOptions.indexOf(this.object.faces), 0) : 0;
+      },
+      set(index) {
+        if (this.object) this.object.faces = this.facesOptions[index];
       },
     },
     /**
@@ -242,6 +275,7 @@ export default {
         type: this.object.primitive.type,
         size: this.object.primitive.size || {},
         color: this.object.primitive.color,
+        faces: this.object.faces,
       }));
 
       const name = String(this.object.name);

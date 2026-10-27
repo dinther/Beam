@@ -10,6 +10,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import SceneManager from './scene_manager';
 import primitiveGeometry from './primitive_geometry';
+import { splitSurfaces } from './geometry_kit';
 import { castsContactShadow, standsUp } from './contact_shadows';
 import { addInstancedSource } from './selection_outline';
 
@@ -219,6 +220,65 @@ function pieces(geometry, material) {
 /** Loaded models by key, each holding its primitives and their placements. */
 const models = new Map();
 
+/**
+ * Which faces a surface draws: `front`, its outside, or `flipped`, its inside,
+ * which turns a closed shape into a room seen into from outside.
+ *
+ * @constant {Array}
+ */
+const FACES = ['front', 'flipped'];
+
+/**
+ * Turns a geometry inside out: every triangle wound the other way and every
+ * normal reversed. Done to the geometry rather than with a back-side material
+ * so that everything drawing it front faces only -- the depth passes for
+ * shadows and beams among them -- sees the inside as the surface.
+ *
+ * @param {THREE.BufferGeometry} geometry changed in place
+ */
+function turnInside(geometry) {
+  if (geometry.index) {
+    const index = geometry.index.array;
+    for (let i = 0; i < index.length; i += 3) {
+      const b = index[i + 1];
+      index[i + 1] = index[i + 2];
+      index[i + 2] = b;
+    }
+    geometry.index.needsUpdate = true;
+  } else {
+    Object.values(geometry.attributes).forEach((attribute) => {
+      const { array, itemSize } = attribute;
+      for (let i = 0; i < attribute.count; i += 3) {
+        for (let k = 0; k < itemSize; k += 1) {
+          const b = array[(i + 1) * itemSize + k];
+          array[(i + 1) * itemSize + k] = array[(i + 2) * itemSize + k];
+          array[(i + 2) * itemSize + k] = b;
+        }
+      }
+      attribute.needsUpdate = true;
+    });
+  }
+  const { normal } = geometry.attributes;
+  if (normal) {
+    for (let i = 0; i < normal.array.length; i += 1) normal.array[i] = -normal.array[i];
+    normal.needsUpdate = true;
+  }
+}
+
+/**
+ * The cache key of a model's build drawn with other faces. Side is per
+ * material and the meshes are shared by every placement, so placements that
+ * draw other faces than the model's own use a second build of it.
+ *
+ * @public
+ * @param {String} key the model's key
+ * @param {String} faces one of `FACES`
+ * @returns {String}
+ */
+function facesKey(key, faces) {
+  return `${key}#${faces}`;
+}
+
 /** In-flight loads, so asking twice for one model fetches it once. */
 const loading = new Map();
 
@@ -396,7 +456,9 @@ function partColours(primitives, parts) {
  * @returns {Array} THREE.InstancedMesh, one per primitive
  */
 function buildMeshes(primitives, capacity, key, highlight) {
-  return primitives.map(({ geometry, material, base }) => {
+  return primitives.map(({
+    geometry, material, base, seeThrough,
+  }) => {
     // The geometry belongs to this model alone, so the attribute does too.
     geometry.setAttribute('highlight', highlight);
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
@@ -407,8 +469,16 @@ function buildMeshes(primitives, capacity, key, highlight) {
     // instance index, and the index means nothing without knowing whose
     // buffer it indexes.
     mesh.userData.sceneObjectModel = key;
-    mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Mesh and glass let light through, so they cast nothing and the depth
+    // passes leave them out.
+    mesh.castShadow = !seeThrough;
+    if (seeThrough) {
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      SceneManager.add(mesh);
+      return mesh;
+    }
     // Contact shadows from anything that stands up. A flat mesh -- the floor,
     // a ground plane inside an imported model -- would be a caster at height
     // zero across its whole area and stain everything under it black. Asked
@@ -440,13 +510,109 @@ const PRIMITIVE_ENV_RESPONSE = 2.0;
  * @returns {Array} one entry, shaped as `flatten` returns them
  */
 function buildPrimitive(descriptor) {
-  const geometry = primitiveGeometry(descriptor.primitive);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
+  const whole = primitiveGeometry(descriptor.primitive);
+  // A shape built of several surfaces -- a fence's frame and its mesh -- is
+  // drawn one surface per mesh, each with its own material.
+  return splitSurfaces(whole).map(({ geometry, spec }) => {
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const material = spec.kind ? surfaceMaterial(spec, descriptor) : shapeMaterial(descriptor);
+    return { geometry, material, seeThrough: !!spec.kind };
+  });
+}
+
+/** Cut-out textures for welded mesh, one per pitch and wire. */
+const meshTextures = new Map();
+
+/**
+ * A wire grid as an alpha texture: one cell of the mesh, wires on two edges,
+ * repeated at the mesh's pitch over UVs in metres.
+ *
+ * Each mipmap level is drawn rather than averaged, with every wire at least a
+ * texel wide. Averaged, a 4 mm wire on a 76 mm cell falls below the alpha test
+ * a few levels down and the mesh vanishes with distance; drawn, it stays
+ * visible and reads denser far off.
+ *
+ * @param {Object} spec `{ pitch: [across, up], wire }`, metres
+ * @returns {THREE.Texture}
+ */
+function meshTexture(spec) {
+  const [across, up] = spec.pitch;
+  const key = `${across}:${up}:${spec.wire}`;
+  if (meshTextures.has(key)) return meshTextures.get(key);
+  const levels = [];
+  for (let size = 64; size >= 1; size /= 2) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, size, size);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, Math.max(1, Math.round((size * spec.wire) / across)), size);
+    context.fillRect(0, 0, size, Math.max(1, Math.round((size * spec.wire) / up)));
+    levels.push(canvas);
+  }
+  const texture = new THREE.Texture(levels[0]);
+  texture.mipmaps = levels;
+  texture.generateMipmaps = false;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1 / across, 1 / up);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.needsUpdate = true;
+  meshTextures.set(key, texture);
+  return texture;
+}
+
+/**
+ * The material of a surface that is not the shape's own: `mesh`, the shape's
+ * colour cut to a wire grid, or `glass`. Both are seen from either side.
+ *
+ * @param {Object} spec from the geometry's `userData.surfaces`
+ * @param {Object} descriptor the shape's library entry
+ * @returns {THREE.Material}
+ */
+function surfaceMaterial(spec, descriptor) {
+  let material;
+  if (spec.kind === 'glass') {
+    material = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#dce8ea'),
+      roughness: 0.05,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  } else {
+    material = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(descriptor.primitive.color || '#b0b4b8'),
+      roughness: 0.5,
+      metalness: 0.5,
+      envMapIntensity: PRIMITIVE_ENV_RESPONSE,
+      alphaMap: meshTexture(spec),
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+    });
+  }
+  LightField.receive(material);
+  return material;
+}
+
+/**
+ * The material of a created shape's own surface.
+ *
+ * @param {Object} descriptor the shape's library entry
+ * @returns {THREE.Material}
+ */
+function shapeMaterial(descriptor) {
   const material = new THREE.MeshStandardMaterial({
     color: new THREE.Color(descriptor.primitive.color || '#b0b4b8'),
-    roughness: 0.75,
+    // Cloth takes no highlight at all; velour is the masking drape's material.
+    roughness: descriptor.primitive.type === 'drape' ? 1 : 0.75,
     metalness: 0,
     // How much of the room this surface takes. Raised because created objects
     // barely answered the house lights: `ceilingFor` runs an image environment
@@ -468,10 +634,12 @@ function buildPrimitive(descriptor) {
     // Which way it faces is the plane's own rotation, which the object widget
     // already exposes: flat on the floor it faces up, and a half turn about X
     // turns it into a ceiling.
+    //
+    // Faces in the object widget turns any of them inside out.
     side: THREE.FrontSide,
   });
   LightField.receive(material);
-  return [{ geometry, material }];
+  return material;
 }
 
 /**
@@ -545,6 +713,17 @@ async function load(descriptor) {
     const primitives = gltf
       ? flatten(gltf, correction(descriptor))
       : buildPrimitive(descriptor);
+    // Faces other than the build's own. Each load parses or builds afresh, so
+    // the geometry and materials belong to this build alone. Single sided, a
+    // file's double-sided materials draw their front only; inside out, the
+    // geometry is turned. Mesh and glass are seen from both sides regardless.
+    if (FACES.includes(descriptor.faces)) {
+      primitives.forEach(({ geometry, material, seeThrough }) => {
+        if (seeThrough) return;
+        material.side = THREE.FrontSide;
+        if (descriptor.faces === 'flipped') turnInside(geometry);
+      });
+    }
     // Created shapes keep their own colour: it is one of their parameters.
     const parts = descriptor.kind === 'primitive' ? null : partColours(primitives, descriptor.parts);
     const bounds = new THREE.Box3();
@@ -946,6 +1125,7 @@ function syncFromOwners() {
  * @param {String} key
  */
 function forget(key) {
+  if (!key.includes('#')) FACES.forEach((faces) => forget(facesKey(key, faces)));
   const model = models.get(key);
   if (!model) return;
   model.meshes.forEach((mesh) => {
@@ -1001,6 +1181,8 @@ function stats() {
 
 export default {
   forget,
+  facesKey,
+  FACES,
   buildPreview,
   eachSelectable,
   clearHighlighting,

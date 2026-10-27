@@ -34,6 +34,20 @@ import ViewFilter from './view_filter';
  * Membership is exclusive: an item belongs to one structure or to none.
  */
 
+/**
+ * A scale as `{ x, y, z }`, each positive, from what a show saved.
+ *
+ * @param {Object} [scale]
+ * @returns {Object}
+ */
+function scaleOf(scale) {
+  const axis = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.max(n, 0.001) : 1;
+  };
+  return { x: axis((scale || {}).x), y: axis((scale || {}).y), z: axis((scale || {}).z) };
+}
+
 const scratch = {
   matrix: new THREE.Matrix4(),
   inverse: new THREE.Matrix4(),
@@ -52,6 +66,7 @@ class Structure extends withTransform(Proxify) {
    * @param {String} [data.name] display name
    * @param {Object} [data.position] absolute position
    * @param {Object} [data.rotation] absolute rotation, in radians
+   * @param {Object} [data.scale] per axis, `{ x, y, z }`
    */
   constructor(data = {}) {
     super();
@@ -82,6 +97,12 @@ class Structure extends withTransform(Proxify) {
       y: (data.rotation || {}).y || 0,
       z: (data.rotation || {}).z || 0,
     };
+    /**
+     * Scale along the structure's own axes. Members stand that much further
+     * from its origin and objects are drawn that much larger; fixtures are
+     * real units and only move.
+     */
+    this._scale = scaleOf(data.scale);
     /** Members, in list order: fixtures and objects. */
     this.members = [];
     /** Hidden from the scene: see `hidden`. */
@@ -210,6 +231,7 @@ class Structure extends withTransform(Proxify) {
       hidden: this._hidden || undefined,
       position: { ...this._position },
       rotation: { ...this._rotation },
+      scale: this.isUnscaled ? undefined : { ...this._scale },
       members: this.members.map((member) => (kindOf(member) === SCENE_ITEM_KINDS.OBJECT
         ? { kind: SCENE_ITEM_KINDS.OBJECT, id: member.id }
         : member.id)),
@@ -253,6 +275,157 @@ class Structure extends withTransform(Proxify) {
       y: THREE.MathUtils.degToRad(rotation.y),
       z: THREE.MathUtils.degToRad(rotation.z),
     };
+  }
+
+  /**
+   * Scale along the structure's own axes, `{ x, y, z }`. Setting it moves
+   * every member and resizes every object in it.
+   *
+   * @type {Object}
+   */
+  get scale() {
+    return { ...this._scale };
+  }
+
+  set scale(scale) {
+    this._scale = scaleOf(scale);
+    this.applyToMembers();
+    sceneChanged();
+  }
+
+  /** Whether the scale is 1 on every axis. @readonly @type {Boolean} */
+  get isUnscaled() {
+    return this._scale.x === 1 && this._scale.y === 1 && this._scale.z === 1;
+  }
+
+  /**
+   * A structure scales by axis as a model from a file does: the placement
+   * widget's size fields and the gizmo's scale tool both work on it.
+   *
+   * @readonly
+   * @type {Boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  get isScalable() {
+    return true;
+  }
+
+  /** The same question as `isUnscaled`, in the name a model answers it by. */
+  get isOriginalSize() {
+    return this.isUnscaled;
+  }
+
+  /**
+   * The members' extent along the structure's own axes, unscaled: what the
+   * structure measures at scale 1. Null with nothing in it.
+   *
+   * @readonly
+   * @type {Object|null} `{ x, y, z }`, metres
+   */
+  get modelSize() {
+    if (!this.members.length) return null;
+    const world = new THREE.Box3();
+    this._3DModel.expandBounds(world);
+    if (world.isEmpty()) return null;
+    // Into the structure's frame and out of its scale; the box is axis
+    // aligned in the world, so a turned structure measures it a little large.
+    const s = this._scale;
+    const toLocal = this.matrix.clone().invert()
+      .premultiply(new THREE.Matrix4().makeScale(1 / s.x, 1 / s.y, 1 / s.z));
+    const local = new THREE.Box3();
+    [world.min, world.max].forEach((a) => {
+      [world.min, world.max].forEach((b) => {
+        [world.min, world.max].forEach((c) => {
+          local.expandByPoint(new THREE.Vector3(a.x, b.y, c.z).applyMatrix4(toLocal));
+        });
+      });
+    });
+    const size = local.getSize(new THREE.Vector3());
+    return { x: size.x, y: size.y, z: size.z };
+  }
+
+  /**
+   * The placed size along each axis, in metres: the unscaled size times the
+   * scale. Setting one changes that axis's scale to match.
+   */
+  get sizeX() { return this.sizeAlong('x'); }
+
+  set sizeX(value) { this.writeSize('x', value); }
+
+  get sizeY() { return this.sizeAlong('y'); }
+
+  set sizeY(value) { this.writeSize('y', value); }
+
+  get sizeZ() { return this.sizeAlong('z'); }
+
+  set sizeZ(value) { this.writeSize('z', value); }
+
+  /**
+   * @private
+   * @param {String} axis
+   * @returns {Number|null}
+   */
+  sizeAlong(axis) {
+    const own = this.modelSize;
+    return own ? own[axis] * this._scale[axis] : null;
+  }
+
+  /**
+   * @private
+   * @param {String} axis
+   * @param {Number} value metres
+   */
+  writeSize(axis, value) {
+    const own = this.modelSize;
+    const metres = Number(value);
+    if (!own || !(own[axis] > 0) || !(metres > 0)) return;
+    Controls.detach(this);
+    this.scaleKeepingBottom({ ...this._scale, [axis]: metres / own[axis] });
+    Controls.attach(this);
+  }
+
+  /**
+   * Puts the structure back to scale 1.
+   *
+   * @public
+   */
+  restoreSize() {
+    Controls.detach(this);
+    this.scaleKeepingBottom({ x: 1, y: 1, z: 1 });
+    Controls.attach(this);
+  }
+
+  /**
+   * Scales with the lowest point of the members left where it was, as a
+   * model's size fields do, so a rig standing on the floor stays on it.
+   *
+   * @public
+   * @param {Object} scale `{ x, y, z }`
+   */
+  scaleKeepingBottom(scale) {
+    const bottom = () => {
+      const box = new THREE.Box3();
+      this._3DModel.expandBounds(box);
+      return box.isEmpty() ? null : box.min.z;
+    };
+    const before = bottom();
+    this.scale = scale;
+    const after = bottom();
+    if (before !== null && after !== null && Math.abs(after - before) > 1e-9) {
+      this.position = { ...this._position, z: this._position.z + (before - after) };
+    }
+  }
+
+  /**
+   * Scales while the gizmo's scale tool is dragged. The drag's end sets the
+   * scale for good through `scaleKeepingBottom`.
+   *
+   * @public
+   * @param {Object} scale `{ x, y, z }`
+   */
+  previewScale(scale) {
+    this._scale = scaleOf(scale);
+    this.applyToMembers();
   }
 
   /**
@@ -308,7 +481,8 @@ class Structure extends withTransform(Proxify) {
   }
 
   /**
-   * The structure's transform as a matrix.
+   * The structure's position and rotation as a matrix, without its scale:
+   * members are held relative to this frame, and scaled in it.
    *
    * @readonly
    * @type {Object}
@@ -379,6 +553,8 @@ class Structure extends withTransform(Proxify) {
     this.members.splice(index, 1);
     member.structure = null;
     member.localTransform = null;
+    // Leaving keeps an object the size it was drawn at in the structure.
+    if (member.bakeStructureScale) member.bakeStructureScale();
     // Leaving a hidden structure -- exploding it, most often -- must not make
     // anything appear: what could not be seen stays unseen, now on its own.
     if (this._hidden && 'hidden' in member) member.hidden = true;
@@ -433,7 +609,11 @@ class Structure extends withTransform(Proxify) {
    * @param {Object} member member to measure
    */
   captureLocal(member) {
-    scratch.inverse.copy(this.matrix).invert();
+    // Held unscaled, so a later scale is applied to the arrangement as it was
+    // made rather than on top of the scale it was captured at.
+    const s = this._scale;
+    scratch.inverse.copy(this.matrix).invert()
+      .premultiply(new THREE.Matrix4().makeScale(1 / s.x, 1 / s.y, 1 / s.z));
     // rotationRad, not rotation: the plain accessor is in degrees for the UI.
     const local = member.rotationRad;
     scratch.euler.set(local.x, local.y, local.z);
@@ -445,7 +625,16 @@ class Structure extends withTransform(Proxify) {
       scratch.quaternion,
       scratch.scale,
     );
-    member.localTransform = scratch.inverse.multiply(world).clone();
+    // The rotation part has the inverse scale in it; only the position is
+    // wanted scaled, so the rotation is taken back out of the structure's own.
+    const relative = scratch.inverse.multiply(world);
+    const at = new THREE.Vector3().setFromMatrixPosition(relative);
+    const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      this._rotation.x,
+      this._rotation.y,
+      this._rotation.z,
+    )).invert().multiply(scratch.quaternion);
+    member.localTransform = new THREE.Matrix4().compose(at, turn, new THREE.Vector3(1, 1, 1));
   }
 
   /**
@@ -467,11 +656,28 @@ class Structure extends withTransform(Proxify) {
   applyToMembers() {
     if (this._3DModel) this._3DModel.sync();
     const structureMatrix = this.matrix.clone();
+    const s = this._scale;
+    const axis = new THREE.Vector3();
     this.members.forEach((member) => {
       if (!member.localTransform) return;
-      scratch.matrix.multiplyMatrices(structureMatrix, member.localTransform);
+      // Position scaled in the structure's frame; rotation as it was.
+      const local = new THREE.Vector3();
+      const turn = new THREE.Quaternion();
+      member.localTransform.decompose(local, turn, scratch.scale);
+      local.set(local.x * s.x, local.y * s.y, local.z * s.z);
+      const held = new THREE.Matrix4().compose(local, turn, scratch.scale.set(1, 1, 1));
+      scratch.matrix.multiplyMatrices(structureMatrix, held);
       scratch.matrix.decompose(scratch.position, scratch.quaternion, scratch.scale);
       scratch.euler.setFromQuaternion(scratch.quaternion);
+      // An object takes the scale along its own axes: how far each of its
+      // axes stretches in the structure's frame.
+      if ('structureScale' in member) {
+        const along = (x, y, z) => {
+          axis.set(x, y, z).applyQuaternion(turn);
+          return Math.hypot(axis.x * s.x, axis.y * s.y, axis.z * s.z);
+        };
+        member.structureScale = { x: along(1, 0, 0), y: along(0, 1, 0), z: along(0, 0, 1) };
+      }
       // Written through the member's own setters, so whatever it does to keep
       // its renderer in step still happens.
       member.position = {
