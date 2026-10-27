@@ -51,6 +51,16 @@
         color="var(--accent-blue)"
         @click="setGizmoMode('scale')"
       />
+      <!-- Axes for Move and Rotate; T or R again switches them. Scale always
+           follows the item's own. -->
+      <uk-select-input
+        class="space_select"
+        title="Axes for Move and Rotate (T or R again to switch)"
+        :model-value="gizmoSpaceIndex"
+        :options="gizmoSpaceLabels"
+        :disabled="gizmoMode === 'scale' || measure.active"
+        @update:model-value="setGizmoSpace"
+      />
       <uk-button
         :key="`measure-${measure.active}-${modeTick}`"
         square
@@ -220,6 +230,9 @@ export default {
        * something reactive to light up from.
        */
       gizmoMode: 'translate',
+      /** 'world' or 'local': the axes Move and Rotate follow. */
+      gizmoSpace: 'world',
+      gizmoSpaceLabels: ['World', 'Local'],
       /** Whether the view is orthographic, mirrored for the button. */
       orthographic: false,
       /**
@@ -234,6 +247,9 @@ export default {
   },
 
   computed: {
+    gizmoSpaceIndex() {
+      return this.gizmoSpace === 'local' ? 1 : 0;
+    },
     /**
      * Whether anything is selected, which is what copy and delete act on.
      *
@@ -247,17 +263,18 @@ export default {
     },
     /**
      * Whether the scale tool applies: the selection is one model from a
-     * file. Fixtures, created shapes and several items together do not scale
-     * by axis.
+     * file or one structure. Fixtures, created shapes and several items
+     * together do not scale by axis.
      *
      * @property {Boolean} canScale
      */
     canScale() {
       if (Selection.items.length !== 1) return false;
       const [entry] = Selection.items;
-      if (entry.kind !== 'object') return false;
-      const object = [...(this.$show.objects || [])].find((o) => o.uid === entry.uid);
-      return !!(object && object.isScalable);
+      const pool = { object: this.$show.objects, structure: this.$show.structures }[entry.kind];
+      if (!pool) return false;
+      const item = [...pool].find((o) => o.uid === entry.uid);
+      return !!(item && item.isScalable);
     },
     /**
      * Whether there is anything to paste.
@@ -404,12 +421,15 @@ export default {
     this.snapEnabled = this.$show.visualizerHandle.snapEnabled;
     this.houseLights = this.$show.visualizerHandle.houseLights;
     this.gizmoMode = this.$show.visualizerHandle.gizmoMode;
+    this.gizmoSpace = this.$show.visualizerHandle.gizmoSpace;
     // T, R and S still switch tools, so the buttons follow the keys as well as
     // drive them.
     EventBus.on('gizmo_mode', this.setGizmoModeFromScene);
+    EventBus.on('gizmo_space', this.setGizmoSpaceFromScene);
   },
   beforeUnmount() {
     EventBus.off('gizmo_mode', this.setGizmoModeFromScene);
+    EventBus.off('gizmo_space', this.setGizmoSpaceFromScene);
   },
   methods: {
     /**
@@ -489,6 +509,20 @@ export default {
     },
     setGizmoModeFromScene(mode) {
       this.gizmoMode = mode;
+    },
+    /**
+     * Puts Move and Rotate on world or local axes.
+     *
+     * @public
+     * @param {Number} index 0 world, 1 local
+     */
+    setGizmoSpace(index) {
+      this.$show.visualizerHandle.gizmoSpace = index === 1 ? 'local' : 'world';
+      this.gizmoSpace = this.$show.visualizerHandle.gizmoSpace;
+    },
+    /** Follows a switch made from the keyboard. */
+    setGizmoSpaceFromScene(space) {
+      this.gizmoSpace = space;
     },
     /**
      * Turns gizmo snapping on or off. The spacing lives in the visualizer
@@ -679,6 +713,9 @@ export default {
 .full_screen .header:hover,
 .full_screen .header:focus-within {
   transform: none;
+}
+.space_select {
+  width: 76px;
 }
 .tool_divider {
   width: 1px;

@@ -154,6 +154,16 @@ const GIZMO_MODES = {
   ROTATE: 'rotate',
   SCALE: 'scale',
 };
+/**
+ * Axes the move and rotate gizmo follows: the world's, or the first selected
+ * item's own. Scale always follows the item's own.
+ *
+ * @constant {Object} GIZMO_SPACES
+ */
+const GIZMO_SPACES = {
+  WORLD: 'world',
+  LOCAL: 'local',
+};
 
 /** The smallest scale a gizmo drag may leave on an axis. */
 const MIN_GIZMO_SCALE = 0.01;
@@ -462,6 +472,11 @@ class Controls {
       // The gizmo a selection brings back. Persists for the session, so
       // picking a fixture restores whichever tool was last worked with.
       this.lastGizmoMode = GIZMO_MODES.TRANSLATE;
+      // World or local axes for move and rotate, kept for the session.
+      this.lastGizmoSpace = GIZMO_SPACES.WORLD;
+      // The selection group's orientation when it was built: the first
+      // item's in local space, none in world. A drag's turn is measured from it.
+      this.groupBase = new THREE.Quaternion();
       // Where the pointer went down, used to tell a click from a drag.
       this.pointerDownAt = null;
       // Rubber-band overlay element, created on first drag.
@@ -529,9 +544,27 @@ class Controls {
   }
 
   /**
+   * Whether move and rotate follow the world's axes or the first selected
+   * item's. Rebuilds the gizmo on a selection so the change shows at once.
+   *
+   * @type {String} 'world' or 'local'
+   */
+  set gizmoSpace(value) {
+    const next = value === GIZMO_SPACES.LOCAL ? GIZMO_SPACES.LOCAL : GIZMO_SPACES.WORLD;
+    if (next === this.lastGizmoSpace) return;
+    this.lastGizmoSpace = next;
+    if (this.mode === CONTROL_MODES.NORMAL && this.pooledInstances.length) this.showHelpers();
+    EventBus.emit('gizmo_space', next);
+  }
+
+  get gizmoSpace() {
+    return this.lastGizmoSpace;
+  }
+
+  /**
    * The item the scale tool works on: the selection when it is one model
-   * from a file, otherwise null. Fixtures, created shapes, structures and
-   * several items together do not scale by axis.
+   * from a file or one structure, otherwise null. Fixtures, created shapes
+   * and several items together do not scale by axis.
    *
    * @public
    * @returns {Object|null}
@@ -766,10 +799,21 @@ class Controls {
     } else if (['t', 'r', 's'].includes(e.key.toLowerCase())) {
       // Move, rotate, scale and measure are one set of tools: picking a
       // transform tool ends measuring.
+      const measuring = MeasureTool.state.active;
       MeasureTool.toggle(false);
-      this.gizmoMode = {
+      const wanted = {
         t: GIZMO_MODES.TRANSLATE, r: GIZMO_MODES.ROTATE, s: GIZMO_MODES.SCALE,
       }[e.key.toLowerCase()];
+      // T or R again on a shown gizmo switches between world and local axes.
+      const again = !measuring && wanted === this.lastGizmoMode
+        && wanted !== GIZMO_MODES.SCALE
+        && this.mode === CONTROL_MODES.NORMAL && this.pooledInstances.length;
+      if (again) {
+        this.gizmoSpace = this.lastGizmoSpace === GIZMO_SPACES.LOCAL
+          ? GIZMO_SPACES.WORLD : GIZMO_SPACES.LOCAL;
+      } else {
+        this.gizmoMode = wanted;
+      }
     } else if (e.key === 'Delete') {
       // Asked for rather than done here: what a fixture or a structure means
       // when it is deleted -- addresses released, members taken with it -- is
@@ -1218,7 +1262,9 @@ class Controls {
   groupTurn() {
     const group = this.groupedInstances ? toRaw(this.groupedInstances) : null;
     if (!group) return { x: 0, y: 0, z: 0 };
-    euler.setFromQuaternion(group.quaternion);
+    // In world axes, the turn since the group was built.
+    quaternion.copy(this.groupBase).invert().premultiply(group.quaternion);
+    euler.setFromQuaternion(quaternion);
     return {
       x: THREE.MathUtils.radToDeg(euler.x),
       y: THREE.MathUtils.radToDeg(euler.y),
@@ -2069,12 +2115,14 @@ class Controls {
       this.groupedInstances.updateMatrixWorld();
       this.boundingBoxMesh.getWorldPosition(position2);
       this.groupedInstances.position.copy(position2);
+      this.groupBase.identity();
       if (this.mode !== CONTROL_MODES.DISCRETE) {
         const target = this.lastGizmoMode === GIZMO_MODES.SCALE ? this.scaleTarget() : null;
         if (target) {
           this.attachScaleProxy(target);
         } else {
-          this.handle.setSpace('world');
+          if (this.lastGizmoSpace === GIZMO_SPACES.LOCAL) this.orientGroupToFirst();
+          this.handle.setSpace(this.lastGizmoSpace);
           this.handle.attach(this.groupedInstances);
         }
       }
@@ -2082,6 +2130,31 @@ class Controls {
 
       this.setFocus(true);
     }
+  }
+
+  /**
+   * Turns the selection group to the first selected item's orientation,
+   * leaving every member where it stands, so a local gizmo follows that
+   * item's axes and turns everything about the group's centre.
+   *
+   * @private
+   */
+  orientGroupToFirst() {
+    const first = this.pooledInstances[0];
+    const node = first && first._3DModel ? toRaw(first._3DModel._dummy) : null;
+    if (!node) return;
+    const group = this.groupedInstances;
+    group.updateMatrixWorld(true);
+    node.getWorldQuaternion(this.groupBase);
+    // The group is unturned and unscaled here, so its children's transforms
+    // are offsets in world axes; each is carried into the turned frame.
+    const undo = quaternion.copy(this.groupBase).invert();
+    group.children.forEach((child) => {
+      child.position.applyQuaternion(undo);
+      child.quaternion.premultiply(undo);
+    });
+    group.quaternion.copy(this.groupBase);
+    group.updateMatrixWorld(true);
   }
 
   /**

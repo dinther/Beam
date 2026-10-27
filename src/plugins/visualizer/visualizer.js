@@ -999,6 +999,22 @@ class Visualizer {
   }
 
   /**
+   * World or local axes for the move and rotate gizmo. A workspace state, as
+   * the tool is.
+   *
+   * @type {String} 'world' or 'local'
+   */
+  // eslint-disable-next-line class-methods-use-this
+  set gizmoSpace(value) {
+    Controls.gizmoSpace = value;
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  get gizmoSpace() {
+    return Controls.gizmoSpace;
+  }
+
+  /**
    * Snap spacing, in metres. One number for all three axes.
    *
    * The drawn grid follows it, so the lines you see are the positions the
