@@ -350,6 +350,17 @@ export default {
     searchString(text) {
       this.$emit('update:search', text);
     },
+    /**
+     * Brings a newly highlighted row into view: one picked in the 3D view is
+     * otherwise somewhere down the list. A row already showing, as one just
+     * clicked is, stays where it is; a band scrolls the list itself.
+     */
+    highlightSet(keys, oldKeys) {
+      if (this.band) return;
+      const added = [...keys].find((key) => !oldKeys || !oldKeys.has(key));
+      if (added === undefined) return;
+      this.$nextTick(() => this.scrollToKey(added));
+    },
   },
   mounted() {
     if (this.rows.length) this.selectFirst();
@@ -370,6 +381,24 @@ export default {
       return String(row.key);
     },
     /**
+     * Scrolls the body just far enough to show a row, if it is drawn. Only the
+     * body scrolls, not the panels round the list.
+     *
+     * @param {*} key
+     */
+    scrollToKey(key) {
+      const { body } = this.$refs;
+      if (!body) return;
+      const wanted = String(key);
+      const row = [...body.querySelectorAll('[data-band-key]')]
+        .find((el) => el.getAttribute('data-band-key') === wanted);
+      if (!row) return;
+      const view = body.getBoundingClientRect();
+      const at = row.getBoundingClientRect();
+      if (at.top < view.top) body.scrollTop -= view.top - at.top;
+      else if (at.bottom > view.bottom) body.scrollTop += at.bottom - view.bottom;
+    },
+    /**
      * Starts a band selection, for a press on the list's own ground -- the
      * margin or the space below the rows. A press on a row is the row's.
      *
@@ -379,6 +408,11 @@ export default {
       if (!this.bandSelect || this.noHighlight || e.button !== 0) return;
       const { body } = this.$refs;
       if (!body || e.target.closest('.uikit_list_item')) return;
+      // A press on the body's scrollbar lands on the body too; it scrolls,
+      // and a band started there selects every row the drag passes.
+      const rect = body.getBoundingClientRect();
+      if (e.clientX - rect.left >= body.clientLeft + body.clientWidth
+        || e.clientY - rect.top >= body.clientTop + body.clientHeight) return;
       e.preventDefault();
       body.focus();
       const additive = e.ctrlKey || e.shiftKey;
