@@ -2333,7 +2333,10 @@ class Visualizer {
       this.controls.update();
     }
     const { shift } = value;
-    if (shift && Number.isFinite(shift.x) && Number.isFinite(shift.y) && (shift.x || shift.y)) {
+    // Not while a recording frame is pinned: the recording is never shifted,
+    // and setViewOffset would also set the camera's aspect to the panel's.
+    if (shift && !this.recordFrame
+      && Number.isFinite(shift.x) && Number.isFinite(shift.y) && (shift.x || shift.y)) {
       const width = this.domElement.clientWidth || 1;
       const height = this.domElement.clientHeight || 1;
       this.camera.setViewOffset(width, height, shift.x * width, shift.y * height, width, height);
