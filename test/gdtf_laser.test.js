@@ -64,7 +64,7 @@ check(
   ],
 );
 const wide = laserParams(wideFile.fixtureType);
-check('the wide angle lens multiplies scan and divergence by 4.5', [wide.scanAngleH, wide.divergence], [144, 4.5]);
+check('the wide angle lens: 80 degrees measured, divergence 4.5', [wide.scanAngleH, wide.divergence], [80, 4.5]);
 check('its lens adds depth, mm', [wide.width, wide.depth, wide.height].map((m) => Math.round(m * 1000)), [100, 170, 151]);
 
 const ultra = read('Wicked_Lasers@LaserCube_Ultra_7.5W@Beam_1');
@@ -83,7 +83,7 @@ check('its body, mm', [u.width, u.depth, u.height].map((m) => Math.round(m * 100
 check('its beam starts at the model origin', apertureOrigin(u), { x: 0, y: 0, z: 0 });
 const ultraWide = laserParams(read('Wicked_Lasers@LaserCube_Ultra_7.5W_Wide_Angle@Beam_1').fixtureType);
 check('the Ultra wide angle lens adds depth, mm', Math.round(ultraWide.depth * 1000), 225);
-check('and opens the Ultra to 166.5 degrees', [ultraWide.scanAngleH, ultraWide.divergence], [166.5, 4.5]);
+check('and opens the Ultra to 92.5 degrees', [ultraWide.scanAngleH, ultraWide.divergence], [92.5, 4.5]);
 check('the Ultra: 37 degrees, 4 mm, 1 mrad', [u.scanAngleH, Math.round(u.beamDiameter * 10) / 10, u.divergence], [37, 4, 1]);
 
 check(

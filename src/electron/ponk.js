@@ -62,6 +62,9 @@ import os from 'os';
 export const PONK_GROUP = '239.255.10.24';
 export const PONK_PORT = 5583;
 
+/** Socket receive buffer: four dense outputs are about 40 MB/s. */
+const RECV_BUFFER_BYTES = 32 * 1024 * 1024;
+
 export const HEADER_BYTES = 52;
 const MAGIC = 'PONK-UDP';
 const PROTOCOL_VERSION = 0;
@@ -358,6 +361,9 @@ class PonkReceiver {
       });
       socket.on('message', (msg, rinfo) => this.receive(msg, rinfo));
       socket.bind(this.port, () => {
+        // A dense material is over 100 datagrams a frame per output; the default
+        // buffer overflows and one lost chunk drops the whole frame.
+        socket.setRecvBufferSize(RECV_BUFFER_BYTES);
         const joined = [];
         Object.values(os.networkInterfaces()).flat()
           .filter((i) => i && i.family === 'IPv4')

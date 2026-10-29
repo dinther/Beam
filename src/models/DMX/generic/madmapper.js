@@ -279,22 +279,32 @@ export function componentsAttribute(profile, mode) {
 }
 
 /**
+ * The media colour a Custom component takes, by Beam's colour letter. Amber
+ * reads the media's yellow and UV its magenta; lime and indigo stay sliders.
+ */
+const COLOUR_SOURCES = {
+  R: 'R', G: 'G', B: 'B', W: 'W', C: 'C', M: 'M', Y: 'Y', A: 'Y', U: 'M',
+};
+
+/**
  * An island's components as MadMapper's `components` attribute.
  *
  * The same shape as `componentsAttribute`, but over an island that has already
  * folded its fine channels, so nothing has to be worked out a second time.
- * Every source is `Slider`: MadMapper's own movers are written that way, and
- * a slider is the one thing the user can always repoint at a colour if they
- * want the media to drive it.
+ * An 8-bit colour component takes its colour from the media (`COLOUR_SOURCES`);
+ * everything else is a `Slider`, as MadMapper writes its own movers.
  *
  * @param {Object} island from `fixtureIslands`
  * @returns {String}
  */
 function islandComponents(island) {
   const fields = [COMPONENTS_VERSION];
+  const light = island.kind === ISLAND_KINDS.LIGHT;
   island.names.forEach((name, index) => {
     const width = island.widths[index % island.pixelSize];
-    fields.push('Slider', fieldSafe(name || UNUSED_CHANNEL), width === 16 ? '16 Bits' : '8 Bits', '', '0');
+    const letter = island.components[index % island.pixelSize];
+    const source = (light && width === 8 && COLOUR_SOURCES[letter]) || 'Slider';
+    fields.push(source, fieldSafe(name || UNUSED_CHANNEL), width === 16 ? '16 Bits' : '8 Bits', '', '0');
   });
   return fields.join(FIELD);
 }
