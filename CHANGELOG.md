@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.0-alpha.25
+
+### Objects and structures
+
+- Created objects have a **Truss** generator (2, 3 or 4 chords, five profiles, straight or arc, cross members, square or round end plates), a **Drape** generator (straight or arc, drop, floor gap, fullness, split or single panels, open amount) and a **Barrier** generator (stage, steel, plastic, water, jersey, fence, belt, rope and handrail, straight or arc runs). Generated shapes have UVs in metres.
+- **Faces** per object: As model, Single sided or Inside out.
+- Structures scale per axis from the Placement size fields and the gizmo.
+- Structure members can be dragged into a new order.
+- The move and rotate gizmo works in **world or local** axes, chosen on the toolbar or by pressing T or R again with the gizmo shown.
+- Undo no longer leaves fixtures pointing at a structure or group that was exploded.
+
+### Patching
+
+- Lists show each fixture's first to last channel (13.123-132); Fixture settings shows **Ends at**.
+- A **continue** button starts a fixture on the channel after the patched fixture above it, and the highlighted fixtures below after that. Under a strict patch a refused address stops the run and names the fixture holding the channels.
+- A Pan or Tilt channel with no DMX address is set by hand from a Tilt field in Fixture settings, saved per fixture.
+- Lenses that no channel tells apart are drawn as one light.
+
+### GDTF Share
+
+- Login, refresh and log out are on an account line under the fixture list in Add to Scene, visible without a search.
+- The Share list is fetched again after 2 hours. Requests time out (30 s, downloads 120 s), and after a failure Beam waits 15 minutes before trying again.
+- About shows Powered by GDTF, with the GDTF logo linked to GDTF Share.
+
+### MadMapper and lasers
+
+- MadMapper export writes a colour grid as a Matrix only when it is RGB, RGBW or CMY; MadMapper 6.1.7 crashes on other combinations. Other light islands go out as named 8-bit components.
+- 8-bit colour components take their colour from the media; amber reads yellow and UV magenta.
+- The Ponk receiver uses a 32 MB socket buffer, so dense outputs no longer drop frames.
+- LaserCube Pro Wide Angle scans 80° and LaserCube Ultra Wide Angle 92.5°, as measured.
+
+### Other
+
+- The Studio view keeps the recording aspect when the editor view has a lens shift.
+- Lists ignore presses on their scrollbar and scroll a row highlighted from elsewhere into view.
+
 ## 0.1.0-alpha.24
 
 ### People and colours
