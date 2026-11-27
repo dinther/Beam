@@ -225,10 +225,10 @@ async function stream() {
     [0x40, 0x00, 0x20, 0x00, 0xff, 0x00, 0x00],
     [0xc0, 0x00, 0xe0, 0x00, 0x00, 0x80, 0x00],
   ];
-  // 3 samples over 100 microseconds of scan: 2 segments, so 20 kpps.
+  // 3 samples over 100 microseconds: 30 kpps.
   await send(channelMessage({ dictionary, samples, duration: 100 }));
   const svc = dac.serviceDac(1);
-  check('the rate came from the frame duration', svc.pointRate, 20000);
+  check('the rate came from the frame duration', svc.pointRate, 30000);
   check('and three points are buffered', svc.count, 3);
 
   // Play them out by hand and look at what the renderer is handed.

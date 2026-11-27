@@ -704,10 +704,12 @@ class IdnDac extends LaserDac {
     const count = Math.floor((end - offset) / size);
     if (count < 1) return;
 
-    // The producer's own timing, rather than a number we invent: a frame that
-    // says it lasts 20 ms and carries 600 samples was scanned at 30 kpps.
-    if (duration > 0 && count > 1) {
-      const rate = Math.round(((count - 1) * 1e6) / duration);
+    // The producer's own timing: the duration covers every sample in the chunk,
+    // so 600 samples in 20 ms is 30 kpps (MadMapper: 120 samples in 4 ms).
+    // Counting one sample fewer plays the stream slower than it arrives and the
+    // buffer overflows.
+    if (duration > 0) {
+      const rate = Math.round((count * 1e6) / duration);
       // Out of band means the duration was not what we think it is. Keeping the
       // rate we had beats pegging the clock to the end of its range, which is
       // how a misread field turns into a buffer that overflows for ever.
