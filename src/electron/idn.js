@@ -368,6 +368,8 @@ class IdnDac extends LaserDac {
     const next = new Map();
     wanted.slice(0, MAX_SERVICES).forEach(({ id, name }) => {
       const serviceId = Math.min(Math.max(Number(id) || SERVICE_ID, 1), 255);
+      // Lasers sharing a number share the service, named after the first.
+      if (next.has(serviceId)) return;
       const label = String(name || 'Beam').slice(0, SERVICE_NAME_BYTES - 1);
       const held = this.services.get(serviceId);
       const dac = held ? held.dac : this.makeService(serviceId, label);

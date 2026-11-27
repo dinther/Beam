@@ -162,6 +162,11 @@ async function discovery() {
   const before = dac.serviceDac(2);
   dac.setServices([{ id: 1, name: 'Beam high' }, { id: 2, name: 'Beam mid' }]);
   check('a rename keeps the stream', dac.serviceDac(2) === before, true);
+  // Two lasers given one number are one service, named after the first.
+  dac.setServices([{ id: 1, name: 'Beam high' }, { id: 1, name: 'Beam copy' }, { id: 2, name: 'Beam mid' }]);
+  check('a shared number is one service', dac.services.size, 2);
+  check('named after the first laser on it', dac.services.get(1).name, 'Beam high');
+  dac.setServices([{ id: 1, name: 'Beam high' }, { id: 2, name: 'Beam mid' }]);
 
   console.log('\n-- a ping is answered --');
   const ping = await ask(CMD.PING_REQUEST);

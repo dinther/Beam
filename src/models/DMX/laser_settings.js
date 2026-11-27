@@ -30,7 +30,7 @@ export const LASER_ATTRIBUTES = LASER_CHANNELS;
  * Every protocol a laser may be *stored* as, including withdrawn ones, so a
  * show naming one still loads and says what it was set to.
  */
-export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube', 'clips'];
+export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube', 'clips', 'thru'];
 
 /**
  * What the dropdown offers.
@@ -44,7 +44,7 @@ export const LASER_PROTOCOLS = ['ponk', 'idn', 'etherdream', 'lasercube', 'clips
  * machine, which is not a thing to offer in a list. Put it back here if that
  * ever changes; nothing else has to be rebuilt.
  */
-export const SELECTABLE_PROTOCOLS = ['clips', 'ponk', 'idn', 'etherdream'];
+export const SELECTABLE_PROTOCOLS = ['clips', 'ponk', 'idn', 'etherdream', 'thru'];
 
 /** What each protocol is called on screen. */
 export const PROTOCOL_LABELS = {
@@ -53,6 +53,7 @@ export const PROTOCOL_LABELS = {
   etherdream: 'Ether Dream',
   lasercube: 'LaserCube',
   clips: 'Standalone',
+  thru: 'Thru',
 };
 
 /**
@@ -60,6 +61,17 @@ export const PROTOCOL_LABELS = {
  * card: nothing is received, so it is never waiting for a stream.
  */
 export const CLIPS_PROTOCOL = 'clips';
+
+/**
+ * The protocol of a laser fed from another laser's input, as by an ILDA cable
+ * from its thru port. `source` names that laser as `laser:<uid>`. The points
+ * are the other laser's input; the output stage (flips, scale, position,
+ * colour) is this laser's own.
+ */
+export const THRU_PROTOCOL = 'thru';
+
+/** The `source` value that names a laser to take the input of. */
+export const THRU_PREFIX = 'laser:';
 
 /**
  * A laser's clip list: an array of clips, see `laser_clips.js`. Held per
@@ -77,6 +89,27 @@ class ClipListType extends ControlType {
 }
 
 /**
+ * An IDN service number, 1-255, or null for the next one free on the laser's
+ * address. Lasers given the same number draw the same stream.
+ */
+class ServiceType extends ControlType {
+  // eslint-disable-next-line class-methods-use-this
+  initial() { return null; }
+
+  // eslint-disable-next-line class-methods-use-this
+  coerce(value) {
+    const n = Math.round(Number(value));
+    return Number.isFinite(n) && n >= 1 && n <= 255 ? n : null;
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  range() { return { min: 1, max: 255 }; }
+
+  // eslint-disable-next-line class-methods-use-this
+  fromLevel() { return null; }
+}
+
+/**
  * How the laser is fed. None of these is addressable, and that is the point:
  * they describe the rig, not the show.
  *
@@ -85,8 +118,8 @@ class ClipListType extends ControlType {
  * machine's addresses it lives at, which is what decides how many lasers a
  * protocol can carry: Ether Dream and LaserCube name a device only by its
  * address, so one laser each, while IDN offers a named service per laser at one
- * address. `source` holds the chosen stream, and nothing else -- a DAC stream
- * has no number a console could name it by.
+ * address. `source` holds the chosen Ponk stream, or for Thru the laser whose input
+ * this one takes -- neither has a number a console could name it by.
  *
  * @constant {Array}
  */
@@ -95,6 +128,7 @@ const FEED_DEFS = [
     options: LASER_PROTOCOLS, initial: 'ponk', labels: PROTOCOL_LABELS,
   }), { addressable: false }),
   new ControlDef('address', 'Address', new TextType(), { addressable: false }),
+  new ControlDef('service', 'Service', new ServiceType(), { addressable: false, fixable: false }),
   new ControlDef('source', 'Source', new ChoiceType({ source: 'dacStreams' }), {
     addressable: false, fixable: false,
   }),

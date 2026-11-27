@@ -262,6 +262,17 @@
               :options="addressOptions"
               @input="pickAddress"
             />
+            <!-- IDN: which service of the unit this laser is. Lasers given
+                 the same number draw the same stream. -->
+            <uk-num-input
+              v-if="usesService"
+              :model-value="serviceNumber"
+              style="width: 70px"
+              label="Service"
+              :min="1"
+              :max="255"
+              @update:model-value="writeService"
+            />
           </uk-flex>
           <uk-flex
             v-if="usesStream"
@@ -271,7 +282,7 @@
             <uk-select-input
               :model-value="sourceIndex"
               style="flex: 1"
-              label="Stream"
+              :label="sourceLabel"
               :options="sourceOptions"
               @input="pickSource"
             />
@@ -734,7 +745,9 @@ import { GENERIC_KINDS } from '@/models/DMX/generic/kinds';
 import EventBus from '@/plugins/eventbus';
 import LaserStream from '@/plugins/laser_stream';
 import Laser from '@/plugins/visualizer/laser';
-import { SELECTABLE_PROTOCOLS, PROTOCOL_LABELS, CLIPS_PROTOCOL } from '@/models/DMX/laser_settings';
+import {
+  SELECTABLE_PROTOCOLS, PROTOCOL_LABELS, CLIPS_PROTOCOL, THRU_PROTOCOL,
+} from '@/models/DMX/laser_settings';
 import { TEST_PATTERN_IDS, TEST_PATTERN_LABELS, selectedClip } from '@/models/DMX/laser_clips';
 import { cardFor } from '@/plugins/visualizer/laser_cards';
 import { SHUTTER_MODE_ORDER, SHUTTER_MODE_LABELS } from '@/plugins/visualizer/shutter';
@@ -1219,9 +1232,26 @@ export default {
     usesAddress() {
       return this.isLaser && ADDRESSED.includes(this.protocol);
     },
-    /** Only Ponk has several streams arriving at once to choose between. */
+    /**
+     * Ponk has several streams arriving at once to choose between; Thru has
+     * the other lasers to take the input of.
+     */
     usesStream() {
-      return this.isLaser && this.protocol === 'ponk';
+      return this.isLaser && (this.protocol === 'ponk' || this.protocol === THRU_PROTOCOL);
+    },
+    /** IDN names a laser by its service on the unit. */
+    usesService() {
+      return this.isLaser && this.protocol === 'idn';
+    },
+    /** The service number set by hand, or the one the laser was given. */
+    serviceNumber() {
+      void this.streamTick; // eslint-disable-line no-void
+      const set = Number(this.read('service')) || 0;
+      if (set) return set;
+      return (Laser.serviceFor && Laser.serviceFor(this.fixture)) || 1;
+    },
+    sourceLabel() {
+      return this.protocol === THRU_PROTOCOL ? 'From laser' : 'Stream';
     },
     /** A laser playing its own clip list. */
     usesClips() {
@@ -1310,6 +1340,7 @@ export default {
     laserSources() {
       // Read so a tick re-evaluates this; the stream list is not reactive.
       void this.streamTick; // eslint-disable-line no-void
+      if (this.protocol === THRU_PROTOCOL) return this.thruSources;
       const list = [
         PONK_AUTO,
         ...LaserStream.ponkStreams().map((s) => ({
@@ -1325,9 +1356,37 @@ export default {
       return list;
     },
     /**
-     * What this laser's input is actually doing -- which is the question a
-     * "scan" button would have been pressed to ask, answered without one.
+     * The lasers this one may take the input of, and the one it is set to if
+     * that is no longer in the show, marked.
      */
+    thruSources() {
+      const list = [
+        { value: null, label: '— choose a laser —' },
+        ...(Laser.thruChoices ? Laser.thruChoices(this.fixture) : []),
+      ];
+      const bound = this.device ? this.device.value('source') : null;
+      if (typeof bound === 'string' && bound.startsWith('laser:')
+        && !list.some((source) => source.value === bound)) {
+        list.push({ value: bound, label: 'A laser no longer in the show' });
+      }
+      return list;
+    },
+    /**
+     * The input status, said as Thru from the laser it comes from when it
+     * does.
+     */
+    inputStatus() {
+      void this.streamTick; // eslint-disable-line no-void
+      if (!this.isLaser || !this.fixture || !Laser.inputStateFor) return '';
+      const state = Laser.inputStateFor(this.fixture);
+      if (state && state.protocol === THRU_PROTOCOL) {
+        return this.read('source')
+          ? 'No input: the laser named is fed nothing, is hidden, or takes its input from this one.'
+          : 'Choose the laser to take the input of.';
+      }
+      const base = this.inputStatusOwn;
+      return state && state.via ? `Thru from "${state.via}". ${base}` : base;
+    },
     /**
      * What this laser's input is doing -- which is the question a "scan"
      * button would have been pressed to ask, answered without one.
@@ -1336,7 +1395,7 @@ export default {
      * protocol alone would have every laser on a protocol claim the first live
      * stream on it.
      */
-    inputStatus() {
+    inputStatusOwn() {
       void this.streamTick; // eslint-disable-line no-void
       if (!this.isLaser || !this.fixture || !Laser.inputStateFor) return '';
       const state = Laser.inputStateFor(this.fixture);
@@ -1721,7 +1780,8 @@ export default {
       const index = Number(pick) - (this.isMixed('source') ? 1 : 0);
       if (index < 0) return;
       if (this.isLaser) {
-        // Index 0 is the first live stream (null); otherwise the chosen one.
+        // Index 0 is the first live stream, or for Thru no laser (null);
+        // otherwise the chosen one.
         this.writeDevice('source', (this.laserSources[index] || {}).value || null);
         return;
       }
@@ -1850,13 +1910,25 @@ export default {
       this.writeDevice('flash', true);
       this.writeDevice('flash', false);
     },
+    /**
+     * Sets the laser's IDN service number. Lasers on one number share a
+     * stream, as two projectors on one ILDA cable would.
+     *
+     * @public
+     * @param {Number} value 1-255
+     */
+    writeService(value) {
+      const n = Math.round(Number(value));
+      if (!Number.isFinite(n) || n < 1 || n > 255) return;
+      this.writeDevice('service', n);
+    },
     pickProtocol(index) {
       const protocol = this.protocolChoices[index];
       if (!protocol || protocol === this.protocol) return;
       this.writeDevice('protocol', protocol);
-      // A stream belongs to Ponk, so leaving one bound while the laser is fed
-      // by a DAC would be a setting that says something untrue.
-      if (protocol !== 'ponk' && this.read('source')) this.writeDevice('source', null);
+      // A source is a Ponk stream or, for Thru, a laser: neither means
+      // anything under another protocol.
+      if (this.read('source')) this.writeDevice('source', null);
     },
     /**
      * Sets the test pattern, which overrides whatever the laser is fed.

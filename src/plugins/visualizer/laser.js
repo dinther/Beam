@@ -2,6 +2,7 @@
 // A streamed point's x/y is a signed 16-bit galvo value carried as its bit
 // pattern; sign-extending it is the subject matter, not an accident.
 import * as THREE from 'three';
+import { THRU_PROTOCOL, THRU_PREFIX } from '@/models/DMX/laser_settings';
 import SceneManager from './scene_manager';
 import SceneEnv from './scene_env';
 import { hazeShaderPrelude, hazeUniforms } from './haze_noise';
@@ -677,11 +678,10 @@ class Laser {
    * something rather than staying dark.
    *
    * @param {Object} settings the placement's LaserSettings, or null
-   * @returns {Object|null} `{ protocol, service, address }`
+   * @returns {Object|null} `{ protocol, service, address }`, and `via` the
+   *   laser whose input it is when this one is fed Thru
    */
   resolveSource(settings) {
-    const protocol = (settings && settings.value('protocol')) || 'ponk';
-    const address = (settings && settings.value('address')) || this._address || null;
     // A test pattern overrides whatever the laser is fed, as a projector's
     // service test does; then the Mode channel; then the Protocol.
     const test = settings ? settings.testPattern : null;
@@ -693,7 +693,37 @@ class Laser {
     const mode = (settings && settings.value('mode')) || 'input';
     if (mode === 'off') return null;
     // The standalone list: nothing to receive.
-    if (mode === 'standalone' || protocol === 'clips') {
+    if (mode === 'standalone') {
+      return {
+        protocol: 'clips', clip: settings ? settings.currentClip : null, service: null, address: null,
+      };
+    }
+    return this.resolveFeed(settings, new Set([this]));
+  }
+
+  /**
+   * What this laser's input carries, by its Protocol alone: no test pattern
+   * and no Mode channel, which belong to the laser and not to its input.
+   *
+   * Thru takes the input of the laser `source` names, as an ILDA cable from
+   * that laser's thru port would; a chain is followed, and a loop draws
+   * nothing.
+   *
+   * @param {Object} settings this laser's LaserSettings, or null
+   * @param {Set} seen the lasers already passed through on the way here
+   * @returns {Object|null}
+   */
+  resolveFeed(settings, seen) {
+    const protocol = (settings && settings.value('protocol')) || 'ponk';
+    const address = (settings && settings.value('address')) || this._address || null;
+    if (protocol === THRU_PROTOCOL) {
+      const upstream = Laser.thruSourceOf(settings);
+      if (!upstream || seen.has(upstream) || upstream._hidden) return null;
+      seen.add(upstream);
+      const fed = upstream.resolveFeed(upstream._settingsAt(), seen);
+      return fed ? { ...fed, via: fed.via || upstream } : null;
+    }
+    if (protocol === 'clips') {
       return {
         protocol: 'clips', clip: settings ? settings.currentClip : null, service: null, address: null,
       };
@@ -757,7 +787,9 @@ class Laser {
     // the scanner drew. A DAC stream's travel is guessed from the distance.
     let explicitBlanking = false;
     if (source && source.protocol === 'clips') {
-      frame = clipFrame(source.clip, this._clipTime || 0, Number(params.maxPointRate) || 0);
+      // A clip taken Thru plays on the clock of the laser playing it.
+      const clock = (source.via || this)._clipTime || 0;
+      frame = clipFrame(source.clip, clock, Number(params.maxPointRate) || 0);
       explicitBlanking = true;
     } else if (source && source.protocol === 'ponk') {
       const ponk = LaserStream.ponkFrame(source.service);
@@ -1312,23 +1344,41 @@ class Laser {
    */
   static publishInputs() {
     const list = [];
-    /** Service numbering restarts per IDN unit, so each unit counts its own. */
-    const perUnit = new Map();
+    // Service numbers are per IDN unit. Those set by hand are taken first; a
+    // laser without one gets the lowest number still free on its unit, which
+    // is 1, 2, 3 in show order when none is set. Lasers sharing a number draw
+    // the same stream.
+    const unitOf = (address) => `idn@${address || 'default'}`;
+    const used = new Map();
+    const usedOn = (unit) => {
+      if (!used.has(unit)) used.set(unit, new Set());
+      return used.get(unit);
+    };
+    [...instances].forEach((laser) => {
+      const settings = laser._settingsAt();
+      if (laser._hidden || !settings || settings.value('protocol') !== 'idn') return;
+      const set = Number(settings.value('service')) || 0;
+      if (set) usedOn(unitOf(settings.value('address') || null)).add(set);
+    });
     [...instances].forEach((laser, i) => {
       const handle = laser.fixtureHandle;
       const settings = laser._settingsAt();
       const protocol = (settings && settings.value('protocol')) || 'ponk';
-      // A hidden laser offers no input; a clip list plays here, with no
-      // device for the main process to run.
-      if (laser._hidden || protocol === 'clips') return;
+      // A hidden laser offers no input; a clip list plays here, and Thru
+      // takes another laser's, with no device for the main process to run.
+      if (laser._hidden || protocol === 'clips' || protocol === THRU_PROTOCOL) return;
       const address = (settings && settings.value('address')) || null;
       const name = (handle && handle.name) || `Laser ${i + 1}`;
       let service = null;
       if (protocol === 'idn') {
-        const unit = `idn@${address || 'default'}`;
-        const at = (perUnit.get(unit) || 0) + 1;
-        perUnit.set(unit, at);
-        service = at > MAX_SERVICES ? -1 : at;
+        const taken = usedOn(unitOf(address));
+        let id = Number(settings.value('service')) || 0;
+        if (!id) {
+          id = 1;
+          while (taken.has(id)) id += 1;
+          taken.add(id);
+        }
+        service = taken.size > MAX_SERVICES || id > 255 ? -1 : id;
       }
       laser._serviceId = service === null ? 1 : service;
       // Written only when the asked-for address changes. The hub answers with
@@ -1400,6 +1450,9 @@ class Laser {
     const settings = laser._settingsAt();
     const source = laser.resolveSource(settings);
     const error = laser.inputError();
+    // Thru: the laser whose input this is, by name.
+    const via = source && source.via
+      ? (source.via.fixtureHandle && source.via.fixtureHandle.name) || 'another laser' : null;
     const fed = (settings && settings.value('protocol')) || 'ponk';
     const mode = (settings && settings.value('mode')) || 'input';
     if (!source) {
@@ -1413,13 +1466,15 @@ class Laser {
         points: 0,
         name: null,
         error,
+        via,
       };
     }
     if (source.protocol === 'clips') {
       const { clip } = source;
       const status = clipStatus(clip);
       const params = laser._params || {};
-      const frame = clipFrame(clip, laser._clipTime || 0, Number(params.maxPointRate) || 0);
+      const clock = (source.via || laser)._clipTime || 0;
+      const frame = clipFrame(clip, clock, Number(params.maxPointRate) || 0);
       return {
         protocol: 'clips',
         address: null,
@@ -1436,6 +1491,7 @@ class Laser {
         fed,
         mode,
         error: status.error || error,
+        via,
       };
     }
     if (source.protocol === 'ponk') {
@@ -1451,6 +1507,7 @@ class Laser {
         points,
         name: frame ? frame.name : null,
         error,
+        via,
       };
     }
     // A DAC stream is its own device: protocol, address and -- for IDN -- the
@@ -1468,6 +1525,7 @@ class Laser {
       points: row ? row.held : 0,
       name: null,
       error,
+      via,
     };
   }
 
@@ -1525,6 +1583,57 @@ class Laser {
     return true;
   }
 
+  /**
+   * The IDN service number a laser is published under, set by hand or given.
+   *
+   * @static
+   * @param {Object} fixture
+   * @returns {Number|null}
+   */
+  static serviceFor(fixture) {
+    const laser = Laser.instanceFor(fixture);
+    return laser && laser._serviceId > 0 ? laser._serviceId : null;
+  }
+
+  /**
+   * The laser a Thru laser takes its input from: the one its `source` names.
+   *
+   * @static
+   * @param {Object} settings the Thru laser's LaserSettings
+   * @returns {Object|null} that laser's renderer instance
+   */
+  static thruSourceOf(settings) {
+    const value = settings ? settings.value('source') : null;
+    if (typeof value !== 'string' || !value.startsWith(THRU_PREFIX)) return null;
+    const uid = value.slice(THRU_PREFIX.length);
+    return [...instances].find((l) => l.fixtureHandle && l.fixtureHandle.uid === uid) || null;
+  }
+
+  /**
+   * The lasers another may take its input from: every one in the show but
+   * itself, by name.
+   *
+   * @static
+   * @param {Object} fixture the laser choosing
+   * @returns {Array} each `{ value, label }`, value `laser:<uid>`
+   */
+  static thruChoices(fixture) {
+    const self = Laser.instanceFor(fixture);
+    return [...instances]
+      .filter((l) => l !== self && l.fixtureHandle && l.fixtureHandle.uid)
+      .map((l, i) => ({
+        value: `${THRU_PREFIX}${l.fixtureHandle.uid}`,
+        label: l.fixtureHandle.name || `Laser ${i + 1}`,
+      }));
+  }
+
+  /**
+   * The renderer instance a fixture handle belongs to.
+   *
+   * @static
+   * @param {Object} fixture
+   * @returns {Object|null}
+   */
   static instanceFor(fixture) {
     if (!fixture) return null;
     return [...instances].find((l) => l.fixtureHandle === fixture
