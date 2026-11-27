@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.26
+
+### Lasers
+
+- **Thru** protocol: a laser takes the input of another laser in the scene, as from an ILDA thru port, and applies its own output stage (flips, scale, position, colour).
+- IDN lasers have a **Service** number (1-255), set by hand in Fixture settings. Lasers given the same number draw the same stream; left empty, a laser takes the next free number on its address.
+- The IDN rate read from a chunk's duration counts every sample: 120 samples in 4 ms is 30 kpps.
+
 ## 0.1.0-alpha.25
 
 ### Objects and structures
